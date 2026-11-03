@@ -121,13 +121,30 @@ body {
   box-shadow: 0 14px 28px rgba(12, 122, 186, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 .float-ball:active { cursor: grabbing; transform: scale(0.97); }
-/* 球内显示当前目标（单模型名截断 / @分组名 / —），不再显示固定文案 */
+/* 球内显示"接活平台"的头像或首字母牌（G6）：不再有文字，容器撑满球心并裁掉溢出，
+   保证图片/字母都不会撑破球体（F-06 的验收口径是 scrollWidth <= clientWidth）。 */
 .fb-target {
-  max-width: 44px;
-  font-size: 10px;
-  line-height: 1.15;
-  text-align: center;
-  word-break: break-all;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+/* 头像铺满球心：object-fit 防拉伸，球本身的渐变留作无图时的底 */
+.fb-target img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+.fb-initial {
+  text-transform: uppercase;
+  text-shadow: 0 1px 2px rgba(6, 55, 84, 0.35);
 }
 /* 球的呼吸光晕，暗示"有实时统计在跳" */
 .fb-dot {

@@ -73,13 +73,34 @@ function modelsOf(groupId) {
   const current = ensureState();
   return (current && current.models[groupId]) || [];
 }
+// 「接活平台」= effectiveTarget 所属群对应的平台（不是当前打开的群）。
+// 为什么要在渲染出口算：球上的头像代表"这次请求会发给谁"，目标切到别的群时头像必须跟着走；
+// 在 float.js 里重新推导一遍群列表会与这里形成第二个真相源。
+function activePlatformInfo(current) {
+  const target = current && current.effectiveTarget;
+  if (!target) return null;
+  if (target.type === 'model' && target.platformId) {
+    const targetGroup = (current.groups || []).filter(function (group) {
+      return group.id === target.platformId;
+    })[0];
+    return platformOf(targetGroup);
+  }
+  // 分组跨平台，没有唯一平台：给一个中性名字，首字母牌显示「好」
+  if (target.type === 'group') return { avatar: '', name: '好友分组' };
+  return null;
+}
+
 function platformOf(group) {
   const current = ensureState();
   if (!group || !current) return null;
-  const driver = current.drivers.filter(function (item) { return item.id === group.driverId; })[0];
+  // GET /_team/groups 的驱动字段名是 driver（契约 02 §3.1：写入与读出同名）；
+  // 旧代码只读 driverId → 平台名恒空、球内字母牌回落成 "?"。两处都认，避免再被字段名绊一次。
+  const driverKey = group.driverId || group.driver;
+  const driver = current.drivers.filter(function (item) { return item.id === driverKey; })[0];
   return {
     avatar: group.avatar || (driver ? driver.avatar : '[G]'),
-    name: driver ? String(driver.name).split(' (')[0] : group.driverId
+    // 驱动名形如「OpenAI 兼容（配置型）」：去掉全角/半角括号里的补充说明，只留主名
+    name: driver ? String(driver.name).split(/[（(]/)[0].trim() : (driverKey || '')
   };
 }
 // 目标文案：分组 → @分组名；单模型 → 模型名（去 global: 前缀）；空 → —
@@ -176,7 +197,7 @@ function renderApp(nextState, options) {
   if (chatStream) chatStream.scrollTop = keptScrollTop == null ? chatStream.scrollHeight : keptScrollTop;
 
   // 悬浮窗（球/标题/目标/pill/统计）也由同一个渲染出口派生，不再有"手动补丁"函数
-  renderFloat(current);
+  renderFloat(current, activePlatformInfo(current));
   renderTabs(current);
 }
 
@@ -305,7 +326,6 @@ function initViewEvents() {
       if (messageInput) { messageInput.focus(); openAtPop(); }
     }
     else if (buttonId === 'btnSend') sendMessage();
-    else if (buttonId === 'btnMe') switchView('profile');
     else if (buttonId === 'btnSubmitGroup') submitNewGroup();
     else if (buttonId === 'btnExport') exportDatabase();
     else if (buttonId === 'btnImport') importDatabase();

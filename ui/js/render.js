@@ -66,6 +66,17 @@ function requestRow(row, index, isExpanded, platform) {
   </div>`;
 }
 
+// 球内目标标记（G6）：有 URL 头像就只显示图、不显示任何文字；没有头像就用平台首字母圆牌。
+// 为什么不另写一套首字母规则：renderAvatar 已经封装了「URL 判定 + 首字母 + 转义」，
+// 复制一份必然在"空名/小写/非 URL"这些边界上漂移。
+function renderFloatTargetMarkup(platform) {
+  const avatarText = platform && platform.avatar;
+  const platformName = platform && platform.name;
+  const renderedAvatar = renderAvatar(avatarText, platformName);
+  if (renderedAvatar.indexOf('<img') === 0) return renderedAvatar;
+  return '<span class="fb-initial">' + renderedAvatar + '</span>';
+}
+
 // 群列表时间：当天 HH:mm、昨天显示「昨天」、更早 MM-DD；lastUpdated 缺失/非法 → 空
 function formatGroupTime(isoText) {
   if (!isoText) return '';
@@ -121,7 +132,6 @@ function renderGroupList(groups, currentGroupId, filterText) {
       <input class="group-search" id="groupSearch" type="search" autocomplete="off"
              placeholder="🔍 搜索群聊 (账号)" value="${escapeHtml(filterText || '')}">
       <span class="list-count">${groups.length} 个群 · 每个群 = 一个平台账号</span>
-      <button class="btn-me" id="btnMe" type="button">👤 我</button>
       <button class="btn-add" id="btnAddGroup" type="button">＋ 加群</button>
     </div>
     <ul class="group-list" id="groupList">${itemsHtml}</ul>

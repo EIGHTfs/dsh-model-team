@@ -239,11 +239,6 @@ function initFloatControls() {
 // 悬浮球/面板显示的当前目标：单模型 → 模型名（过长截断），分组 → @分组名，未设置 → —
 const BALL_TARGET_MAX_CHARS = 9;
 
-function formatBallTarget(label) {
-  if (!label || label === '—') return '—';
-  if (label.length <= BALL_TARGET_MAX_CHARS) return label;
-  return label.slice(0, BALL_TARGET_MAX_CHARS) + '…';
-}
 
 // 悬浮窗渲染（契约 §4.4）：所有显示值都从 state 派生，没有"补丁式"单独刷新函数。
 // 由 renderApp() 调用——同一个渲染出口，事件广播后自动重放。
@@ -298,13 +293,24 @@ function formatSessionLabel(current) {
   return title ? title + '（' + shortId + '）' : shortId;
 }
 
-function renderFloat(current) {
+function renderFloat(current, activePlatform) {
   applyStoredAnchorOnce();
   if (!current) return;
   const label = targetLabel();
 
+  // 球内显示"接活平台"的头像/首字母（G6）：不再显示模型名文字，溢出问题从设计上消失。
+  // data-fb-target 是 docs/03 §2.1 的 DOM 钩子，必须保留这个容器与属性名。
   const ballTarget = findElement('#floatBall [data-fb-target]');
-  if (ballTarget) ballTarget.textContent = formatBallTarget(label);
+  if (ballTarget) ballTarget.innerHTML = renderFloatTargetMarkup(activePlatform);
+
+  // 图不承载语义：title / aria-label 兜住"目标名 · 平台名"，否则读屏只剩一个装饰圆
+  const ball = findElement('#floatBall');
+  if (ball) {
+    const platformName = activePlatform && activePlatform.name ? String(activePlatform.name) : '';
+    const accessibleLabel = platformName ? label + ' · ' + platformName : label;
+    ball.setAttribute('title', accessibleLabel);
+    ball.setAttribute('aria-label', accessibleLabel);
+  }
   setFloatText('#fpModel', '模型 ' + label);
   setFloatText('#floatPill .pill-model', '( ' + label + ' )');
 
