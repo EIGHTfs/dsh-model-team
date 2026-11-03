@@ -67,7 +67,7 @@ export function registerAdapterIdempotent(llmService, providerIds, adapter, { lo
 // 挂到宿主 webServer 后同源可访问、不新增监听面、路由随插件 fiber 一起注销。
 // apply 运行时刻 webServer 的 fiber 可能尚未创建，必须走 ctx.inject（不能用 ctx.get）。
 // 失败只 warn 一次并跳过：绝不让插件 activation 失败（adapter 注册是另一条独立路径）。
-async function registerPanelRoutes({ ctx, dataRoot, logger, options }) {
+async function registerPanelRoutes({ ctx, dataRoot, logger, options, providerIds }) {
   try {
     if (typeof ctx?.inject !== 'function') {
       logger.warn(`ctx.inject 不可用，${API_PREFIX} 路由未注册（面板数据将不可用）`);
@@ -112,6 +112,8 @@ async function registerPanelRoutes({ ctx, dataRoot, logger, options }) {
             sessionSource,
             sessionLookup,
             getSessionService,
+            // GET /_team/meta 要报"注册时实际收到的路由名"：同一个数组往下传，网关不再自己算
+            providerIds,
           });
           logger.info(`已挂载网关路由：${TEAM_ROUTE_PREFIX}（外部 /v1 ${externalOpenAiCompat ? '已开启' : '未开启'}）`);
           return () => disposeGatewayRoutes(disposers, { logger });
@@ -131,8 +133,12 @@ export async function apply(ctx, options = {}) {
   const dataRoot = options.dataRoot ?? getDataRoot();
   let llmModule;
 
+  // 路由名数组只在这里算一次：适配器注册与 /_team/meta 上报必须用同一个数组，
+  // 否则部署方自定义 providerIds 后，客户端拿到的判定依据会和实际注册的对不上。
+  const providerIds = options.providerIds ?? [DEFAULT_PROVIDER_ID];
+
   // 先挂面板路由：即使后面 llm 模块加载失败，前端仍能读到 /_team 数据（数据源与模型转发是两条路径）
-  await registerPanelRoutes({ ctx, dataRoot, logger, options });
+  await registerPanelRoutes({ ctx, dataRoot, logger, options, providerIds });
 
   try {
     const loaded = await loadLlmModule({ llmModule: options.llmModule, environment: options.environment }).catch((loadError) => {
@@ -174,7 +180,6 @@ export async function apply(ctx, options = {}) {
       ...(options.deps ?? {}),
     },
   });
-  const providerIds = options.providerIds ?? [DEFAULT_PROVIDER_ID];
   const adapterInstance = new ModelTimAdapter();
 
   registerAdapterIdempotent(ctx?.llm, providerIds, adapterInstance, { logger });

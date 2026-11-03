@@ -8,6 +8,7 @@ import { createClock } from './clock.js';
 import { defaultLogger } from './logger.js';
 import { defaultJsonlSessionResolver } from './session-store.js';
 import { createEmptySessionLookup, createEmptySessionSource } from './session-current.js';
+import { DEFAULT_PROVIDER_ID } from '../plugin/adapter.js';
 
 // 归一化请求依赖：调用方给了就用，没给就落到同一批缺省实现
 export function resolveGatewayDeps(options = {}) {
@@ -25,5 +26,9 @@ export function resolveGatewayDeps(options = {}) {
     sessionLookup: options.sessionLookup ?? createEmptySessionLookup(),
     // 宿主 sessions 服务（惰性 getter）：目标回落的父链要靠它；缺省永远取不到
     getSessionService: options.getSessionService ?? (() => null),
+    // 适配器注册的路由名：插件入口把 ctx.llm.registerAdapter 实际收到的那个数组原样注入，
+    // 是 GET /_team/meta 的唯一来源（客户端据此判 INV-14，不能各算一份）。
+    // 独立网关没有注册动作，回落成与注册缺省一致的单路由名。
+    providerIds: options.providerIds ?? [DEFAULT_PROVIDER_ID],
   };
 }

@@ -15,7 +15,7 @@ import {
   writeSessionTarget,
 } from './session-store.js';
 import { buildGlobalStats, readRequestRows, toPublicRequestRow } from './stats.js';
-import { buildModelListResponse, fetchGroupModels, handleChatCompletions } from './router.js';
+import { buildModelListResponse, fetchGroupModels, handleChatCompletions, resolveVirtualModelId } from './router.js';
 import {
   deleteFriendGroup,
   findFriendGroup,
@@ -98,6 +98,20 @@ function handleModelListRoute(context) {
 
 function handleDriversRoute() {
   return { status: HTTP_OK, body: listDrivers() };
+}
+
+// GET /_team/meta：客户端启动取一次，拿 INV-14 的判定依据（契约 02 §3.8）。
+// 两个值都必须是"实际生效"的那一份：virtualModel 复用 /v1/models 的同一个解析函数，
+// providerIds 是注册适配器时真正交给 ctx.llm 的数组（经 deps 注入），网关不另算一份。
+// 无副作用、无凭证、不读 session：部署方改配置后，客户端不必重新打包就能跟上。
+function handleMetaRoute(context) {
+  return {
+    status: HTTP_OK,
+    body: {
+      virtualModel: resolveVirtualModelId(context.config),
+      providerIds: context.providerIds,
+    },
+  };
 }
 
 // POST /_team/models/probe：探测可用模型（只在内存里跑一次，绝不落盘）
@@ -404,6 +418,8 @@ export const ROUTES = Object.freeze([
   { method: 'GET', pattern: `${API_PREFIX}/stats/global`, handler: handleGlobalStatsRoute },
   { method: 'GET', pattern: `${API_PREFIX}/export`, handler: handleExportRoute },
   { method: 'POST', pattern: `${API_PREFIX}/import`, handler: handleImportRoute },
+  // 客户端元信息（契约 02 §2.9 #26）：只读、无副作用，客户端启动取一次
+  { method: 'GET', pattern: `${API_PREFIX}/meta`, handler: handleMetaRoute },
 ].map((route) => ({ ...route, segments: route.pattern.split('/').filter((segment) => segment.length > 0) })));
 
 // 单段匹配：`:` 开头为参数占位，其余按字面比较

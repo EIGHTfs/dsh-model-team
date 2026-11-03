@@ -42,24 +42,85 @@ function readSessionTitle(props, sessionId) {
 }
 
 // INV-14：判定"当前 session 是否选中本插件的虚拟模型"。
-// 读的是宿主运行时 projection（modelSelection），取值形如 { next, lastUsed }，
-// 每一项是 { provider, model, reasoningEffort }；两个字段都要比：
-//   provider = 本插件 llm 适配器注册的路由名，model = config.virtualModel（缺省 dsh-model-team）。
-// 返回三态：'ours' | 'other' | 'unknown'
-//   unknown = projection 还没有值（宿主未挂载 / 首帧未到）→ 按不显示处理，且不抛错
-function resolveModelSelectionState(useProjection) {
-  let selection;
-  try {
-    selection = useProjection(MODEL_SELECTION_PROJECTION_KEY);
-  } catch (error) {
-    warnOnce('useProjection(modelSelection)', error);
-    return 'unknown';
+// 两个比对值都只能来自服务端 GET /_team/meta（契约 02 §3.8）：部署方可以改 config.virtualModel
+// 与 options.providerIds，客户端写死任一侧，都会让球在该显示的部署上永远不显示。
+// 判定收敛成一个纯函数（不读全局、不产生副作用），各种状态才能在单测里直接跑：
+//   selection           宿主 projection(modelSelection) 的当前值，形如 { next, lastUsed }
+//   meta                { virtualModel, providerIds } | { failed: true }（拉取失败）| null（还没到）
+//   projectionAvailable 宿主是否提供 useProjection（false = 连 selection 都取不到，判不了）
+// 返回 'ours' | 'other' | 'unknown' | 'degraded'
+// 顺序即优先级：判不了（无 projection / meta 失败）先降级；其次 unknown（先不显示）；最后才比对我们。
+function decideDock(input) {
+  var options = input || {};
+  if (options.projectionAvailable === false) return "degraded";
+  var selection = options.selection;
+  var current = selection && (selection.next || selection.lastUsed);
+  if (!current) return "unknown";
+  var meta = options.meta;
+  if (!meta) return "unknown";                  // 还没到：先不显示，到达后由 recomputeDockDecision 重算
+  if (meta.failed === true) return "degraded";  // 拉取失败（不是"还没到"）：判不了 → 常显 + 一次性告警
+  var providerIds = Array.isArray(meta.providerIds) ? meta.providerIds : [];
+  var isOurs = providerIds.indexOf(current.provider) >= 0 && current.model === meta.virtualModel;
+  return isOurs ? "ours" : "other";
+}
+
+// meta 是异步拉的：到达时 React 不会因为 selection 没变而重渲染，所以显隐必须由这里主动重算下发。
+// 只在"到达 / 失败"两个事件各触发一次，不做定时轮询（契约 02 §3.8：不重试、不轮询）。
+var teamMetaState = { status: "loading", value: null };
+var teamMetaRequestStarted = false;
+// 桥最近一次的输入：重算要用同一份 selection，不能指望 React 再渲染一次
+var latestDockInputs = { selection: undefined, projectionAvailable: true, hasBridge: false };
+
+// 把 meta 状态归一成 decideDock 的入参（ready → 真值 / failed → 失败标记 / loading → null）
+function currentMetaInput() {
+  if (teamMetaState.status === "ready") return teamMetaState.value;
+  if (teamMetaState.status === "failed") return { failed: true };
+  return null;
+}
+
+// 桥每帧调用：记下最新输入并给出判定（纯计算，显隐由调用方的 effect 落地）
+function rememberDockInputs(selection, projectionAvailable) {
+  latestDockInputs = {
+    selection: selection,
+    projectionAvailable: projectionAvailable !== false,
+    hasBridge: true
+  };
+  return decideDock({
+    selection: latestDockInputs.selection,
+    meta: currentMetaInput(),
+    projectionAvailable: latestDockInputs.projectionAvailable
+  });
+}
+
+// 重算入口：meta 到达 / 失败时调一次。桥还没渲染过就没有输入可算，等它首帧自己算。
+function recomputeDockDecision() {
+  if (!latestDockInputs.hasBridge) return;
+  applyDockDecision(rememberDockInputs(latestDockInputs.selection, latestDockInputs.projectionAvailable));
+}
+
+// 启动取一次 meta（契约 02 §2.9）。失败或字段不全一律按"拉取失败"降级：
+// apiJson 把非 2xx 与网络异常都吞成 null，所以这里只能靠"字段齐不齐"判成败。
+function loadTeamMetaOnce() {
+  if (teamMetaRequestStarted) return;
+  teamMetaRequestStarted = true;
+  if (typeof api === "undefined" || !api || typeof api.getMeta !== "function") {
+    teamMetaState = { status: "failed", value: null };
+    warnOnce("INV-14 判定降级：api.getMeta 不可用", null);
+    recomputeDockDecision();
+    return;
   }
-  if (!selection) return 'unknown';
-  const current = selection.next || selection.lastUsed;
-  if (!current) return 'unknown';
-  const usingOurs = current.provider === OUR_PROVIDER_ID && current.model === VIRTUAL_MODEL_ID;
-  return usingOurs ? 'ours' : 'other';
+  api.getMeta().then(function (payload) {
+    if (payload && typeof payload.virtualModel === "string" && Array.isArray(payload.providerIds)) {
+      teamMetaState = {
+        status: "ready",
+        value: { virtualModel: payload.virtualModel, providerIds: payload.providerIds }
+      };
+    } else {
+      teamMetaState = { status: "failed", value: null };
+      warnOnce("INV-14 判定降级：GET /_team/meta 拉取失败", null);
+    }
+    recomputeDockDecision();
+  });
 }
 
 // 槽位桥组件：不渲染任何 DOM，只把当前会话 id（与标题）的变化灌进工厂，
@@ -72,11 +133,21 @@ function createSessionBridgeComponent(reactRuntime) {
     const sessionTitle = readSessionTitle(props, sessionId);
 
     // 旧版宿主没有 useProjection：降级为"显示"（不比现状差），只警告一次
-    const hasProjection = Boolean(props && typeof props.useProjection === 'function');
+    const hasProjection = Boolean(props && typeof props.useProjection === "function");
     if (!hasProjection) {
       warnOnce('宿主未提供 useProjection，INV-14 降级为常显', null);
     }
-    const selectionState = hasProjection ? resolveModelSelectionState(props.useProjection) : 'degraded';
+    let selection;
+    if (hasProjection) {
+      try {
+        selection = props.useProjection(MODEL_SELECTION_PROJECTION_KEY);
+      } catch (error) {
+        // 宿主 hook 形状变了不算致命：按"还没有值"处理（不显示），告警一次
+        warnOnce('useProjection(modelSelection)', error);
+      }
+    }
+    // 记下本次输入并判定：meta 迟到时用同一份输入重算，不依赖 React 再渲染一次
+    const selectionState = rememberDockInputs(selection, hasProjection);
 
     reactRuntime.useEffect(function () {
       pushSession(sessionId, sessionTitle);
@@ -84,11 +155,7 @@ function createSessionBridgeComponent(reactRuntime) {
 
     // 响应式：projection 变化 → 组件重渲染 → 这里重新执行 → 球即时显隐（无需刷新页面）
     reactRuntime.useEffect(function () {
-      if (selectionState === 'degraded') {
-        applyDockVisibility(true);
-        return;
-      }
-      applyDockVisibility(selectionState === 'ours');
+      applyDockDecision(selectionState);
     }, [selectionState]);
 
     return null;
