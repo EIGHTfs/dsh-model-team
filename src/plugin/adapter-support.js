@@ -2,6 +2,7 @@
 // 拆出本文件是为了让 adapter.js 只保留"工厂 + 类"，单文件与单函数都保持在约定长度内。
 
 import { extractUsage } from '../gateway/mapping.js';
+import { normalizeHarnessMessages } from './message-shape.js';
 
 // 把 dsh 的 messages 转成 OpenAI 兼容 messages：只做保守映射，未知块显式转文本而不是静默丢
 //
@@ -35,6 +36,10 @@ function toOpenAiContentBlocks(message) {
     }
     if (contentBlock?.type === 'tool-call') {
       continue; // 走 tool_calls[] 通道，正文里不出现占位文本
+    }
+    if (contentBlock?.type === 'tool-result') {
+      // legacy 包裹式工具结果：归一化会把它抬成独立 tool 消息，正文里绝不能留占位文本
+      continue;
     }
     if (contentBlock?.type === 'text' && typeof contentBlock.text === 'string') {
       textParts.push(contentBlock.text);
@@ -87,7 +92,10 @@ const EMPTY_TOOL_RESULT_TEXT = '(no output)';
 //      （其结果同样变孤儿，一并丢弃）。两个方向的孤儿都会让上游 400；
 //   5. 顺序约束：role:'tool' 必须紧跟带 tool_calls 的 assistant——中间插入任何消息都会被
 //      上游 400，所以 developer 映射出的 system 卡在中间时要延后到这批 tool 结果之后。
-export function toOpenAiMessages(messages, systemPrompt) {
+export function toOpenAiMessages(rawMessages, systemPrompt) {
+  // 先归一化：legacy 的包裹式工具结果升级成一等 tool 消息，后续只有一条形状路径。
+  // 新形状输入时 normalizeHarnessMessages 原样返回同一数组（零开销、行为逐字节不变）。
+  const messages = normalizeHarnessMessages(rawMessages);
   const openAiMessages = [];
   if (typeof systemPrompt === 'string' && systemPrompt.length > 0) {
     openAiMessages.push({ role: 'system', content: systemPrompt });
@@ -98,6 +106,16 @@ export function toOpenAiMessages(messages, systemPrompt) {
   for (const message of messages ?? []) {
     if (message?.role === 'tool' && message.toolCallId !== undefined && message.toolCallId !== null) {
       resultIds.add(String(message.toolCallId));
+      continue;
+    }
+    // 防御：即便调用方绕过归一化直接塞 legacy 形状，也要认出块里的 toolCallId，
+    // 否则「结果 id 全集为空 → tool_calls 被整体剔除」会重演。
+    if (Array.isArray(message?.content)) {
+      for (const contentBlock of message.content) {
+        if (contentBlock?.type === 'tool-result' && contentBlock.toolCallId !== undefined && contentBlock.toolCallId !== null) {
+          resultIds.add(String(contentBlock.toolCallId));
+        }
+      }
     }
   }
   const keptCallIds = new Set();
