@@ -41,16 +41,56 @@ function readSessionTitle(props, sessionId) {
   return readDocumentSessionTitle();
 }
 
-// 槽位桥组件：不渲染任何 DOM，只把当前会话 id（与标题）的变化灌进工厂。
-// 槽位是 conversation.input.dock，props 形如 { session, input, useSessions }；
+// INV-14：判定"当前 session 是否选中本插件的虚拟模型"。
+// 读的是宿主运行时 projection（modelSelection），取值形如 { next, lastUsed }，
+// 每一项是 { provider, model, reasoningEffort }；两个字段都要比：
+//   provider = 本插件 llm 适配器注册的路由名，model = config.virtualModel（缺省 dsh-model-team）。
+// 返回三态：'ours' | 'other' | 'unknown'
+//   unknown = projection 还没有值（宿主未挂载 / 首帧未到）→ 按不显示处理，且不抛错
+function resolveModelSelectionState(useProjection) {
+  let selection;
+  try {
+    selection = useProjection(MODEL_SELECTION_PROJECTION_KEY);
+  } catch (error) {
+    warnOnce('useProjection(modelSelection)', error);
+    return 'unknown';
+  }
+  if (!selection) return 'unknown';
+  const current = selection.next || selection.lastUsed;
+  if (!current) return 'unknown';
+  const usingOurs = current.provider === OUR_PROVIDER_ID && current.model === VIRTUAL_MODEL_ID;
+  return usingOurs ? 'ours' : 'other';
+}
+
+// 槽位桥组件：不渲染任何 DOM，只把当前会话 id（与标题）的变化灌进工厂，
+// 并顺带把 INV-14 的显隐结论推给 dock（挂载生命周期不变，只切 display）。
+// 槽位是 conversation.input.dock，props 形如 { session, input, useSessions, useProjection }；
 // session 为 undefined 表示"新会话草稿"，这时按 null 处理。
 function createSessionBridgeComponent(reactRuntime) {
   return function SessionBridge(props) {
     const sessionId = (props && props.session && props.session.sessionId) || (props && props.sessionId) || null;
     const sessionTitle = readSessionTitle(props, sessionId);
+
+    // 旧版宿主没有 useProjection：降级为"显示"（不比现状差），只警告一次
+    const hasProjection = Boolean(props && typeof props.useProjection === 'function');
+    if (!hasProjection) {
+      warnOnce('宿主未提供 useProjection，INV-14 降级为常显', null);
+    }
+    const selectionState = hasProjection ? resolveModelSelectionState(props.useProjection) : 'degraded';
+
     reactRuntime.useEffect(function () {
       pushSession(sessionId, sessionTitle);
     }, [sessionId, sessionTitle]);
+
+    // 响应式：projection 变化 → 组件重渲染 → 这里重新执行 → 球即时显隐（无需刷新页面）
+    reactRuntime.useEffect(function () {
+      if (selectionState === 'degraded') {
+        applyDockVisibility(true);
+        return;
+      }
+      applyDockVisibility(selectionState === 'ours');
+    }, [selectionState]);
+
     return null;
   };
 }
