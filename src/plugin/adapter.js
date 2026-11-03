@@ -188,7 +188,7 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
     async resolveModel(provider, model) {
       const providerId = typeof provider === 'string' && provider.length > 0 ? provider : DEFAULT_PROVIDER_ID;
       // 容量申报：dsh 压缩读的是这里（拿不到 context 会抛 TargetPressureConfigError）。
-      // 申报值 = 所有已知模型窗口的最小值，兜底 config.contextWindowFallback（缺省 262144）；
+      // 申报值 = 所有已知模型窗口的最小值，兜底 config.contextWindowFallback（缺省 1048576）；
       // 取值函数保证返回正数，0/负数/NaN 会让 dsh 抛 INVALID_MODEL_CONTEXT 直接崩掉整轮对话。
       const config = await resolvedDeps.readConfig({ dataRoot: adapterDataRoot, logger: resolvedDeps.logger });
       // 只读缓存 + 甩到后台补探：这条链路就是"用户切换模型"那一下，等一次上游 = 切一下卡 1 秒（实测），

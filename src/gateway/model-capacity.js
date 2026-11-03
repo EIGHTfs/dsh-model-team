@@ -9,8 +9,8 @@
 //     INVALID_MODEL_CONTEXT，整轮对话起不来（不是降级，是崩）
 //   - 未知就**不填**字段（UI 显示 —），绝不编造一个看起来合理的窗口
 
-/** 探测不到任何模型窗口时的申报值（契约 02 §5.4 冻结：262144） */
-export const DEFAULT_CONTEXT_WINDOW_FALLBACK = 262144;
+/** 探测不到任何模型窗口时的申报值（契约 02 §5.4 冻结：1048576 = 1M） */
+export const DEFAULT_CONTEXT_WINDOW_FALLBACK = 1048576;
 
 /** 任何来源的数值都先过这里：只有有限正数才算有效，其余返回 null */
 export function toPositiveInteger(rawValue) {

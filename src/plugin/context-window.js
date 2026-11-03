@@ -160,7 +160,7 @@ function ensureProbeCache({ config, dataRoot, logger = defaultLogger, fetchImpl 
  * 申报窗口（同步）：命中新鲜缓存就给缓存里的最小值，否则给兜底。**绝不发起网络**。
  * 为什么必须同步：调用它在 resolveModel 里，那条链路是「用户切换模型」的同步路径。
  * @param {{config?: object}} [input]
- * @returns {number} 一定是正数（兜底 config.contextWindowFallback，缺省 262144）
+ * @returns {number} 一定是正数（兜底 config.contextWindowFallback，缺省 1048576）
  */
 export function peekDeclaredContextWindow({ config } = {}) {
   const configuredWindows = collectConfiguredContextWindows(config);
