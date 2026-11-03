@@ -12,6 +12,7 @@ import { getDataRoot } from '../gateway/paths.js';
 import { readConfig } from '../gateway/config.js';
 import { defaultLogger, describeFailure } from '../gateway/logger.js';
 import { DEFAULT_PROVIDER_ID, createModelTimAdapter } from './adapter.js';
+import { startContextWindowProbe } from './context-window.js';
 import { TEAM_ROUTE_PREFIX, disposeGatewayRoutes, registerGatewayRoutes } from './web-routes.js';
 import { createHostSessionLookup, createHostSessionSource } from '../gateway/session-current.js';
 
@@ -127,6 +128,17 @@ async function registerPanelRoutes({ ctx, dataRoot, logger, options, providerIds
   }
 }
 
+// 容量申报预热：启用时先在后台探一次，用户真正切换模型时就能直接命中缓存。
+// 为什么放后台：切换模型那条链路不能等网络（实测等一次上游就是切一下卡 1 秒），
+// 所以这里只负责"把车热起来"，失败不影响激活（探测本身也只降级到兜底值）。
+function warmContextWindowProbe({ dataRoot, logger, fetchImpl }) {
+  readConfig({ dataRoot, logger })
+    .then((config) => startContextWindowProbe({ config, dataRoot, logger, fetchImpl }))
+    .catch((warmError) => {
+      logger.warn(`容量申报预热未完成（不影响激活，解析路径继续按兜底值申报）：${describeFailure(warmError)}`);
+    });
+}
+
 // 插件入口：DSH 会调用 apply(ctx)；返回 undefined（返回对象字面量会变成 Invalid effect）
 export async function apply(ctx, options = {}) {
   const logger = options.logger ?? defaultLogger;
@@ -139,6 +151,10 @@ export async function apply(ctx, options = {}) {
 
   // 先挂面板路由：即使后面 llm 模块加载失败，前端仍能读到 /_team 数据（数据源与模型转发是两条路径）
   await registerPanelRoutes({ ctx, dataRoot, logger, options, providerIds });
+
+  // 预热与 llm 模块加载并行：预探测是网络 IO，排在注册之后只会白等，而且它不等结果。
+  // fetchImpl 与适配器同一个来源（options.deps 里也可能注入），否则预热会绕过测试/部署注入的桩。
+  warmContextWindowProbe({ dataRoot, logger, fetchImpl: options.fetchImpl ?? options.deps?.fetchImpl });
 
   try {
     const loaded = await loadLlmModule({ llmModule: options.llmModule, environment: options.environment }).catch((loadError) => {

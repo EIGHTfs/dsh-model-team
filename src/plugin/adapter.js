@@ -17,7 +17,7 @@ import { parseSseJsonData } from '../gateway/sse.js';
 import { defaultLogger, describeFailure } from '../gateway/logger.js';
 import { ERROR_CODES, GatewayError } from '../gateway/errors.js';
 import { classifyUpstreamFailure, createStreamChunkBuilder } from './llm-protocol.js';
-import { resolveDeclaredContextWindow, resolveModelContextWindow } from './context-window.js';
+import { peekDeclaredContextWindow, resolveModelContextWindow, startContextWindowProbe } from './context-window.js';
 import { buildContextOverflowMessage, estimateMessagesTokens, evaluateContextGuard, isContextGuardEnabled } from './context-guard.js';
 
 // 缺省 provider 路由名与展示名
@@ -191,7 +191,11 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
       // 申报值 = 所有已知模型窗口的最小值，兜底 config.contextWindowFallback（缺省 262144）；
       // 取值函数保证返回正数，0/负数/NaN 会让 dsh 抛 INVALID_MODEL_CONTEXT 直接崩掉整轮对话。
       const config = await resolvedDeps.readConfig({ dataRoot: adapterDataRoot, logger: resolvedDeps.logger });
-      const contextWindow = await resolveDeclaredContextWindow({
+      // 只读缓存 + 甩到后台补探：这条链路就是"用户切换模型"那一下，等一次上游 = 切一下卡 1 秒（实测），
+      // 而上游常常一条容量都不报（收益为零）。探测是否真发网络由它内部的 TTL + single-flight 判定，
+      // 所以这里可以无条件调用——空样本缓存不会被误判成"没探过"而每次重付一次网络。
+      const contextWindow = peekDeclaredContextWindow({ config });
+      startContextWindowProbe({
         config,
         dataRoot: adapterDataRoot,
         logger: resolvedDeps.logger,

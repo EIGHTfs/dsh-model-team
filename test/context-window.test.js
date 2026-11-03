@@ -1,5 +1,7 @@
 // T24 容量申报与超限检查的用例。
 // 覆盖三类必测点：申报值必须是正数（含兜底与最小值）、探测失败要降级、超限判断的边界（等于窗口放行）。
+// 另有三条时间行为用例把「探测不许回到解析同步路径」钉死：冷调用 50ms 内返回、后台探测下次生效、
+// 空样本也缓存（连续解析只探一次）——探测一旦被 await 回 resolveModel，第一条就会超时变红。
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,10 +22,62 @@ import {
 import { createModelTimAdapter } from '../src/plugin/adapter.js';
 import { writeConfig } from '../src/gateway/config.js';
 import { createFixedClock } from '../src/gateway/clock.js';
-import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
+import { createRecordingLogger, createTempDirectory, setEnvironmentVariableForTest } from './helpers/test-environment.js';
 
 class StubLlmAdapter {}
 class StubLlmError extends Error {}
+
+// 假 Key 环境变量：只用假值（探测要先解析凭证才会发请求）
+const TEST_API_KEY_ENV = 'DSH_MODEL_TEAM_TEST_API_KEY';
+const TEST_API_KEY = 'test-key-not-real';
+// 冷调用预算：真实探测是 1000ms 量级（单群超时 1200ms），50ms 差两个数量级，卡住必红
+const COLD_RESOLVE_BUDGET_MS = 50;
+// 后台链路结算窗口：假 fetch 立即返回，凭证解析 + 响应解析都是微任务，50ms 足够
+const PROBE_SETTLE_MS = 50;
+
+// endpoint 型群（没有静态窗口 → 只能探测）；id/baseURL 可覆盖，方便用例之间不共享缓存签名
+function buildEndpointGroup(overrides = {}) {
+  return {
+    id: 'agnes-endpoint',
+    name: 'agnes',
+    accessMode: 'official',
+    driver: 'openai-compatible',
+    baseURL: 'https://api.example.com/v1',
+    auth: { type: 'bearer', apiKeyRef: `env:${TEST_API_KEY_ENV}` },
+    models: { endpoint: '/models' },
+    ...overrides,
+  };
+}
+
+// 上游 /models 响应：与真实 OpenAI 兼容上游同形（data[]）
+function buildModelsResponse(models) {
+  return new Response(JSON.stringify({ object: 'list', data: models }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
+function createAdapter({ dataRoot, logger, fetchImpl }) {
+  const ModelTimAdapter = createModelTimAdapter({
+    BaseAdapter: StubLlmAdapter,
+    LlmErrorClass: StubLlmError,
+    deps: { dataRoot, logger, clock: createFixedClock(), fetchImpl },
+  });
+  return new ModelTimAdapter();
+}
+
+function sleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+// 时限断言：超时直接抛错（比"等它自然失败"更容易读懂；被测 promise 先完成时清掉定时器，不留悬挂拒绝）
+function resolveWithinDeadline(promise, budgetMs, timeoutMessage) {
+  let deadlineTimer;
+  const deadline = new Promise((resolve, reject) => {
+    deadlineTimer = setTimeout(() => reject(new Error(timeoutMessage)), budgetMs);
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(deadlineTimer));
+}
 
 function buildStaticGroup(overrides = {}) {
   return {
@@ -154,4 +208,93 @@ test('超限检查开关：缺省开启，只有显式 false 才关闭', () => {
   assert.equal(isContextGuardEnabled({ contextGuard: {} }), true);
   assert.equal(isContextGuardEnabled({ contextGuard: { enabled: true } }), true);
   assert.equal(isContextGuardEnabled({ contextGuard: { enabled: false } }), false);
+});
+
+test('resolveModel 后台探测：上游报容量后，下一次解析用上新窗口（取两个窗口的最小值）', async (t) => {
+  setEnvironmentVariableForTest(t, TEST_API_KEY_ENV, TEST_API_KEY);
+  const dataRoot = await createTempDirectory(t);
+  const logger = createRecordingLogger();
+  const config = { groups: [buildEndpointGroup()] };
+  await writeConfig(config, { dataRoot });
+  resetContextWindowCache();
+
+  let fetchCallCount = 0;
+  const fetchImpl = async () => {
+    fetchCallCount += 1;
+    return buildModelsResponse([
+      { id: 'model-a', context_length: 1000000 },
+      { id: 'model-b', context_length: 60000 },
+    ]);
+  };
+  const adapter = createAdapter({ dataRoot, logger, fetchImpl });
+
+  const coldModel = await adapter.resolveModel('dsh-model-team', 'dsh-model-team');
+  assert.equal(coldModel.context.contextWindow, DEFAULT_CONTEXT_WINDOW_FALLBACK, '缓存未命中时先申报兜底');
+
+  await sleep(PROBE_SETTLE_MS);
+
+  const warmModel = await adapter.resolveModel('dsh-model-team', 'dsh-model-team');
+  assert.equal(warmModel.context.contextWindow, 60000, '后台探测写入缓存后应取最小窗口');
+  assert.equal(fetchCallCount, 1, '第二次解析命中缓存，不该再发上游请求');
+});
+
+test('resolveModel 空样本缓存：上游 0 条带容量时，连续解析只探一次', async (t) => {
+  setEnvironmentVariableForTest(t, TEST_API_KEY_ENV, TEST_API_KEY);
+  const dataRoot = await createTempDirectory(t);
+  const logger = createRecordingLogger();
+  const config = { groups: [buildEndpointGroup({ id: 'agnes-no-capacity', baseURL: 'https://no-capacity.example.com/v1' })] };
+  await writeConfig(config, { dataRoot });
+  resetContextWindowCache();
+
+  let fetchCallCount = 0;
+  const fetchImpl = async () => {
+    fetchCallCount += 1;
+    // 与真实 agnes 的 /v1/models 同形：9 条模型，0 条带容量字段
+    const models = Array.from({ length: 9 }, (unused, index) => ({
+      id: `agnes-model-${index}`,
+      object: 'model',
+      created: 0,
+      owned_by: 'agnes',
+    }));
+    return buildModelsResponse(models);
+  };
+  const adapter = createAdapter({ dataRoot, logger, fetchImpl });
+
+  const declaredWindows = [];
+  for (let attemptIndex = 0; attemptIndex < 5; attemptIndex += 1) {
+    const resolvedModel = await adapter.resolveModel('dsh-model-team', 'dsh-model-team');
+    declaredWindows.push(resolvedModel.context.contextWindow);
+    await sleep(PROBE_SETTLE_MS);
+  }
+
+  assert.deepEqual([...new Set(declaredWindows)], [DEFAULT_CONTEXT_WINDOW_FALLBACK], '空样本期间一律申报兜底值');
+  assert.equal(fetchCallCount, 1, '空样本也必须缓存：连续解析不许每次重探上游');
+});
+
+test('resolveModel 冷调用：上游永不返回也要 50ms 内给出兜底值（探测不许回到同步路径）', async (t) => {
+  setEnvironmentVariableForTest(t, TEST_API_KEY_ENV, TEST_API_KEY);
+  const dataRoot = await createTempDirectory(t);
+  const logger = createRecordingLogger();
+  // 独立签名（id/baseURL 不同）：这条用例故意留下一个悬挂探测，不能影响其它用例的缓存
+  const config = { groups: [buildEndpointGroup({ id: 'agnes-never-returns', baseURL: 'https://never-returns.example.com/v1' })] };
+  await writeConfig(config, { dataRoot });
+  resetContextWindowCache();
+
+  const neverResolvesFetch = () => new Promise(() => {});
+  const adapter = createAdapter({ dataRoot, logger, fetchImpl: neverResolvesFetch });
+
+  const startedAtMs = Date.now();
+  const resolvedModel = await resolveWithinDeadline(
+    adapter.resolveModel('dsh-model-team', 'dsh-model-team'),
+    COLD_RESOLVE_BUDGET_MS,
+    `冷调用超过 ${COLD_RESOLVE_BUDGET_MS}ms：探测又回到 resolveModel 的同步路径了`,
+  );
+  const elapsedMs = Date.now() - startedAtMs;
+
+  assert.equal(resolvedModel.context.contextWindow, DEFAULT_CONTEXT_WINDOW_FALLBACK);
+  assert.equal(
+    elapsedMs < COLD_RESOLVE_BUDGET_MS,
+    true,
+    `冷调用耗时 ${elapsedMs}ms 超过 ${COLD_RESOLVE_BUDGET_MS}ms：探测又回到 resolveModel 的同步路径了`,
+  );
 });
