@@ -1,0 +1,14 @@
+{
+  "platforms": [
+    {
+      "id": "agnes",
+      "name": "Agnes",
+      "avatar": "https://platform.agnes-ai.cn/images/logo.svg",
+      "baseURL": "https://api.agnes-ai.cn/v1",
+      "modelsEndpoint": "/models",
+      "homepage": "https://platform.agnes-ai.cn",
+      "summaryTemplate": "官方接入 · {baseURL}",
+      "driverId": "openai-compatible"
+    }
+  ]
+}

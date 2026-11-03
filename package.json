@@ -1,0 +1,44 @@
+{
+  "name": "dsh-model-team",
+  "version": "0.1.0",
+  "description": "会话级模型路由插件：dsh 里只注册一个虚拟模型，真实模型按会话映射转发（合法接入优先，配置型驱动）",
+  "type": "module",
+  "main": "./src/plugin/index.js",
+  "exports": {
+    ".": "./src/plugin/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "files": [
+    "src",
+    "lib/client.js",
+    "config",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.cjs",
+    "build:client": "node build.cjs",
+    "mock:server": "python3 scripts/mock-team-server.py",
+    "prepack": "node build.cjs",
+    "test": "node --test test/*.test.js"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": ">=0.2.0"
+  },
+  "dependencies": {}
+}

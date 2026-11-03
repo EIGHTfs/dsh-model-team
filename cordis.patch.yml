@@ -1,0 +1,7 @@
+# dsh-model-team 配置包补丁：在空配置根上追加插件行。
+# ⚠️ 必须用顶层 `- insert:` 新建 loader 行：没有 insert 的顶层 `- id:` 语义是"覆盖已有行"，
+#    基座没有该 id 时会报 target not found（市场安装失败的常见原因）。
+# id 是后续 patch 引用本行的稳定锚点；name 必须与 package.json 的包名一致。
+- insert:
+    - id: model-team
+      name: 'dsh-model-team'

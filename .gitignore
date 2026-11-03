@@ -1,0 +1,24 @@
+# 本地数据根：平台配置与凭证引用都落在这里，绝不入库
+.dsh-model-team/
+config.json
+
+# 依赖与锁文件（本项目零第三方依赖，出现即异常）
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# 运行产物与系统垃圾
+*.log
+*.tmp
+__pycache__/
+.DS_Store
+
+# 本地自检截图：只用于验收，不入库（精选配图放 docs/images/）
+ui/shots/
+
+# 临时回收目录（移动而非删除时用）
+.trash/
+node_modules.orig/
+
+# 文档与设计记录整体不入库（本地保留；历史中也不含）
+docs/
