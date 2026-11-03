@@ -63,6 +63,14 @@ function readRoutes(apiPrefix) {
     entries.push(`${method} ${normalizePattern(rawPattern, apiPrefix)}`);
   }
   if (entries.length === 0) throw new Error('ROUTES 解析结果为空，可能是写法变了');
+
+  // 解析自检：上面按「第一个行首 ]」截断。若数组里出现多行对象，或在结束标记之后又追加了路由，
+  // 会静默少解析几条——那时差异会伪装成「契约写多了」，把门禁引向错误结论（去改文档而不是查解析）。
+  // 用整份文件里 `{ method:` 的出现次数对账，不一致就当场报解析失败，不进入比对。
+  const declaredCount = (source.match(/\{\s*method\s*:/g) || []).length;
+  if (entries.length !== declaredCount) {
+    throw new Error(`ROUTES 解析不完整：解析到 ${entries.length} 条 / 文件里有 ${declaredCount} 条（检查 routes.js 是否出现多行路由对象，或数组结束标记之后还有追加项）`);
+  }
   return entries;
 }
 
@@ -161,9 +169,16 @@ function checkUiHooks() {
 }
 
 function main() {
-  const endpointResult = checkEndpoints();
-  const uiHookResult = checkUiHooks();
-  return endpointResult && uiHookResult ? EXIT_OK : EXIT_MISMATCH;
+  // 解析类异常（契约/路由文件格式变了、ROUTES 少解析）单独收敛成一行错误：
+  // 直接抛栈会淹没真正要看的那句「解析到 N 条 / 文件里有 M 条」。
+  try {
+    const endpointResult = checkEndpoints();
+    const uiHookResult = checkUiHooks();
+    return endpointResult && uiHookResult ? EXIT_OK : EXIT_MISMATCH;
+  } catch (parseError) {
+    console.error(`❌ ${parseError?.message || parseError}`);
+    return EXIT_MISMATCH;
+  }
 }
 
 process.exit(main());
