@@ -1,70 +1,64 @@
 # dsh-model-team
 
-> DSH 插件：session 级模型路由 + 群聊式切换 UI。DSH 里只注册**一个**虚拟模型；真实模型切换 = 点开悬浮窗 → 进群聊 → @群友（或 @好友分组，由分组按策略轮换）。
+> 把多个模型平台的账号收进一个「群聊」界面管理；对 DSH 只暴露**一个**虚拟模型，按 session 决定真正落到哪个平台、哪个模型。
+
+## 这是什么
+
+DSH 插件。模型选择器里只多出一个「模型团队 · 模型群聊」，真实模型由网关按 session 映射改写后转发。
+切换方式：点开右下角悬浮窗 → 进群聊 → `@模型名`（或 `@分组名`，由分组按策略轮换）。
+
+## 目标
+
+- DSH 的模型选择器里只多一个条目，不必为每个平台、每个模型各配一次
+- 同一个虚拟模型，不同 session 可以落到不同真实模型（可轮转、可回落）
+- 账号、群、请求记录都在界面上，不用翻配置文件
+
+## 难点
+
+这几条是真正花时间的地方，也是它为什么没能做完：
+
+- **LlmAdapter 接缝很窄**：`listModels()` 只能报一个模型；`prepareCall()` / `resolveModel()` 拿不到 session；压缩只看 `requestHeader().config`。结果是容量只能**统一申报**，「按 session 申报窗口」在 0.2.1 里没有信息出口（已请第三方会话独立复核过）
+- **sessionId 只有一条来路**：只有客户端槽位 `conversation.input.dock` 能拿到，服务端 SSE 与 URL 都拿不到
+- **上游容量字段不统一**：`context_length` / `max_allowed_size` / `context_window.default` 三种并存，有的干脆不报（本机 agnes 9 个模型 0 个带容量），探测常常一无所获
+
+## 理念
+
+- **契约唯一**：`docs/02-契约.md` 冻结端点与字段，其它文档只按节号引用，不复制同一事实
+- **机器门禁优先**：端点表 ↔ `routes.js`、DOM 钩子 ↔ `ui/index.html` 自动比对，文档与代码漂移必须红灯
+- **只有最终版**：不留「阶段 N 演示」、不留 mock 传输层；本地预览即真实链路
+
+## 特色
+
+- **群聊式交互**：平台账号 = 群，模型 = 群友，请求记录 = 群友消息，`@` = 切换目标
+- **悬浮球只在该显示时显示**：仅当当前 session 选中本插件虚拟模型时出现，部署方改虚拟模型名也自动跟随
+- **请求可回溯**：每次调用留一行记录（模型 / 状态 / 速率 / 目标来源），能回答「为什么用了这个模型」
+- **零依赖 + 单文件产物**：`lib/client.js` 由分片拼接，受限挂载环境也能跑
+
+## 现状（已暂停开发）
+
+当前状态：**可用，但不完整**。
+
+| 分类 | 内容 |
+|---|---|
+| 可用（真机验证过） | 加群、切换模型、对话、兜底上下文窗口（默认 1M） |
+| 已知缺陷 | 悬浮球显隐不稳（切到别的模型不消失 / 消失了不回来，见 `docs/06` G-15）；子代理继承未端到端验证；配置覆盖窗口未实现（`docs/08` T28） |
+| 未做 | 分组 UI 提交通道、请求行目标来源展示、UI 自动化回归 |
 
 ## 文档
 
-开发与维护请先读 [docs/00-索引.md](docs/00-索引.md)：按「你要做什么」查到对应那一份，不必通读。
-
-## 功能
-
-- **单模型注册**：dsh 模型选择器里只多出一个模型，真实模型由网关按 session 映射改写后转发
-- **session 级路由**：每个 session 独立选择，互不影响
-- **合法接入优先**：平台走官方 API + API Key（配置型驱动，零代码加平台）
-- **群聊隐喻 UI**：平台账号 = 群，模型 = 群友，请求记录 = 群友消息，@ = 切换
-- **悬浮窗**：右下角浮球，显示当前群聊 / session（标题 + 短 id）/ 当前目标 / 本 session 速率 / 全局请求量；可拖拽、位置记忆；点击开合切换
-- **悬浮球显隐**：只有当前 session 选中本插件虚拟模型时才显示；部署方改 `config.virtualModel` / `options.providerIds` 后自动跟随，无需改客户端
-- **群聊风格主窗口**：底边栏三 tab（消息 / 通讯录 / 我，内联 SVG 图标）；群列表带搜索与更新时间
-- **群聊记录**：请求行 + 我发出的 `@目标` + 系统提示，按时间排序；**按群隔离**（不同平台账号的记录互不混入）
-- **session 秒感知**：切换 session 时悬浮窗与消息记录立即跟随（槽位桥，零轮询）
-- **好友分组（轮换组）**：不同平台的同名模型可聚合成组，按 `round-robin` 或 `fallback` 派发
-
-## 安装
-
-```bash
-# 1) 放进某个 DSH profile 的 local-plugins，并建立 node_modules 链接
-#    <profile>/local-plugins/dsh-model-team
-#    <profile>/node_modules/dsh-model-team → ../local-plugins/dsh-model-team
-#    profile 的 package.json：dependencies 用 link:local-plugins/dsh-model-team，
-#    dsh.profile.bundles 追加 dsh-model-team
-
-# 2) 首次加载需重启一次宿主（bundles 只在启动时读取）
-/var/packages/DeepSeekHarness-NAS/scripts/start-stop-status stop
-/var/packages/DeepSeekHarness-NAS/scripts/start-stop-status start
-```
-
-之后修改代码免重启：profile 的 `cordis.patch.yml` 里 `hmr.root` 含 `local-plugins` 即可热重载。
-
-## 使用
-
-1. 模型选择器里选 `模型团队 · 模型群聊`（唯一新增的模型）
-2. 右下角悬浮球 → 面板显示 当前群聊 / session / 当前目标 / 本 session 速率 / 全局请求量
-3. 面板「进入群聊界面」→ 主窗口（底边栏：消息 / 通讯录 / 我）
-4. 消息页「＋ 加群」→ 选平台 → 填 API 地址与 Key → 「获取可用模型」→ 编辑模型目录 → 校验并添加群
-5. 群聊里输入 `@模型名` 或 `@分组名` 发送，即切换本 session 目标（回车发送，Shift+Enter 换行）
-
-## 数据根
-
-```
-<DSH_HOME>/../.dsh-model-team/      可用 DSH_MODEL_TEAM_HOME 覆盖
-  config.json            群配置（凭证只存引用）
-  platforms.json         平台预置覆盖（可选）
-  groups-state.json      分组轮转游标
-  sessions/<id>.json     session 目标映射；<id>.events.jsonl 事件
-  stats/requests.jsonl   请求行
-  credentials/*.key      明文 Key 落盘（600）；删群时移入 .trash/
-```
+从 [docs/00-索引.md](docs/00-索引.md) 进：契约在 `02`，验收在 `04`，已知问题在 `06`。
 
 ## 开发
 
 ```bash
-node --test test/*.test.js     # 用例
-node build.cjs                 # 拼接 lib/client-parts/ + ui/ → lib/client.js（产物，勿手改）
-node scripts/code-lines.mjs ui/js/*.js   # 代码行统计（空行/注释不计入上限）
+node --test test/*.test.js               # 用例
+node build.cjs                           # 拼接产物 lib/client.js（勿手改）
+node scripts/check-contract.mjs          # 契约门禁：端点表 ↔ 路由、DOM 钩子 ↔ html
 ```
 
 ## 版本记录
 
 | 版本 | 内容 |
 |---|---|
-| 0.1.0 | 首个版本：单虚拟模型注册与 session 级路由；配置容错与凭证引用；动态驱动加载（配置型 OpenAI 兼容）；session 映射与目标回落（父链 / 上一 session / 兜底群）；分组轮转与故障转移；请求行统计与 `/_team` 端点；客户端分片构建与群聊式界面（悬浮窗、群列表、群聊、通讯录、加群、模型目录） |
+| 0.1.0 | 首个版本：单虚拟模型注册与 session 级路由；配置容错与凭证引用；动态驱动加载；session 映射与目标回落；分组轮转与故障转移；请求行统计与 `/_team` 端点；客户端分片构建与群聊式界面 |
+| 未发布 | 加群链路改为以真实后端为准 + 移除 mock 层；新增契约门禁与解析自检；INV-14 悬浮球显隐（判定依据改由 `/_team/meta` 下发）；上下文容量申报（最小值 → 1M 兜底）与发请求前超限检查 |
