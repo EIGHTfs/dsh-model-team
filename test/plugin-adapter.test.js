@@ -174,7 +174,11 @@ test('适配器：文本 + tool-call + 文本 的块索引严格配对', async (
 
   const toolBlock = blockEnds.find((chunk) => chunk.block.type === 'tool-call');
   assert.equal(toolBlock.block.name, 'search');
-  assert.deepEqual(toolBlock.block.arguments, { q: 'x' });
+  // 契约（02 §六 / G-17）：ToolCallBlock.arguments 必须是**原始 JSON 字符串**。
+  // 这里曾经断言成对象 { q:'x' }，那正是 G-17 的错法——对象没有 .length，
+  // dsh 的 token 估算器会算出 NaN，把整个会话的投影打挂（表现为会话打不开）。
+  assert.equal(typeof toolBlock.block.arguments, 'string', 'arguments 必须是字符串');
+  assert.equal(toolBlock.block.arguments, '{"q":"x"}', '流式拼接的参数原样透传，不被 parse 后重排');
   assert.equal(chunks[chunks.length - 1].reason.kind, 'tool-calls');
 });
 

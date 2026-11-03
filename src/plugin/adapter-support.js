@@ -9,6 +9,16 @@ import { extractUsage } from '../gateway/mapping.js';
 //   助手消息里的 `tool-call` 块必须走 `tool_calls[]` 结构化通道，**不能**在正文里留下
 //   占位文本——上游会看到「一条没有调用声明的工具结果」→ tool_call_mismatch（真机必现）。
 //   这里只负责把 tool-call 从正文里剔除；声明本身由 toOpenAiToolCalls() 提取。
+//
+// reasoning 块的处理（真机实证的对话污染）：
+//   思考块转成正文占位 `[reasoning 内容已省略]` 后会写进会话历史，回放给上游时模型把这行
+//   当成自己以前说过的话学出来，再被存成 text 块——占位文本进入上下文就是污染对话；
+//   且历史思考内容上游基本用不上，回传只浪费 token。所以 reasoning 一律静默丢弃。
+//
+// 占位文本收敛为白名单：只有 image/file 这类「模型需要知道这里有个东西」的块才值得占位；
+// 其余未知块（含 reasoning）一律静默丢弃，不再产生可被学嘴的文本。
+const PLACEHOLDER_BLOCK_TYPES = new Set(['image', 'file']);
+
 function toOpenAiContentBlocks(message) {
   const messageContent = message?.content;
   if (typeof messageContent === 'string') {
@@ -30,8 +40,11 @@ function toOpenAiContentBlocks(message) {
       textParts.push(contentBlock.text);
       continue;
     }
-    // 图片/文件等本轮不支持：转成文本占位，让模型至少知道"这里有东西"，不静默丢内容
-    textParts.push(`[${contentBlock?.type ?? 'unknown'} 内容已省略]`);
+    if (PLACEHOLDER_BLOCK_TYPES.has(contentBlock?.type)) {
+      textParts.push(`[${contentBlock.type} 内容已省略]`);
+      continue;
+    }
+    // reasoning 及其余未知块：静默丢弃。任何占位文本进了上下文都会被模型当正文复制（学嘴）
   }
   return textParts.join('\n');
 }

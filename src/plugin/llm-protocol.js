@@ -57,16 +57,23 @@ export function classifyUpstreamFailure(statusCode) {
   return 'UPSTREAM_ERROR';
 }
 
-// 工具调用参数是流式拼接的 JSON 字符串：给 block-end 时尽量原样带上，解析失败就带原文
+// 工具调用参数：dsh 的 ToolCallBlock.arguments 契约是**原始 JSON 字符串**（types.ts:
+// "Raw JSON string as produced by the model"），这里必须原样透传。
+//
+// 为什么不能 JSON.parse 成对象：dsh 的 token 估算器对 tool-call 块取
+// `block.arguments.length`（按字符数折算 token）——对象没有 .length，得到
+// Math.ceil(undefined/3) = NaN，沿 surfaceTokens → projectedTokens 一路污染，
+// 投影 schema 的 .int().nonnegative() 直接拒收，**整个会话打不开**（G-17，
+// 比 400 更严重：连报错窗口都进不去）。全库扫描证据：30 个 object 型 arguments
+// 全部来自本插件的流式路由。
+//
+// 非法 JSON（流被截断等）也原样返回：合法性由模型/上游负责，这里改写内容反而
+// 会掩盖现场；dsh 侧只要它是字符串就能投影。
 function toToolCallArguments(rawArgumentText) {
-  if (typeof rawArgumentText !== 'string' || rawArgumentText.length === 0) {
-    return {};
+  if (typeof rawArgumentText !== 'string' || rawArgumentText.trim().length === 0) {
+    return '{}';
   }
-  try {
-    return JSON.parse(rawArgumentText);
-  } catch {
-    return rawArgumentText;
-  }
+  return rawArgumentText;
 }
 
 // 有状态转换器：一次上游响应对应一个实例

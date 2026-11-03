@@ -170,3 +170,60 @@ test('普通纯文本消息 content 必须是字符串（不得包装成块数�
     assert.equal(typeof message.content, 'string', `${message.role} 的 content 必须是字符串`);
   }
 });
+
+// ===== G-17：tool-call.arguments 必须是原始 JSON 字符串（对象 → token 估算 NaN → 会话打不开）=====
+
+test('G-17：finish() 产出的 tool-call.arguments 是字符串，且字节透传', async () => {
+  const { StreamChunkBuilder } = await import('../src/plugin/llm-protocol.js');
+  const runStream = (argumentText) => {
+    const builder = new StreamChunkBuilder();
+    builder.appendToolCallDelta({ index: 0, id: 'tc1', function: { name: 'read_file' } });
+    if (argumentText !== undefined) builder.appendToolCallDelta({ index: 0, function: { arguments: argumentText } });
+    return builder.finish({}).find((chunk) => chunk.type === 'block-end' && chunk.block?.type === 'tool-call');
+  };
+
+  // 保留键顺序与空格——parse→stringify 会规范化两者，字节一致才证明原样透传
+  const raw = '{"b":2, "a": 1}';
+  const blockEnd = runStream(raw);
+  assert.ok(blockEnd, 'finish 应产出 tool-call 的 block-end');
+  assert.equal(typeof blockEnd.block.arguments, 'string', 'arguments 必须是字符串（对象 → token 估算 NaN → 会话打不开）');
+  assert.equal(blockEnd.block.arguments, raw, '必须字节一致');
+
+  assert.equal(runStream(undefined)?.block?.arguments, '{}', '无 arguments 文本 → {}');
+  assert.equal(runStream('')?.block?.arguments, '{}', '空串 → {}');
+  assert.equal(runStream('   ')?.block?.arguments, '{}', '纯空白 → {}');
+  const truncated = '{"path":"a.txt","optio';
+  assert.equal(runStream(truncated)?.block?.arguments, truncated, '截断的非法 JSON 原样返回，不抛错');
+});
+
+// ===== G-17b（对话污染）：reasoning 块绝不能变成正文占位 =====
+
+test('G-17b：assistant 的 reasoning 块 → 正文不含 reasoning、不含占位文本', () => {
+  const messages = toOpenAiMessages([
+    {
+      role: 'assistant',
+      content: [
+        { type: 'reasoning', text: '内部思考过程' },
+        { type: 'text', text: '最终回答' },
+      ],
+    },
+  ]);
+  const assistant = messages[0];
+  assert.ok(!assistant.content.includes('reasoning'), 'reasoning 字样不得出现在正文');
+  assert.ok(!assistant.content.includes('内容已省略'), '占位文本不得出现在正文');
+  assert.ok(assistant.content.includes('最终回答'), '正文文本原样保留');
+});
+
+test('G-17b：纯 reasoning 的 assistant → 正文为空串（不产生占位文本）', () => {
+  const messages = toOpenAiMessages([
+    { role: 'assistant', content: [{ type: 'reasoning', text: '只想不说' }] },
+  ]);
+  assert.equal(messages[0].content, '', 'reasoning 静默丢弃后正文为空串，绝不能是占位文本');
+});
+
+test('G-17b：image 块仍产出占位文本（占位白名单行为不回退）', () => {
+  const messages = toOpenAiMessages([
+    { role: 'user', content: [{ type: 'image', data: 'xx' }] },
+  ]);
+  assert.ok(messages[0].content.includes('[image 内容已省略]'), 'image 占位文本必须保留');
+});
