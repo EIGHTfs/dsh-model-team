@@ -6,6 +6,7 @@
 //      fetchModels 按契约返回数组，失败时抛带 code/status 的错误，由调用方捕获（网关集中记失败）。
 
 import { defaultLogger, describeFailure } from '../logger.js';
+import { normalizeContextLength, normalizeMaxOutputTokens } from '../model-capacity.js';
 import { CREDENTIALS_API_KEY_FIELD } from '../credentials.js';
 
 // 字段映射与 usage 解析拆到 mapping.js：配置型驱动与统计层共用同一份实现
@@ -244,10 +245,16 @@ function toModelEntry(modelCandidate) {
     return { id: modelCandidate, name: modelCandidate };
   }
   if (modelCandidate && typeof modelCandidate.id === 'string' && modelCandidate.id.length > 0) {
-    return {
+    const modelEntry = {
       id: modelCandidate.id,
       name: typeof modelCandidate.name === 'string' && modelCandidate.name.length > 0 ? modelCandidate.name : modelCandidate.id,
     };
+    // 容量字段按契约归一化后承接：上游字段名不统一，缺失就不填（UI 显示 —，绝不编造）
+    const contextLength = normalizeContextLength(modelCandidate);
+    if (contextLength !== null) modelEntry.contextLength = contextLength;
+    const maxOutputTokens = normalizeMaxOutputTokens(modelCandidate);
+    if (maxOutputTokens !== null) modelEntry.maxOutputTokens = maxOutputTokens;
+    return modelEntry;
   }
   return null;
 }

@@ -19,7 +19,9 @@ function buildAtSections() {
       id: model.id,
       label: shortName,
       display: driverName ? shortName + ' (' + driverName + ')' : shortName,
-      avatar: '[' + shortName.charAt(0).toUpperCase() + ']'
+      avatar: '[' + shortName.charAt(0).toUpperCase() + ']',
+      // 窗口随条目带出来：@ 选择器要如实展示（未知显示 —），切换提示也用它比较
+      contextLength: model.contextLength
     };
   });
   const groupItems = (current.friendGroups || []).map(function (friendGroup) {
@@ -128,9 +130,27 @@ function sendMessage() {
     return String(model.name || model.id).replace(/^global:/, '') === mentionText || model.id === mentionText;
   })[0];
   if (matchedModel) {
+    warnOnSmallerWindow(current, matchedModel);
     store.dispatch({
       type: 'switch-target',
       target: { type: 'model', id: matchedModel.id, platformId: current.currentGroupId }
     });
   }
+}
+
+// 切到更小窗口的模型时提示一次（不阻断）。为什么要提示：申报给 dsh 的是所有模型窗口的最小值，
+// 但真实请求打到的是目标模型；从大窗口切到小窗口后，长上下文请求会被上游拒绝，提前说一声比事后报 400 好。
+// 任一侧窗口未知就不提示——宁可不提示，也不要拿兜底值吓人。
+function warnOnSmallerWindow(current, nextModel) {
+  const previousTarget = current.effectiveTarget || current.target;
+  if (!previousTarget || previousTarget.type !== 'model') return;
+  const previousModel = modelsOf(current.currentGroupId).filter(function (model) {
+    return model.id === previousTarget.id;
+  })[0];
+  const previousWindow = Number(previousModel && previousModel.contextLength);
+  const nextWindow = Number(nextModel.contextLength);
+  if (!Number.isFinite(previousWindow) || !Number.isFinite(nextWindow)) return;
+  if (nextWindow >= previousWindow) return;
+  toast('目标窗口变小：' + formatContextLength(previousWindow) + ' → ' + formatContextLength(nextWindow)
+    + '，长上下文请求可能被拒');
 }

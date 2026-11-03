@@ -169,12 +169,22 @@ function renderAtSection(title) {
   return `<div class="at-section">${escapeHtml(title)}</div>`;
 }
 
+// 上下文窗口的展示口径：未知一律 —（契约 02 §3.7：缺失不填，不许编造）
+function formatContextLength(contextLength) {
+  const numericValue = typeof contextLength === 'number' ? contextLength : Number(contextLength);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) return '—';
+  if (numericValue >= 1000000) return (numericValue / 1000000).toFixed(numericValue % 1000000 === 0 ? 0 : 1) + 'M';
+  if (numericValue >= 1000) return Math.round(numericValue / 1000) + 'K';
+  return String(numericValue);
+}
+
 // @ 选择器：单个模型项（本群群友）；display 带来源平台，label 是纯模型名
+// 窗口来自 models.static[].contextLength 或探测结果（docs/07 §二点六），未知显示 — 而不是省略
 function renderAtModelItem(item, index) {
   return `<div class="at-item" data-at-type="model" data-at-id="${escapeHtml(item.id)}" data-index="${index}">
     <span class="avatar at-avatar">${escapeHtml(item.avatar || '[M]')}</span>
     <span class="at-model">${escapeHtml(item.display || item.label)}</span>
-    <span class="at-tag">群友</span>
+    <span class="at-tag">窗口 ${escapeHtml(formatContextLength(item.contextLength))}</span>
   </div>`;
 }
 

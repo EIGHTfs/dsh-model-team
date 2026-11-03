@@ -3,6 +3,7 @@
 //          读取侧不能因此分裂成两套逻辑，所以统一在这里归一（写盘与出参都走同一函数）。
 
 import { defaultLogger } from './logger.js';
+import { normalizeContextLength, normalizeMaxOutputTokens, toPositiveInteger } from './model-capacity.js';
 
 // 单条归一：字符串 → { id, name: id }；对象 → { id, name: name || id }；非法返回 null
 export function toModelOption(rawEntry, { logger = defaultLogger } = {}) {
@@ -19,7 +20,13 @@ export function toModelOption(rawEntry, { logger = defaultLogger } = {}) {
     const trimmedId = rawId.trim();
     const rawName = rawEntry.name ?? rawEntry.label ?? rawEntry.displayName;
     const trimmedName = typeof rawName === 'string' && rawName.trim().length > 0 ? rawName.trim() : trimmedId;
-    return { id: trimmedId, name: trimmedName };
+    const modelOption = { id: trimmedId, name: trimmedName };
+    // 容量随条目一起走：驱动已归一化过就原样带；用户手填对象里也可能直接写 contextLength
+    const contextLength = toPositiveInteger(rawEntry.contextLength) ?? normalizeContextLength(rawEntry);
+    if (contextLength !== null) modelOption.contextLength = contextLength;
+    const maxOutputTokens = toPositiveInteger(rawEntry.maxOutputTokens) ?? normalizeMaxOutputTokens(rawEntry);
+    if (maxOutputTokens !== null) modelOption.maxOutputTokens = maxOutputTokens;
+    return modelOption;
   }
   if (rawEntry !== null && rawEntry !== undefined) {
     logger.warn(`模型条目类型不支持，已跳过：${JSON.stringify(rawEntry).slice(0, 120)}`);

@@ -10,13 +10,15 @@ import { readSessionTarget } from '../gateway/session-store.js';
 import { dispatchWithRotation } from '../gateway/dispatcher.js';
 import { resolveSessionTargetWithFallback } from '../gateway/session-fallback.js';
 import { resolveAttemptContext } from '../gateway/attempt-context.js';
-import { DEFAULT_MAX_REQUEST_ROWS, appendRequestRow, buildRequestRow } from '../gateway/stats.js';
+import { DEFAULT_MAX_REQUEST_ROWS, appendRequestRow, buildRequestRow, readRequestRows } from '../gateway/stats.js';
 import { createClock } from '../gateway/clock.js';
 import { DEFAULT_USAGE_PATH, extractUsage } from '../gateway/mapping.js';
 import { parseSseJsonData } from '../gateway/sse.js';
 import { defaultLogger, describeFailure } from '../gateway/logger.js';
 import { ERROR_CODES, GatewayError } from '../gateway/errors.js';
 import { classifyUpstreamFailure, createStreamChunkBuilder } from './llm-protocol.js';
+import { resolveDeclaredContextWindow, resolveModelContextWindow } from './context-window.js';
+import { buildContextOverflowMessage, estimateMessagesTokens, evaluateContextGuard, isContextGuardEnabled } from './context-guard.js';
 
 // 缺省 provider 路由名与展示名
 export const DEFAULT_PROVIDER_ID = 'dsh-model-team';
@@ -185,10 +187,21 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
 
     async resolveModel(provider, model) {
       const providerId = typeof provider === 'string' && provider.length > 0 ? provider : DEFAULT_PROVIDER_ID;
+      // 容量申报：dsh 压缩读的是这里（拿不到 context 会抛 TargetPressureConfigError）。
+      // 申报值 = 所有已知模型窗口的最小值，兜底 config.contextWindowFallback（缺省 262144）；
+      // 取值函数保证返回正数，0/负数/NaN 会让 dsh 抛 INVALID_MODEL_CONTEXT 直接崩掉整轮对话。
+      const config = await resolvedDeps.readConfig({ dataRoot: adapterDataRoot, logger: resolvedDeps.logger });
+      const contextWindow = await resolveDeclaredContextWindow({
+        config,
+        dataRoot: adapterDataRoot,
+        logger: resolvedDeps.logger,
+        fetchImpl: resolvedDeps.fetchImpl,
+      });
       return {
         provider: providerId,
         id: typeof model === 'string' && model.length > 0 ? model : DEFAULT_PROVIDER_ID,
         name: PLUGIN_MODEL_NAME,
+        context: { contextWindow },
       };
     }
 
@@ -213,6 +226,12 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
         throw toLlmError(targetError, 'MODEL_UNRESOLVED');
       }
       const target = targetResolution.target;
+
+      // 发请求前超限检查（契约 02 §5.4）：只对"单模型"目标做——分组目标是运行时轮换选成员，
+      // 此刻没有确定窗口，硬判会把正常请求拦掉；未知窗口也放行（宁可漏报不误报）。
+      if (isContextGuardEnabled(config) && target && target.type === 'model') {
+        await this.assertContextWithinWindow({ config, target, options, sessionId });
+      }
 
       const dispatchResult = await resolvedDeps.dispatchWithRotation({
         config,
@@ -250,6 +269,60 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
         aborted: streamState.abortedByCaller,
       });
       yield* this.finishStream({ streamState, chunkBuilder });
+    }
+
+    // 超限检查：估算 = max(本次消息估算, 上次成功请求的 prompt_tokens)，只在明确超过窗口时拒绝
+    async assertContextWithinWindow({ config, target, options, sessionId }) {
+      const modelId = typeof target?.id === 'string' ? target.id : '';
+      const groupId = typeof target?.platformId === 'string' ? target.platformId : '';
+      if (modelId.length === 0 || groupId.length === 0) return;
+
+      let windowTokens = null;
+      try {
+        windowTokens = await resolveModelContextWindow({
+          config,
+          groupId,
+          modelId,
+          dataRoot: adapterDataRoot,
+          logger: resolvedDeps.logger,
+          fetchImpl: resolvedDeps.fetchImpl,
+        });
+      } catch (windowError) {
+        resolvedDeps.logger.warn(`目标模型窗口查询失败，本次跳过超限检查：${describeFailure(windowError)}`);
+        return;
+      }
+      if (windowTokens === null) return;   // 窗口未知：不拦
+
+      const lastPromptTokens = await this.readLastPromptTokens({ sessionId });
+      const outboundMessages = buildOpenAiRequestBody(options, modelId).messages;
+      const estimatedTokens = Math.max(estimateMessagesTokens(outboundMessages), lastPromptTokens ?? 0);
+      const verdict = evaluateContextGuard({ estimatedTokens, windowTokens });
+      if (verdict.blocked) {
+        throw new LlmErrorClass(
+          buildContextOverflowMessage({ estimatedTokens, lastPromptTokens, windowTokens, modelId }),
+          'CONTEXT_OVERFLOW',
+        );
+      }
+      // 接近上限时留一行日志：真超了以后能回看是不是估算偏差，而不是只有一个"上游 400"
+      if (estimatedTokens > windowTokens * 0.9) {
+        resolvedDeps.logger.info(`上下文接近目标窗口：估算 ${estimatedTokens} / 窗口 ${windowTokens}（${modelId}）`);
+      }
+    }
+
+    // 上次成功请求的 prompt_tokens：请求行里唯一可靠的"真实占用"参照（估算只作补充）
+    async readLastPromptTokens({ sessionId }) {
+      try {
+        const rows = await readRequestRows({ dataRoot: adapterDataRoot, logger: resolvedDeps.logger });
+        for (let index = rows.length - 1; index >= 0; index -= 1) {
+          const row = rows[index];
+          if (sessionId && row?.sessionId && row.sessionId !== sessionId) continue;
+          const promptTokens = row?.usage?.promptTokens;
+          if (typeof promptTokens === 'number' && promptTokens > 0) return promptTokens;
+        }
+      } catch (readError) {
+        resolvedDeps.logger.warn(`读取历史请求行失败，超限检查改用纯估算：${describeFailure(readError)}`);
+      }
+      return null;
     }
 
     // 收尾：调用方取消要抛 ABORTED，否则补齐 finish 块（拆出来让 stream 本体保持可读长度）
