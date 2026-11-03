@@ -12,7 +12,7 @@ import {
   normalizeContextLength,
   pickDeclaredContextWindow,
 } from '../src/gateway/model-capacity.js';
-import { resolveDeclaredContextWindow, resetContextWindowCache } from '../src/plugin/context-window.js';
+import { peekDeclaredContextWindow, resolveDeclaredContextWindow, resetContextWindowCache } from '../src/plugin/context-window.js';
 import {
   buildContextOverflowMessage,
   estimateMessagesTokens,
@@ -297,4 +297,79 @@ test('resolveModel 冷调用：上游永不返回也要 50ms 内给出兜底值�
     true,
     `冷调用耗时 ${elapsedMs}ms 超过 ${COLD_RESOLVE_BUDGET_MS}ms：探测又回到 resolveModel 的同步路径了`,
   );
+});
+
+// T28：config.contextWindow 显式覆盖（三级取值的①级）。
+// 为什么要有这一级：上游不报容量时（agnes 的 /v1/models 0 条带容量字段），运维只能手填真实值，
+// 否则永远退兜底，申报值与真实窗口不一致。
+test('T28 ①：override 有效 → 压过「已知模型最小值」', () => {
+  const declaredWindow = pickDeclaredContextWindow({
+    override: 200000,
+    knownWindows: [1000000, 128000],
+  });
+  assert.equal(declaredWindow, 200000);
+});
+
+test('T28 ②：override 有效 → 无任何样本时也压过兜底', () => {
+  const declaredWindow = pickDeclaredContextWindow({
+    override: '307200',
+    knownWindows: [],
+    fallback: 1048576,
+  });
+  assert.equal(declaredWindow, 307200);
+});
+
+test('T28 ③：override 非法（0 / 负数 / NaN / 非数字串）→ 回退到已知最小值', () => {
+  for (const invalidOverride of [0, -1, Number.NaN, 'not-a-number', '', {}]) {
+    const declaredWindow = pickDeclaredContextWindow({
+      override: invalidOverride,
+      knownWindows: [1000000, 128000],
+    });
+    assert.equal(declaredWindow, 128000, `${String(invalidOverride)} 应视为未设置`);
+  }
+});
+
+test('T28 ④：override 非法 + 无样本 → 落兜底，且只告警一次（peek 口径）', () => {
+  resetContextWindowCache();
+  const warnings = [];
+  const logger = { info() {}, warn: (message) => warnings.push(message), error() {} };
+  const config = { contextWindow: 0, groups: [] };
+
+  assert.equal(peekDeclaredContextWindow({ config, logger }), DEFAULT_CONTEXT_WINDOW_FALLBACK);
+  assert.equal(peekDeclaredContextWindow({ config, logger }), DEFAULT_CONTEXT_WINDOW_FALLBACK);
+  assert.equal(warnings.length, 1, '非法覆盖值只告警一次，不能每次 resolveModel 都刷');
+  assert.match(warnings[0], /contextWindow/);
+
+  // 复位后应重新允许告警（否则测试隔离性差，线上也无法在修好再改坏时看到提示）
+  resetContextWindowCache();
+  peekDeclaredContextWindow({ config, logger });
+  assert.equal(warnings.length, 2);
+});
+
+test('T28 ⑤：未设 override → 行为与改动前一致（回归保护）', () => {
+  const withWindows = pickDeclaredContextWindow({ knownWindows: [1000000, 300000] });
+  assert.equal(withWindows, 300000, '未设 override 仍取最小值');
+
+  const withoutWindows = pickDeclaredContextWindow({ knownWindows: [] });
+  assert.equal(withoutWindows, DEFAULT_CONTEXT_WINDOW_FALLBACK, '未设 override 且无样本仍落兜底');
+
+  const customFallback = pickDeclaredContextWindow({ knownWindows: [], fallback: 65536 });
+  assert.equal(customFallback, 65536, '未设 override 时自定义兜底仍生效');
+});
+
+test('T28 ⑥：适配器 resolveModel 也吃 override（生产路径与 peek 同口径）', async (t) => {
+  const dataRoot = await createTempDirectory(t);
+  const logger = createRecordingLogger();
+  await writeConfig({ contextWindow: 524288, groups: [buildStaticGroup()] }, { dataRoot });
+  resetContextWindowCache();
+
+  const ModelTimAdapter = createModelTimAdapter({
+    BaseAdapter: StubLlmAdapter,
+    LlmErrorClass: StubLlmError,
+    deps: { dataRoot, logger, clock: createFixedClock() },
+  });
+  const resolvedModel = await new ModelTimAdapter().resolveModel('dsh-model-team', 'dsh-model-team');
+
+  // 群里有 1000000 / 300000 两个窗口，override 必须压过最小值
+  assert.equal(resolvedModel.context.contextWindow, 524288);
 });

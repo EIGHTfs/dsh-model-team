@@ -42,12 +42,18 @@ export function normalizeMaxOutputTokens(rawEntry) {
 }
 
 /**
- * 申报窗口：所有**已知**模型窗口的最小值；一个都没有则用兜底值。
- * 取最小值是安全下界 —— 虚拟模型底下可能挂着任意一个真实模型，申报大了会让 dsh 在超窗时才失败。
- * @param {{knownWindows?: Array<number|null|undefined>, fallback?: number|string}} [input]
+ * 申报窗口（三级逐级回退，契约 02 §5.4）：
+ *   ① 显式覆盖 `override`（config.contextWindow）：上游不报容量时手填真实值
+ *   ② 所有**已知**模型窗口的最小值（安全下界：虚拟模型底下可能挂着任意真实模型）
+ *   ③ 兜底 `fallback`（config.contextWindowFallback，缺省 1048576）
+ * 非法覆盖值在这里只做「视为未设置」（继续往下走）；要不要告警由调用方决定，保持本函数纯粹。
+ * @param {{knownWindows?: Array<number|null|undefined>, fallback?: number|string, override?: number|string}} [input]
  * @returns {number} 一定是正数（最差返回 DEFAULT_CONTEXT_WINDOW_FALLBACK）
  */
-export function pickDeclaredContextWindow({ knownWindows = [], fallback } = {}) {
+export function pickDeclaredContextWindow({ knownWindows = [], fallback, override } = {}) {
+  const overrideWindow = toPositiveInteger(override);
+  if (overrideWindow !== null) return overrideWindow;
+
   const validWindows = [];
   for (const candidate of knownWindows) {
     const normalized = toPositiveInteger(candidate);

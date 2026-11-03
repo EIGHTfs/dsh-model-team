@@ -35,11 +35,14 @@ export const PROBE_CACHE_TTL_FILLED_MS = 6 * 60 * 60 * 1000;
 // 再叠一层 TTL 兜住「配置没变但这次上游空手」——只按签名失效会一次空手、之后永远空手。
 let probeCache = null;
 let probeInFlight = null;
+// 「非法 config.contextWindow」的告警旗标：配置错误只需报一次，别在每次 resolveModel 时刷屏
+let warnedInvalidOverride = false;
 
-/** 测试用：清掉进程内缓存，让下一次调用重新探测 */
+/** 测试用：清掉进程内缓存，让下一次调用重新探测（告警旗标一并复位，用例之间互不污染） */
 export function resetContextWindowCache() {
   probeCache = null;
   probeInFlight = null;
+  warnedInvalidOverride = false;
 }
 
 function buildGroupsSignature(config) {
@@ -157,17 +160,28 @@ function ensureProbeCache({ config, dataRoot, logger = defaultLogger, fetchImpl 
 }
 
 /**
- * 申报窗口（同步）：命中新鲜缓存就给缓存里的最小值，否则给兜底。**绝不发起网络**。
+ * 申报窗口（同步）：三级取值 —— 显式覆盖 → 已知最小值 → 兜底。**绝不发起网络**。
  * 为什么必须同步：调用它在 resolveModel 里，那条链路是「用户切换模型」的同步路径。
- * @param {{config?: object}} [input]
+ * @param {{config?: object, logger?: object}} [input]
  * @returns {number} 一定是正数（兜底 config.contextWindowFallback，缺省 1048576）
  */
-export function peekDeclaredContextWindow({ config } = {}) {
+export function peekDeclaredContextWindow({ config, logger = defaultLogger } = {}) {
+  const overrideValue = config?.contextWindow;
+  const hasOverride = overrideValue !== undefined && overrideValue !== null;
+  // 非法覆盖值只告警一次：每次 resolveModel 都刷一条会把日志淹掉，而且这是配置错误、不是运行时故障
+  if (hasOverride && toPositiveInteger(overrideValue) === null && !warnedInvalidOverride) {
+    warnedInvalidOverride = true;
+    if (logger && typeof logger.warn === "function") {
+      logger.warn(`config.contextWindow 非法（${String(overrideValue)}），已忽略并回退到模型最小值/兜底`);
+    }
+  }
+
   const configuredWindows = collectConfiguredContextWindows(config);
   const probedWindows = shouldProbeEndpointGroups(config) ? readFreshProbeCache(config)?.allWindows ?? [] : [];
   return pickDeclaredContextWindow({
     knownWindows: [...configuredWindows, ...probedWindows],
     fallback: config?.contextWindowFallback,
+    override: hasOverride ? overrideValue : undefined,
   });
 }
 
@@ -196,7 +210,8 @@ export async function resolveDeclaredContextWindow({ config, dataRoot, logger = 
   if (shouldProbeEndpointGroups(config)) {
     await ensureProbeCache({ config, dataRoot, logger, fetchImpl });
   }
-  return peekDeclaredContextWindow({ config });
+  // 诊断路径与生产路径必须同口径（含非法 override 的告警去处）
+  return peekDeclaredContextWindow({ config, logger });
 }
 
 /**

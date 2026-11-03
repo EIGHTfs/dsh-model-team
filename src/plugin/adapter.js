@@ -194,7 +194,7 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
       // 只读缓存 + 甩到后台补探：这条链路就是"用户切换模型"那一下，等一次上游 = 切一下卡 1 秒（实测），
       // 而上游常常一条容量都不报（收益为零）。探测是否真发网络由它内部的 TTL + single-flight 判定，
       // 所以这里可以无条件调用——空样本缓存不会被误判成"没探过"而每次重付一次网络。
-      const contextWindow = peekDeclaredContextWindow({ config });
+      const contextWindow = peekDeclaredContextWindow({ config, logger: resolvedDeps.logger });
       startContextWindowProbe({
         config,
         dataRoot: adapterDataRoot,
