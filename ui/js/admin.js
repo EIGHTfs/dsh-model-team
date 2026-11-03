@@ -7,6 +7,9 @@ const GROUP_ID_SUFFIX_LENGTH = 8;   // 新群名后面拼的 id 尾号长度
 // 提交加群表单：选中的平台决定 driver（authSchema 校验）与默认头像/摘要模板。
 // 平台信息全部来自 /_team/platforms，这里只用返回值，不写死任何平台字段。
 function submitNewGroup() {
+  // 重复点击保护：请求在途时直接返回。没有这道闸，双击会连发两次建群，
+  // 后端不去重 → 列表里出现同名群（G-12 的另一半症状）。
+  if (viewState.addForm.submitting) return;
   const current = ensureState();
   // 平台选择值有两种形态：preset:<平台id>（预置，带 baseURL/头像/摘要模板）
   // 或 driver:<驱动id>（通用入口，只有驱动本身）。两种都要支持提交。
@@ -69,15 +72,40 @@ function submitNewGroup() {
     submitPayload.summary = { template: summaryTemplate };
   }
 
-  newGroup.modelCount = staticModels.length || null;
+  viewState.addForm.submitting = true;
+  const submitButton = document.querySelector('#btnSubmitGroup');
+  if (submitButton) submitButton.disabled = true;
 
-  api.createGroup(submitPayload).catch(function () { return null; }).then(function () {
-    current.groups.push(newGroup);
+  // 提交后**以后端返回的群为准**：失败必须提示且不插入本地对象。
+  // 曾经的写法是 .catch(function () { return null; }) 吞掉错误后再无条件 push，
+  // 导致「界面显示 7 个群、config.json 里只有 2 个」的幽灵群，且重复点击会堆同名群。
+  api.createGroup(submitPayload).then(function (created) {
+    const savedGroup = created && created.group ? created.group : null;
+    if (!savedGroup) {
+      // 后端没返回群信息：视为失败，不做乐观插入
+      viewState.addForm.submitting = false;
+      toast('添加失败：服务端未返回群信息');
+      store.render();
+      return;
+    }
+    // 本地字段打底（platformId 等前端概念），后端字段覆盖（id / credentialRef 以服务端为准）。
+    // summary 例外：POST 回显的是**写入形状** { template }，列表渲染要的是渲染后字符串，
+    // 直接用会显示 [object Object]（刷新后由 GET 渲染成字符串才对得上）。
+    const mergedGroup = Object.assign({}, newGroup, savedGroup);
+    if (mergedGroup.summary && typeof mergedGroup.summary === 'object') mergedGroup.summary = summary;
+    current.groups.push(mergedGroup);
     viewState.addForm = { platformId: selectedPlatform.id, name: '', values: {} };
     viewState.modelCatalog = { mode: 'auto', models: [], probe: { loading: false, error: '' } };
+    viewState.addForm.submitting = false;
     toast('已添加群聊：' + selectedPlatform.name + ' · ' + groupName);
     store.render();
     switchView('list');
+  }).catch(function (error) {
+    // 失败路径：提示原因、保留表单、不插入、不跳转（标志必须复位，否则一次失败后再也提交不了）
+    viewState.addForm.submitting = false;
+    const reason = error && error.message ? error.message : '未知错误';
+    toast('添加失败：' + reason);
+    store.render();
   });
 }
 

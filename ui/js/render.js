@@ -157,7 +157,7 @@ function renderChat(group, models, messages, platform) {
                 placeholder="@ 选择群友或分组…"></textarea>
       <button class="btn-send" id="btnSend" type="button">发送</button>
       <div class="at-pop hidden" id="atPop">
-        <div class="at-pop-title">选择群友（单模型）或好友分组（轮换组）—— 发送后切换本会话目标</div>
+        <div class="at-pop-title">选择群友（单模型）或好友分组（轮换组）—— 发送后切换当前目标</div>
         <div id="atList"></div>
       </div>
     </footer>
@@ -400,7 +400,7 @@ function renderAddGroup(platforms, drivers, platformId, savedValues, savedName, 
     </div>
     <div class="form-footer">
       <button class="btn-primary" id="btnSubmitGroup" type="button">校验并添加群</button>
-      <div class="form-note">阶段 1 演示：提交只做表单校验提示，不会发起任何请求。</div>
+      <div class="form-note">API Key 由服务端落盘保存，配置文件里只留引用。</div>
     </div>
   </form>`;
 }

@@ -25,8 +25,15 @@ function nowTime() {
 }
 
 function toast(text) {
-  const toastNode = findElement('#toast');
-  if (!toastNode) return;
+  // 宿主壳不保证带 #toast 节点（实测：全仓没有任何地方创建它，导致所有提示静默丢失）。
+  // 这里懒创建：样式在 ui/css/panels.css 的 .toast，挂到 body 上即可用。
+  let toastNode = findElement('#toast');
+  if (!toastNode) {
+    toastNode = document.createElement('div');
+    toastNode.id = 'toast';
+    toastNode.className = 'toast';
+    document.body.appendChild(toastNode);
+  }
   toastNode.textContent = text;
   toastNode.classList.add('show');
   clearTimeout(toast.timer);

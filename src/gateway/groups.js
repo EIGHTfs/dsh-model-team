@@ -36,6 +36,31 @@ const PLAINTEXT_CREDENTIAL_FIELDS = Object.freeze(['apiKey', 'api_key', 'token',
 const CREDENTIAL_REF_PREFIXES = Object.freeze(['env:', 'file:']);
 
 // 校验并归一化一份群配置；非法直接抛 GatewayError（调用方转 400/409）
+// 由群名称派生 id：小写、空白转连字符、剔除非法字符，超长截断。
+// 只用于"调用方没给 id"的情况；给了 id 就按原样校验，不做静默改写。
+export function deriveGroupIdFromName(name) {
+  const ascii = String(name ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9._-]/g, '')
+    .replace(/^[._-]+/, '')
+    .slice(0, MAX_GROUP_ID_LENGTH);
+  return ascii;
+}
+
+// 派生 id 撞车时找下一个可用序号：base → base-2 → base-3 …（上限 99 次，超了直接报错）
+export function nextAvailableGroupId(config, baseId) {
+  const used = new Set((config?.groups ?? []).map((group) => group.id));
+  for (let suffix = 2; suffix <= 100; suffix += 1) {
+    const candidate = `${baseId}-${suffix}`;
+    if (!used.has(candidate) && candidate.length <= MAX_GROUP_ID_LENGTH) return candidate;
+  }
+  throw new GatewayError(ERROR_CODES.INVALID_REQUEST, `无法为该名称分配唯一 id：${baseId}`, {
+    hint: '请显式提供一个未被占用的 id',
+  });
+}
+
 export function validateGroupPayload(groupPayload) {
   if (typeof groupPayload !== 'object' || groupPayload === null || Array.isArray(groupPayload)) {
     throw new GatewayError(ERROR_CODES.INVALID_REQUEST, '群配置必须是对象');
@@ -43,11 +68,16 @@ export function validateGroupPayload(groupPayload) {
 
   rejectPlaintextCredentials(groupPayload);
 
-  const groupId = groupPayload.id;
-  if (typeof groupId !== 'string' || groupId.trim().length === 0) {
-    throw new GatewayError(ERROR_CODES.INVALID_REQUEST, '群配置缺少 id', { hint: `id 是 ${API_PREFIX}/groups/:id 用的平台账号标识` });
-  }
-  const trimmedGroupId = groupId.trim();
+  // 契约 §4.1：id 可选，缺省由 name 生成（docs/02）。生成规则必须落在 GROUP_ID_PATTERN 内，
+  // 否则前端按契约提交（不带 id）会被误判成"缺 id"，加群恒 400 —— 契约与实现打架时以契约为准。
+  const submittedGroupId = groupPayload.id;
+  const hasSubmittedId = typeof submittedGroupId === 'string' && submittedGroupId.trim().length > 0;
+  // 纯中文名派生不出合法 id（GROUP_ID_PATTERN 只收 ASCII），用时间戳兜底，避免中文群名加不进来；
+  // 显式给了 id 时按原样校验，不做静默改写。
+  const derivedGroupId = hasSubmittedId
+    ? ''
+    : (deriveGroupIdFromName(groupPayload.name) || `group-${Date.now().toString(36)}`);
+  const trimmedGroupId = hasSubmittedId ? submittedGroupId.trim() : derivedGroupId;
   if (trimmedGroupId.length > MAX_GROUP_ID_LENGTH || !GROUP_ID_PATTERN.test(trimmedGroupId)) {
     throw new GatewayError(ERROR_CODES.INVALID_REQUEST, `群 id 不合法：${trimmedGroupId}`, {
       hint: '只允许字母、数字、点、下划线、连字符，且以字母或数字开头',
@@ -195,6 +225,8 @@ export async function addGroup(groupPayload, { dataRoot, logger = defaultLogger 
   delete candidateGroup.models.manualModels;
 
   const normalizedGroup = validateGroupPayload(candidateGroup);
+  // 标记 id 来源：派生的 id 允许冲突时加序号，显式给的 id 冲突必须 409
+  normalizedGroup.idDerived = !(typeof groupPayload.id === 'string' && groupPayload.id.trim().length > 0);
   // 引用优先：两者都给时以 auth.apiKeyRef 为准，明文不落盘
   if (!submission.submittedApiKeyRef) {
     normalizedGroup.auth.apiKeyRef = await persistGroupApiKey(normalizedGroup.id, submission.submittedApiKey.trim(), {
@@ -204,10 +236,16 @@ export async function addGroup(groupPayload, { dataRoot, logger = defaultLogger 
   }
   const config = await readConfig({ dataRoot, logger });
   if (findGroup(config, normalizedGroup.id)) {
-    throw new GatewayError(ERROR_CODES.GROUP_EXISTS, `群已存在：${normalizedGroup.id}`, {
-      hint: `先 DELETE ${API_PREFIX}/groups/:id 再重新添加，或换一个 id`,
-    });
+    // 显式给了 id 却撞车 → 409（调用方自己选的 id，不能替他改）；
+    // 由 name 派生的 id 撞车 → 加序号（同名前缀的中文名很容易派生出同一个 slug，直接 409 会让用户加不进第二个群）
+    if (normalizedGroup.idDerived !== true) {
+      throw new GatewayError(ERROR_CODES.GROUP_EXISTS, `群已存在：${normalizedGroup.id}`, {
+        hint: `先 DELETE ${API_PREFIX}/groups/:id 再重新添加，或换一个 id`,
+      });
+    }
+    normalizedGroup.id = nextAvailableGroupId(config, normalizedGroup.id);
   }
+  delete normalizedGroup.idDerived;
   const nextConfig = { ...config, groups: [...(config.groups ?? []), normalizedGroup] };
   await writeConfig(nextConfig, { dataRoot, logger });
   logger.info(`已添加群：${normalizedGroup.id}（驱动 ${normalizedGroup.driver}）`);
