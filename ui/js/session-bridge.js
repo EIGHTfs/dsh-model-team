@@ -98,6 +98,35 @@ function recomputeDockDecision() {
   applyDockDecision(rememberDockInputs(latestDockInputs.selection, latestDockInputs.projectionAvailable));
 }
 
+// 订阅 modelSelection 的变化（G-15 根因）。
+// 为什么不能只靠渲染期取值：槽位组件什么时候重渲染由宿主决定，切模型时可能根本不重渲染，
+// 于是 latestDockInputs.selection 一直是旧值 —— 表现为「切到别的模型球不消失」「切回来也不出现」。
+// 宿主的 projection face 本身就是 observable（session.projections.faceOf(key)，
+// ui-conversation 也是这么读的），订阅它就能在变化时立即重算，且不引入任何定时轮询。
+// 返回退订函数；宿主没提供 face（旧版/结构变了）时返回 null，由调用方继续走渲染期取值。
+function subscribeModelSelection({ session, key, onChange } = {}) {
+  try {
+    const projections = session && session.projections;
+    const face = projections && typeof projections.faceOf === "function" ? projections.faceOf(key) : null;
+    if (!face || typeof face.subscribe !== "function") return null;
+    const unsubscribe = face.subscribe(function () {
+      let nextSelection;
+      try {
+        nextSelection = typeof face.getSnapshot === "function" ? face.getSnapshot() : undefined;
+      } catch (snapshotError) {
+        warnOnce("projection(modelSelection) getSnapshot", snapshotError);
+        nextSelection = undefined;
+      }
+      if (typeof onChange === "function") onChange(nextSelection);
+    });
+    return typeof unsubscribe === "function" ? unsubscribe : null;
+  } catch (error) {
+    // 订阅失败不算致命：退回渲染期取值（比现在不多也不少）
+    warnOnce("subscribe(modelSelection)", error);
+    return null;
+  }
+}
+
 // 启动取一次 meta（契约 02 §2.9）。失败或字段不全一律按"拉取失败"降级：
 // apiJson 把非 2xx 与网络异常都吞成 null，所以这里只能靠"字段齐不齐"判成败。
 function loadTeamMetaOnce() {
@@ -153,10 +182,26 @@ function createSessionBridgeComponent(reactRuntime) {
       pushSession(sessionId, sessionTitle);
     }, [sessionId, sessionTitle]);
 
-    // 响应式：projection 变化 → 组件重渲染 → 这里重新执行 → 球即时显隐（无需刷新页面）
+    // 响应式路径一（渲染驱动）：宿主重渲染时重新取值并下发
     reactRuntime.useEffect(function () {
       applyDockDecision(selectionState);
     }, [selectionState]);
+
+    // 响应式路径二（订阅驱动，G-15）：宿主不重渲染时也能感知 modelSelection 变化。
+    // 依赖 sessionId：切会话要重新订阅新 session 的 projection face；同一会话内不重复订阅。
+    reactRuntime.useEffect(function () {
+      const unsubscribe = subscribeModelSelection({
+        session: props && props.session,
+        key: MODEL_SELECTION_PROJECTION_KEY,
+        onChange: function (nextSelection) {
+          // 新值到达：先记输入（meta 迟到的重算要用最新值），再立即下发，不等 React 再渲染一次
+          applyDockDecision(rememberDockInputs(nextSelection, true));
+        }
+      });
+      return function () {
+        if (typeof unsubscribe === "function") unsubscribe();
+      };
+    }, [sessionId]);
 
     return null;
   };

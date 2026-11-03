@@ -18,7 +18,8 @@ function loadBridge() {
   decideDock: decideDock,
   rememberDockInputs: rememberDockInputs,
   loadTeamMetaOnce: loadTeamMetaOnce,
-  currentMetaInput: currentMetaInput
+  currentMetaInput: currentMetaInput,
+  subscribeModelSelection: subscribeModelSelection
 };`);
   return factory();
 }
@@ -46,6 +47,8 @@ function flushPromises() {
 
 const READY_META = { virtualModel: 'dsh-model-team', providerIds: ['dsh-model-team'] };
 const OURS_SELECTION = { next: { provider: 'dsh-model-team', model: 'dsh-model-team' } };
+// 别人家的模型：provider 与 model 都对不上 /_team/meta
+const OTHER_SELECTION = { next: { provider: 'deepseek', model: 'deepseek-v4' } };
 
 test('INV-14 判定①：selection 无值 → unknown（不显示，且不抛错）', () => {
   const bridge = loadBridge();
@@ -154,4 +157,69 @@ test('INV-14 回归守卫：客户端产物里不能再有写死的判定常量'
   assert.equal(/OUR_PROVIDER_ID|VIRTUAL_MODEL_ID/.test(CLIENT_SOURCE), false);
   assert.match(BRIDGE_SOURCE, /function decideDock\(/);
   assert.match(CLIENT_SOURCE, /getMeta: function \(\)/);
+});
+
+// G-15 回归：宿主不重渲染时，也必须靠订阅 projection face 感知 modelSelection 变化。
+// 造一个可选 emit 的假 face，等价于宿主 session.projections.faceOf(key)。
+function createFakeProjectionSession(initialSelection) {
+  const listeners = [];
+  const snapshot = { value: initialSelection };
+  const face = {
+    getSnapshot: () => snapshot.value,
+    subscribe: (callback) => {
+      listeners.push(callback);
+      return () => { listeners.splice(listeners.indexOf(callback), 1); };
+    },
+  };
+  const session = { sessionId: 'fake-session', projections: { faceOf: () => face } };
+  const emit = (nextSelection) => {
+    snapshot.value = nextSelection;
+    listeners.forEach((callback) => callback());
+  };
+  return { session, emit, listenerCount: () => listeners.length };
+}
+
+test('G-15：selection 变化但不触发组件重渲染 → 判定仍要更新（订阅驱动）', async () => {
+  const bridge = loadBridge();
+  const recorded = installClientShims({ metaPayload: READY_META });
+  // 先把 meta 拉到 ready：否则判定是 unknown（还没到），验不出 selection 的作用
+  bridge.loadTeamMetaOnce();
+  await flushPromises();
+  const fake = createFakeProjectionSession(OURS_SELECTION);
+  const decisions = [];
+  let latestSelection;
+
+  const unsubscribe = bridge.subscribeModelSelection({
+    session: fake.session,
+    key: 'modelSelection',
+    onChange: (selection) => {
+      latestSelection = selection;
+      decisions.push(bridge.rememberDockInputs(selection, true));
+    },
+  });
+
+  assert.equal(typeof unsubscribe, 'function');
+  assert.equal(fake.listenerCount(), 1, '必须真的订阅宿主的 projection face');
+
+  // 只 emit，不重渲染组件
+  fake.emit(OTHER_SELECTION);
+  fake.emit(OURS_SELECTION);
+
+  assert.deepEqual(recorded.decisions, [], '订阅回调只负责重算，下发由调用方 effect 执行');
+  assert.deepEqual(decisions, ['other', 'ours'], '隐藏后切回 ours 必须重新判定为显示');
+  assert.equal(latestSelection, OURS_SELECTION);
+
+  unsubscribe();
+  assert.equal(fake.listenerCount(), 0, '退订后不能再收到回调');
+});
+
+test('G-15：宿主没提供 projections face → 返回 null（退回渲染期取值，不抛错）', () => {
+  const bridge = loadBridge();
+  installClientShims({ metaPayload: READY_META });
+
+  assert.equal(bridge.subscribeModelSelection({ session: null, key: 'modelSelection', onChange: () => {} }), null);
+  assert.equal(bridge.subscribeModelSelection({ session: {}, key: 'modelSelection', onChange: () => {} }), null);
+  // faceOf 抛错也不能把桥打挂
+  const throwingSession = { projections: { faceOf: () => { throw new Error('face broken'); } } };
+  assert.equal(bridge.subscribeModelSelection({ session: throwingSession, key: 'modelSelection', onChange: () => {} }), null);
 });
