@@ -23,7 +23,7 @@ const CLIENT_PARTS = [
   "foundation/constants.js",
   "foundation/utils.js",
   "foundation/session.js",
-  "foundation/api-real.js",
+  "foundation/api.js",
   "foundation/styles.js"
 ];
 

@@ -100,12 +100,10 @@
 
   <noscript><p class="noscript">本预览需要启用 JavaScript 才能看到界面。</p></noscript>
 
-  <!-- 数据层：接口实现只有一份（lib/client-parts 里的 api-real.js）；设计稿注入「路径 → 假 JSON」的 mock 传输 -->
+  <!-- 数据层：接口实现只有一份（lib/client-parts 里的 api.js）。本页直接连真实后端，不再有 mock 传输 -->
   <script src="../lib/client-parts/foundation/constants.js"></script>
   <script src="../lib/client-parts/foundation/utils.js"></script>
-  <script src="../lib/client-parts/foundation/api-real.js"></script>
-  <script src="js/mock-data.js"></script>
-  <script src="js/api-mock-transport.js"></script>
+  <script src="../lib/client-parts/foundation/api.js"></script>
   <script src="js/rate.js"></script>
   <script src="js/messages.js"></script>
   <script src="js/store.js"></script>
