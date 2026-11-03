@@ -61,6 +61,22 @@ export function nextAvailableGroupId(config, baseId) {
   });
 }
 
+/**
+ * 由名称派生群 id（契约 §4.1：id 可选，缺省由 name 生成）。
+ *
+ * **id 生成方法的唯一入口** —— 以后要改「怎么生成 id」只改本函数与它调用的两个函数：
+ *   字符规则   deriveGroupIdFromName（名称 → ASCII 安全串）
+ *   空结果兜底 本函数（纯中文名派生不出合法串时用时间戳）
+ *   撞名避让   nextAvailableGroupId（base → base-2 → base-3）
+ *
+ * @param {string} name 群名称（可能含中文/空格/符号）
+ * @returns {string} 待校验的 id（合法性由 GROUP_ID_PATTERN 判断）
+ */
+export function deriveGroupId(name) {
+  // GROUP_ID_PATTERN 只收 ASCII，纯中文名会派生出空串，用时间戳兜底保证能建群
+  return deriveGroupIdFromName(name) || `group-${Date.now().toString(36)}`;
+}
+
 export function validateGroupPayload(groupPayload) {
   if (typeof groupPayload !== 'object' || groupPayload === null || Array.isArray(groupPayload)) {
     throw new GatewayError(ERROR_CODES.INVALID_REQUEST, '群配置必须是对象');
@@ -74,10 +90,9 @@ export function validateGroupPayload(groupPayload) {
   const hasSubmittedId = typeof submittedGroupId === 'string' && submittedGroupId.trim().length > 0;
   // 纯中文名派生不出合法 id（GROUP_ID_PATTERN 只收 ASCII），用时间戳兜底，避免中文群名加不进来；
   // 显式给了 id 时按原样校验，不做静默改写。
-  const derivedGroupId = hasSubmittedId
-    ? ''
-    : (deriveGroupIdFromName(groupPayload.name) || `group-${Date.now().toString(36)}`);
-  const trimmedGroupId = hasSubmittedId ? submittedGroupId.trim() : derivedGroupId;
+  const trimmedGroupId = hasSubmittedId
+    ? submittedGroupId.trim()
+    : deriveGroupId(groupPayload.name);
   if (trimmedGroupId.length > MAX_GROUP_ID_LENGTH || !GROUP_ID_PATTERN.test(trimmedGroupId)) {
     throw new GatewayError(ERROR_CODES.INVALID_REQUEST, `群 id 不合法：${trimmedGroupId}`, {
       hint: '只允许字母、数字、点、下划线、连字符，且以字母或数字开头',
