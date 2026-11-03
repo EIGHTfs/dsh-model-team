@@ -1,0 +1,410 @@
+/* layout.css —— 窗体外壳：主题变量、垫场背景、悬浮球与悬浮面板、模型团队主窗口。
+   视觉基调：蓝白、圆角、柔和投影；内容页样式在 views.css / panels.css。 */
+
+/* 主题变量集中一处，改色只动这里 */
+:root {
+  /* 主窗口尺寸：主题可覆盖这两个变量，默认 760×540（契约条款 26） */
+  --team-window-width: min(760px, 92vw);
+  --team-window-height: min(540px, 86vh);
+  --team-blue: #12a7f5;          /* 主色：亮蓝 */
+  --team-blue-deep: #0b8bd0;     /* 主色深一档，用于渐变收尾 */
+  --team-blue-soft: #e8f5ff;     /* 主色淡底，用于选中态、hover */
+  --team-text: #1f2329;          /* 主文字 */
+  --team-text-2: #6b7785;        /* 次要文字 */
+  --team-text-3: #9aa6b2;        /* 弱提示 */
+  --team-line: #e6ebf0;          /* 分割线 */
+  --team-bg: #f5f8fb;            /* 窗口内底色 */
+  --team-white: #ffffff;
+  --team-green: #20b26c;         /* 成功 / 在线 */
+  --team-orange: #f0a020;        /* 限流 */
+  --team-red: #e8513d;           /* 失败 */
+  --team-radius: 10px;
+  --team-shadow: 0 10px 30px rgba(16, 58, 96, 0.14);
+  --team-shadow-lg: 0 18px 48px rgba(16, 58, 96, 0.22);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  /* 淡蓝白渐变，衬托白色卡片与悬浮件 */
+  background: linear-gradient(160deg, #eef5fc 0%, #dfe9f4 55%, #d6e3f1 100%);
+  color: var(--team-text);
+  font: 14px/1.6 "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+  overflow: hidden;
+}
+
+/* design-only:begin */
+/* ---------------------------------------------------------------- 垫场背景 */
+/* 只给 ui/index.html 直接打开时用；build.cjs 内联样式时会整段剥掉，不进插件产物 */
+.desk {
+  position: fixed;
+  inset: 0;
+  padding: 28px 32px;
+  color: #8fa4b8;
+  pointer-events: none;      /* 纯装饰，不挡悬浮件与主窗口的点击 */
+  user-select: none;
+}
+.desk-bar {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  opacity: 0.8;
+}
+.desk-card {
+  margin-top: 18px;
+  width: min(520px, 46vw);
+  padding: 22px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 24px rgba(16, 58, 96, 0.05);
+}
+.desk-line {
+  height: 10px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background: rgba(18, 167, 245, 0.13);
+}
+.desk-line:last-child { margin-bottom: 0; }
+.w45 { width: 45%; }
+.w60 { width: 60%; }
+.w75 { width: 75%; }
+.w90 { width: 90%; }
+.desk-tip {
+  position: absolute;
+  left: 32px;
+  bottom: 22px;
+  font-size: 12px;
+  opacity: 0.75;
+}
+/* design-only:end */
+
+/* ---------------------------------------------------------------- 悬浮球 */
+.float-dock {
+  position: fixed;
+  left: calc(100% - 320px);      /* 初始位置：右下角往内缩一点 */
+  top: 58%;
+  z-index: 2147482000;           /* 契约条款 4：悬浮件必须压住宿主所有界面 */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+}
+/* 关闭整个悬浮窗时用：球与 pill 一起隐藏，只留右下角"呼出模型团队"按钮 */
+.float-dock.hidden { display: none; }
+
+.float-ball {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: grab;
+  touch-action: none;            /* 触控/触控板下别让浏览器把手势当滚动，否则拖动会被抢走 */
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  background: linear-gradient(145deg, #38bdf8, var(--team-blue) 55%, var(--team-blue-deep));
+  box-shadow: 0 10px 22px rgba(12, 122, 186, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+/* 拖动中禁掉球自身的缩放/过渡，否则跟手会被 hover/active 动画拖住 */
+.float-dock.is-dragging .float-ball { transition: none; transform: none; }
+.float-ball:hover {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 14px 28px rgba(12, 122, 186, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.float-ball:active { cursor: grabbing; transform: scale(0.97); }
+/* 球内显示当前目标（单模型名截断 / @分组名 / —），不再显示固定文案 */
+.fb-target {
+  max-width: 44px;
+  font-size: 10px;
+  line-height: 1.15;
+  text-align: center;
+  word-break: break-all;
+}
+/* 球的呼吸光晕，暗示"有实时统计在跳" */
+.fb-dot {
+  position: absolute;
+  right: 4px;
+  bottom: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--team-green);
+  border: 2px solid #fff;
+}
+
+.float-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;             /* 模型名极长时省略，不把球推出视口 */
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(18, 167, 245, 0.28);
+  box-shadow: 0 6px 16px rgba(16, 58, 96, 0.12);
+  font-size: 12px;
+  color: var(--team-text-2);
+  white-space: nowrap;
+}
+.pill-model {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  color: var(--team-blue-deep);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--team-green);
+  box-shadow: 0 0 0 3px rgba(32, 178, 108, 0.16);
+}
+
+/* ------------------------------------------------------------ 悬浮面板 */
+.float-panel {
+  position: fixed;
+  z-index: 2147482001;           /* 面板压在球之上，两者都在宿主界面之上 */
+  width: 384px;
+  border-radius: 12px;
+  background: var(--team-white);
+  border: 1px solid var(--team-line);
+  box-shadow: var(--team-shadow-lg);
+  overflow: hidden;
+  /* 开合动画：只过渡透明度与位移，不做尺寸动画（宽度固定，避免抖动） */
+  transition: opacity 160ms ease, transform 180ms cubic-bezier(0.16, 1, 0.3, 1), visibility 0s;
+}
+.float-panel.hidden {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(6px) scale(0.98);
+  pointer-events: none;
+  transition: opacity 140ms ease, transform 160ms ease, visibility 0s linear 160ms;
+}
+/* 拖动中禁掉过渡，否则跟手会被平滑掉 */
+.float-dock.is-dragging { transition: none; will-change: transform; }
+
+.fp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: linear-gradient(120deg, #eaf7ff, #f7fbff);
+  border-bottom: 1px solid var(--team-line);
+  cursor: move;                 /* 面板标题条可拖拽 */
+  user-select: none;
+  touch-action: none;           /* 同上：拖动标题条时不被浏览器手势接管 */
+}
+.fp-title-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fp-title-btn:hover { color: var(--team-blue-deep); }
+
+/* 目标行的来源提示：本会话未显式绑定、由后端回落时显示（浅色小字，不抢目标名） */
+.fp-target-source {
+  margin-left: 4px;
+  color: var(--team-text-3);
+  font-weight: 400;
+  font-size: 11px;
+}
+
+.fp-title { font-weight: 600; font-size: 13px; }
+.fp-model {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--team-text-2);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
+}
+.fp-ops { display: flex; gap: 2px; flex: none; }
+.fp-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--team-text-2);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.fp-btn:hover { background: rgba(18, 167, 245, 0.14); color: var(--team-blue-deep); }
+
+.fp-body { padding: 12px 14px; }
+.fp-row {
+  display: flex;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+.fp-k { color: var(--team-text-2); flex: none; }
+.fp-v {
+  color: var(--team-text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fp-foot { padding: 0 14px 12px; }
+.fp-enter {
+  width: 100%;
+  padding: 9px 0;
+  border: 1px solid rgba(18, 167, 245, 0.4);
+  border-radius: 8px;
+  background: linear-gradient(120deg, #eaf7ff, #f4fbff);
+  color: var(--team-blue-deep);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fp-enter:hover { background: linear-gradient(120deg, #dcf1ff, #eeF9ff); }
+
+/* 关闭悬浮窗后的再次呼出按钮 */
+.float-recall {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 2147482000;
+  padding: 10px 16px;
+  border: 1px solid rgba(18, 167, 245, 0.35);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--team-blue-deep);
+  font-size: 13px;
+  box-shadow: var(--team-shadow);
+  cursor: pointer;
+}
+.float-recall.hidden { display: none; }
+
+/* ------------------------------------------------------ 模型团队主窗口 */
+.team-app {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 2147482002;           /* 主窗口压在悬浮件之上（契约条款 4） */
+  transform: translate(-50%, -50%);
+  width: var(--team-window-width);
+  height: var(--team-window-height);
+  display: flex;
+  flex-direction: column;
+  background: var(--team-white);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  border-radius: 14px;
+  box-shadow: var(--team-shadow-lg);
+  overflow: hidden;
+}
+
+.team-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 48px;
+  padding: 0 14px;
+  flex: none;
+  background: linear-gradient(120deg, #f2f9ff, #ffffff);
+  border-bottom: 1px solid var(--team-line);
+}
+.team-logo {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: linear-gradient(145deg, #38bdf8, var(--team-blue-deep));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.team-view-name { font-size: 14px; font-weight: 600; }
+.team-bar-btn {
+  margin-left: auto;
+  padding: 6px 12px;
+  border: 1px solid var(--team-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--team-text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.team-bar-btn:hover { border-color: rgba(18, 167, 245, 0.4); color: var(--team-blue-deep); }
+
+.team-body {
+  flex: 1;
+  min-height: 0;                /* 关键：让内部滚动区正确收缩 */
+  overflow: hidden;             /* 内容在视图内部滚动，底边栏与顶栏不动 */
+  background: var(--team-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 底部三 tab（契约条款 21-24）：图标在上文字在下，固定高度、不随内容滚动 */
+.team-tabbar {
+  flex: none;
+  display: flex;
+  height: 54px;
+  border-top: 1px solid var(--team-line);
+  background: #fff;
+}
+.team-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--team-text-3);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 140ms ease;
+}
+.team-tab svg { width: 22px; height: 22px; }
+.team-tab:hover { color: var(--team-blue-deep); }
+.team-tab[aria-selected="true"] {
+  color: var(--team-blue-deep);
+  font-weight: 600;
+}
+.team-tab-label { font-size: 11px; }
+
+.noscript {
+  position: fixed;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  color: var(--team-red);
+}
+
+/* 小屏兜底：窗口贴边，悬浮球躲到左下，避免遮挡输入区 */
+@media (max-width: 720px) {
+  .team-app {
+    width: 100vw;
+    height: 100vh;
+    border-radius: 0;
+    top: 0;
+    left: 0;
+    transform: none;
+  }
+  .float-dock { left: 16px; top: unset; bottom: 96px; }
+  .float-panel { width: calc(100vw - 32px); }
+}

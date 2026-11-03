@@ -1,0 +1,6 @@
+/* app.css —— 样式总入口：按装载顺序汇总下面三份子样式。
+   index.html 直接引用这些子样式，本文件供"只记一个文件名"的场合使用。 */
+@import url("./css/layout.css");
+@import url("./css/views.css");
+@import url("./css/panels.css");
+@import url("./css/mention.css");

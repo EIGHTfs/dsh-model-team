@@ -1,0 +1,489 @@
+/* views.css —— 窗口内内容页：群列表、群聊（气泡 / 请求行 / 输入区）。
+   加群与数据库在 panels.css，@ 选择器在 mention.css，外壳在 layout.css。 */
+
+/* 每个视图都是纵向 flex，中间滚动区自行 min-height:0 */
+.view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 数据未就绪时的占位 */
+.loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--team-text-3);
+  font-size: 13px;
+}
+
+/* 视图内的通用头部（群聊 / 加群 / 数据库共用） */
+.view-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 10px 14px;
+  background: #fff;
+  border-bottom: 1px solid var(--team-line);
+}
+.view-head .head-title {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn-back {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid var(--team-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--team-text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-back:hover { border-color: rgba(18, 167, 245, 0.4); color: var(--team-blue-deep); }
+
+/* 通用头像占位：字符串头像，不引用任何外部图片 */
+.avatar {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #e8f5ff, #d4ecff);
+  color: var(--team-blue-deep);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.avatar.round { border-radius: 50%; }
+.avatar.big { width: 56px; height: 56px; font-size: 16px; border-radius: 14px; }
+
+/* 头像换成图片时保持原尺寸与圆角，不破坏布局（平台图标来自后端预置的 URL） */
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  display: block;
+}
+
+/* 视图一：群列表（= 平台账号列表） */
+.list-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 12px 16px 8px;
+}
+.list-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.list-count {
+  font-size: 12px;
+  color: var(--team-text-3);
+}
+.btn-add {
+  margin-left: auto;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 999px;
+  background: linear-gradient(120deg, #38bdf8, var(--team-blue-deep));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(12, 122, 186, 0.28);
+}
+.btn-add:hover { filter: brightness(1.05); }
+
+/* 群列表顶部：搜索框（占剩余宽度）+「我」入口（契约条款 5 / 8） */
+.group-search {
+  flex: 1;
+  min-width: 120px;
+  max-width: 280px;
+  padding: 6px 12px;
+  border: 1px solid var(--team-line);
+  border-radius: 999px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--team-text);
+  outline: none;
+}
+.group-search:focus { border-color: rgba(18, 167, 245, 0.55); }
+.btn-me {
+  padding: 6px 12px;
+  border: 1px solid var(--team-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--team-text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-me:hover { border-color: rgba(18, 167, 245, 0.4); color: var(--team-blue-deep); }
+.list-head .btn-add { margin-left: 0; }
+
+.group-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 4px 10px 14px;
+}
+.group-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+.group-item:hover { background: #fff; box-shadow: 0 2px 10px rgba(16, 58, 96, 0.06); }
+.group-item.active { background: var(--team-blue-soft); }
+.group-main { flex: 1; min-width: 0; }   /* min-width:0 是超长文本能省略的前提 */
+.group-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;                 /* 让长群名在 flex 里能真正收缩到容器宽度 */
+}
+.group-name {
+  flex: 1;
+  min-width: 0;                 /* 配合 overflow 才能出省略号，否则会撑破整行 */
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 右侧竖排：时间在上、驱动名在下，避免和摘要行抢宽度 */
+.group-right {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.group-time {
+  font-size: 11px;
+  color: var(--team-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.group-summary {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--team-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-driver {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #f0f5fa;
+  color: var(--team-text-3);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+/* 视图二：群聊（请求记录行 = 群友消息） */
+.chat-head { display: flex; align-items: center; gap: 10px; }
+.chat-head .group-tag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--team-blue-soft);
+  color: var(--team-blue-deep);
+  font-size: 11px;
+}
+.chat-head .head-sub {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--team-text-3);
+}
+
+.chat-stream {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 单条消息的通用行：头像 + 气泡 */
+.msg { display: flex; align-items: flex-start; gap: 8px; max-width: 100%; }
+.msg-left { justify-content: flex-start; }
+.msg-right { justify-content: flex-end; }
+.msg-right .avatar { order: 2; }
+.msg-right .bubble { order: 1; }
+.msg-sys { justify-content: center; }
+
+.bubble {
+  position: relative;
+  max-width: min(78%, 620px);
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  word-break: break-word;             /* 超长无空格串也要换行，不撑破气泡 */
+  box-shadow: 0 2px 8px rgba(16, 58, 96, 0.06);
+}
+.msg-left .bubble {
+  background: #fff;
+  border: 1px solid var(--team-line);
+  border-top-left-radius: 3px;
+}
+.msg-right .bubble {
+  background: linear-gradient(135deg, #45c2fb, var(--team-blue-deep));
+  border: none;
+  border-top-right-radius: 3px;
+  color: #fff;
+}
+.msg-right .bubble .mention-inline { color: #fff; font-weight: 600; }
+
+/* 请求记录行：默认单行折叠，点击展开 */
+.req-bubble { cursor: pointer; transition: box-shadow 0.14s ease, transform 0.14s ease; }
+.req-bubble:hover {
+  box-shadow: 0 6px 18px rgba(16, 58, 96, 0.12);
+  transform: translateY(-1px);
+}
+.req-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.req-model {
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--team-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.req-time {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--team-text-3);
+  font-variant-numeric: tabular-nums;
+}
+/* 右上角的小三角：提示"这一行能点开看的"，用 CSS 边框画，不依赖字体字形 */
+.req-caret {
+  flex: none;
+  width: 0;
+  height: 0;
+  margin-top: 2px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--team-text-3);
+}
+.req-bubble.expanded .req-caret {
+  border-top: none;
+  border-bottom: 5px solid var(--team-blue-deep);
+}
+/* 折叠态：状态 + 关键的四个数字挤在同一行，超出省略 */
+.req-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--team-text-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.req-meta .sep { color: #cbd5df; }
+.st {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.st-ok { background: rgba(32, 178, 108, 0.12); color: var(--team-green); }
+.st-warn { background: rgba(240, 160, 32, 0.14); color: #b5730a; }
+.st-err { background: rgba(232, 81, 61, 0.12); color: var(--team-red); }
+
+/* 展开态：气泡下面追加一张明细表 */
+.req-detail {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--team-line);
+  display: grid;
+  grid-template-columns: 74px 1fr;
+  gap: 4px 10px;
+  font-size: 12px;
+}
+.req-detail .k { color: var(--team-text-3); }
+.req-detail .v {
+  color: var(--team-text);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  word-break: break-all;              /* UA / req-id 很长，允许任意断行 */
+}
+/* 分组轮换时的"谁接的活"轻提示 */
+.req-served {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--team-text-3);
+}
+/* 系统提示：灰色居中细条 */
+.sys-tip {
+  align-self: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(31, 35, 41, 0.06);
+  color: var(--team-text-3);
+  font-size: 11.5px;
+}
+/* 每条消息的展示时间：系统提示在细条右侧、我的气泡在气泡内右下，低调不抢内容 */
+.msg-time {
+  align-self: center;
+  margin-left: 8px;
+  font-size: 10.5px;
+  color: var(--team-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.msg-right .msg-time {
+  display: block;
+  margin: 2px 0 0;
+  text-align: right;
+  font-size: 10.5px;
+  opacity: 0.75;
+}
+
+/* 模型目录（加群页第三段）：id/name 两列 + 删除；窄屏也保持不挤压 */
+.form-step-title .step-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.btn-ghost {
+  padding: 4px 10px;
+  border: 1px solid var(--team-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--team-text-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-ghost:hover:not(:disabled) { border-color: rgba(18, 167, 245, 0.4); color: var(--team-blue-deep); }
+.btn-ghost:disabled { opacity: 0.6; cursor: not-allowed; }
+.model-mode {
+  margin: 6px 0 8px;
+  font-size: 11.5px;
+  color: var(--team-text-3);
+}
+.model-table { display: flex; flex-direction: column; gap: 6px; }
+.model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 36px;
+  gap: 8px;
+  align-items: center;
+}
+.model-row input {
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--team-line);
+  border-radius: 8px;
+  font-size: 12.5px;
+  background: #fff;
+  outline: none;
+}
+.model-row input:focus { border-color: rgba(18, 167, 245, 0.55); }
+.model-row-head {
+  font-size: 11px;
+  color: var(--team-text-3);
+}
+.model-remove {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--team-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--team-text-3);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.model-remove:hover { border-color: rgba(220, 80, 80, 0.5); color: #c0392b; }
+.probe-feedback {
+  margin-top: 8px;
+  min-height: 16px;
+  font-size: 11.5px;
+  color: var(--team-text-3);
+}
+.probe-feedback.probe-error { color: #c0392b; }
+
+/* 输入区 */
+.chat-input {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #fff;
+  border-top: 1px solid var(--team-line);
+}
+.btn-at {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--team-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--team-text-2);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.btn-at:hover { color: var(--team-blue-deep); border-color: rgba(18, 167, 245, 0.4); }
+#msgInput {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  max-height: 88px;
+  padding: 9px 12px;
+  border: 1px solid var(--team-line);
+  border-radius: 8px;
+  background: var(--team-bg);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--team-text);
+  outline: none;
+  resize: none;                  /* Shift+Enter 换行，但不允许手动拖高 */
+  overflow-y: auto;
+}
+#msgInput:focus { border-color: rgba(18, 167, 245, 0.55); background: #fff; }
+.btn-send {
+  flex: none;
+  height: 36px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(120deg, #38bdf8, var(--team-blue-deep));
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-send:hover { filter: brightness(1.05); }
+
+/* @ 选择器见 mention.css；加群表单与数据库页见 panels.css */

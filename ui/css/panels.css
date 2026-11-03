@@ -1,0 +1,357 @@
+/* panels.css —— 表单与浮层：加群动态表单、我的数据库、轻提示、导入结果弹层。 */
+
+/* ========================================================================
+   视图三：加群（两步动态表单）
+   ==================================================================== */
+.form-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 20px;
+  background: #fff;
+}
+.form-step {
+  margin-bottom: 18px;
+  padding: 14px;
+  border: 1px solid var(--team-line);
+  border-radius: 10px;
+  background: #fbfdff;
+}
+.form-step-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.step-no {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--team-blue-soft);
+  color: var(--team-blue-deep);
+  font-size: 11px;
+}
+.field { margin-bottom: 12px; }
+.field:last-child { margin-bottom: 0; }
+.field-label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 12.5px;
+  color: var(--team-text-2);
+}
+.field-label .req-mark { color: var(--team-red); margin-left: 2px; }
+
+/* 动态字段：text / password 用 input，textarea 单独放宽高度 */
+.field input[type="text"],
+.field input[type="password"],
+.field textarea,
+.driver-select,
+.group-name-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--team-line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--team-text);
+  outline: none;
+}
+.field input:focus, .field textarea:focus,
+.driver-select:focus, .group-name-input:focus {
+  border-color: rgba(18, 167, 245, 0.55);
+  box-shadow: 0 0 0 3px rgba(18, 167, 245, 0.1);
+}
+.field textarea { min-height: 74px; resize: vertical; }
+.driver-hint {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--team-text-3);
+}
+/* 提交栏固定在表单底部：字段随 driver 变多时按钮始终可见，也不压住最后一个字段 */
+.form-footer {
+  flex: none;
+  padding: 10px 18px 12px;
+  text-align: center;
+  background: #fff;
+  border-top: 1px solid var(--team-line);
+}
+.btn-primary {
+  min-width: 180px;
+  padding: 10px 22px;
+  border: none;
+  border-radius: 9px;
+  background: linear-gradient(120deg, #38bdf8, var(--team-blue-deep));
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(12, 122, 186, 0.26);
+}
+.btn-primary:hover { filter: brightness(1.05); }
+.form-note {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: var(--team-text-3);
+}
+
+/* 下拉字段（如「模型列表来源」）：与输入框同宽同高，保持一行内对齐 */
+.field-select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--team-line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--team-text);
+  outline: none;
+  cursor: pointer;
+}
+.field-select:focus {
+  border-color: rgba(18, 167, 245, 0.55);
+  box-shadow: 0 0 0 3px rgba(18, 167, 245, 0.1);
+}
+
+/* ========================================================================
+   视图四：我的模型团队（导入 / 导出）
+   ==================================================================== */
+.profile-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px;
+}
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 12px;
+  background: linear-gradient(120deg, #f2f9ff, #ffffff);
+  border: 1px solid var(--team-line);
+}
+.profile-main { min-width: 0; }
+.profile-name { font-size: 15px; font-weight: 700; }
+.profile-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--team-text-2);
+}
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: auto;
+}
+.btn-outline {
+  padding: 8px 14px;
+  border: 1px solid rgba(18, 167, 245, 0.42);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--team-blue-deep);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.btn-outline:hover { background: var(--team-blue-soft); }
+
+.conn-title {
+  margin: 18px 0 8px;
+  font-size: 12.5px;
+  color: var(--team-text-2);
+  font-weight: 600;
+}
+.conn-list {
+  border: 1px solid var(--team-line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.conn-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--team-line);
+}
+.conn-item:last-child { border-bottom: none; }
+.conn-name { font-size: 13px; font-weight: 600; }
+.conn-meta {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--team-text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+  text-align: right;
+}
+/* 头像下方那行驱动名：不靠右、不省略 */
+.conn-meta-compact {
+  margin: 0;
+  max-width: none;
+  text-align: left;
+}
+
+/* ========================================================================
+   轻提示（toast）：导出成功、表单校验失败等短反馈
+   ==================================================================== */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  transform: translate(-50%, 12px);
+  z-index: 200;
+  padding: 9px 18px;
+  border-radius: 999px;
+  background: rgba(31, 35, 41, 0.88);
+  color: #fff;
+  font-size: 12.5px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* ========================================================================
+   导入结果弹层：展示 JSON 解析结果，不阻塞页面
+   ==================================================================== */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 40, 66, 0.34);
+}
+.modal {
+  width: min(640px, calc(100vw - 48px));
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--team-shadow-lg);
+  overflow: hidden;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--team-line);
+  background: linear-gradient(120deg, #f2f9ff, #ffffff);
+}
+.modal-x {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--team-text-2);
+  font-size: 15px;
+  cursor: pointer;
+}
+.modal-x:hover { background: rgba(18, 167, 245, 0.14); color: var(--team-blue-deep); }
+.modal-body {
+  padding: 14px;
+  overflow: auto;
+  font-size: 12.5px;
+}
+.modal-p { margin: 0 0 8px; color: var(--team-text-2); }
+.modal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.modal-table th, .modal-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--team-line);
+  text-align: left;
+  word-break: break-all;
+}
+.modal-table th { color: var(--team-text-3); font-weight: 600; background: #fafcfe; }
+
+/* ========================================================================
+   视图五：通讯录（好友分组管理）
+   ==================================================================== */
+.contacts-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
+}
+.contacts-label {
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  color: var(--team-text-2);
+  font-weight: 600;
+}
+.contact-list { display: flex; flex-direction: column; gap: 14px; }
+.contacts-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--team-text-3);
+  font-size: 12.5px;
+}
+.contact-row { border-bottom: 1px dashed var(--team-line); padding-bottom: 8px; }
+.contact-row:last-child { border-bottom: none; }
+.contact-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 6px;
+}
+.contact-name { font-size: 13px; font-weight: 600; }
+.contact-strategy { font-size: 11.5px; color: var(--team-text-2); }
+.contact-edit {
+  margin-left: auto;
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--team-line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--team-text-2);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.contact-edit:hover { border-color: rgba(18, 167, 245, 0.4); color: var(--team-blue-deep); }
+.contact-members { padding-left: 8px; }
+.contact-member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.contact-branch { color: var(--team-text-3); font-family: monospace; }
+.contact-member-model {
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-weight: 600;
+}
+.contact-member-from {
+  color: var(--team-text-3);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.contact-role { flex: none; font-size: 11px; color: var(--team-text-3); }
+.contact-role-main { color: var(--team-blue-deep); font-weight: 600; }
+.contacts-foot {
+  flex: none;
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--team-line);
+  background: #fff;
+  text-align: center;
+}
+.fp-contacts { margin-top: 8px; }
