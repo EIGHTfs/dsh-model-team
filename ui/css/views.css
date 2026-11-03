@@ -275,6 +275,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 目标来源标记：只在"由后端回落"时出现，弱化到不抢模型名与时间的位置 */
+.req-source {
+  flex: none;
+  font-size: 11px;
+  color: var(--team-text-3);
+  white-space: nowrap;
+}
 .req-time {
   margin-left: auto;
   flex: none;

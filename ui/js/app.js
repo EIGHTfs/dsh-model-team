@@ -97,18 +97,13 @@ function targetLabel() {
   return modelId || '—';
 }
 
-// 来源提示：只有「本会话没显式绑定、由后端回落」时才显示（浅色小字，跟在目标名后面）
-const TARGET_SOURCE_HINTS = {
-  'last-session': '（继承上一会话）',
-  parent: '（继承父会话）',
-  'fallback-group': '（兜底群默认）'
-};
-
+// 来源提示：只有「本会话没显式绑定、由后端回落」时才显示（浅色小字，跟在目标名后面）。
+// 文案映射与请求卡片共用 ui/js/target-source.js，两处各写一份必然漂移。
 function targetSourceHint() {
   const current = ensureState();
   if (!current || !current.effectiveTarget) return '';
   if (current.target) return '';                       // 显式绑定过 → 不带提示
-  return TARGET_SOURCE_HINTS[current.targetSource] || '';
+  return targetSourceHintOf(current.targetSource);
 }
 
 // ---------------------------------------------------------------- 渲染（唯一出口）

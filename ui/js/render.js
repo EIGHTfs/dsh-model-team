@@ -49,6 +49,7 @@ function requestRow(row, index, isExpanded, platform) {
          title="${escapeHtml(row.title)}">
       <div class="req-head">
         <span class="req-model">${escapeHtml(modelName)}</span>
+        ${renderTargetSourceBadge(row.targetSource)}
         <span class="req-time">${escapeHtml(row.time)}</span>
         <span class="req-caret" aria-hidden="true"></span>
       </div>
