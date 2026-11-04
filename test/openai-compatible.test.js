@@ -13,6 +13,7 @@ import {
   renderSummaryTemplate,
   validateAuth,
 } from '../src/gateway/drivers/openai-compatible.js';
+import { resolveDefaultUserAgent } from '../src/gateway/constants.js';
 import { createRecordingLogger } from './helpers/test-environment.js';
 import { startStubUpstream, writeJson } from './helpers/stub-upstream.js';
 
@@ -225,4 +226,54 @@ test('readFieldByPath：路径中间不是对象时返回 undefined', () => {
   assert.equal(readFieldByPath({ a: 'text' }, 'a.b'), undefined);
   assert.equal(readFieldByPath(null, 'a'), undefined);
   assert.equal(readFieldByPath({ a: { b: 3 } }, 'a.b'), 3);
+});
+
+// ---------------------------------------------------------------- G-ua：出站默认 User-Agent
+// 背景：undici 缺 UA 时会发字面量 `node`，上游无法把「正规客户端」与「滥用脚本」区分开。
+// 这里走真实 stub 上游抓请求头，断的是**真正发出去的字节**，不是拼装函数的返回值。
+
+test('G-ua-①：默认请求带 dsh-model-team/<version>，且不是字面量 node', async (t) => {
+  const stub = await startStubUpstream({
+    routes: {
+      'POST /v1/chat/completions': ({ outgoingResponse }) =>
+        writeJson(outgoingResponse, 200, {
+          id: 'chatcmpl-ua',
+          choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+    },
+  });
+  t.after(() => stub.close());
+
+  await chatCompletions(buildContext(buildGroup({ baseURL: stub.baseURL })), {
+    model: 'agnes-2.5-flash',
+    messages: [{ role: 'user', content: 'hi' }],
+  });
+
+  const sentUserAgent = stub.requests[0].headers['user-agent'];
+  assert.match(sentUserAgent, /^dsh-model-team\/\d+\.\d+\.\d+/, `实际 UA：${sentUserAgent}`);
+  assert.notEqual(sentUserAgent, 'node', 'undici 的裸 node 默认值必须被覆盖');
+});
+
+test('G-ua-②：group.request.extraHeaders 里的 user-agent 能覆盖默认值', async (t) => {
+  const stub = await startStubUpstream({
+    routes: {
+      'POST /v1/chat/completions': ({ outgoingResponse }) =>
+        writeJson(outgoingResponse, 200, { choices: [{ message: { role: 'assistant', content: 'ok' } }] }),
+    },
+  });
+  t.after(() => stub.close());
+
+  await chatCompletions(
+    buildContext(buildGroup({ baseURL: stub.baseURL, request: { extraHeaders: { 'user-agent': 'custom-agent/9.9' } } })),
+    { model: 'agnes-2.5-flash', messages: [{ role: 'user', content: 'hi' }] },
+  );
+
+  assert.equal(stub.requests[0].headers['user-agent'], 'custom-agent/9.9', '用户配置优先于默认值');
+});
+
+test('G-ua-③：读不到 package.json 版本时回落成包名（不会让插件起不来）', () => {
+  assert.equal(resolveDefaultUserAgent(() => { throw new Error('ENOENT'); }), 'dsh-model-team');
+  assert.equal(resolveDefaultUserAgent(() => ''), 'dsh-model-team');
+  assert.equal(resolveDefaultUserAgent(() => '9.9.9'), 'dsh-model-team/9.9.9');
 });

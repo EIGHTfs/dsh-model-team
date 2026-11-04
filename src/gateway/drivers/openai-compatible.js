@@ -5,6 +5,7 @@
 //      chatCompletions 不抛异常，统一返回 { ok, status, response, usage, error }，网关据此写请求行而不中断服务；
 //      fetchModels 按契约返回数组，失败时抛带 code/status 的错误，由调用方捕获（网关集中记失败）。
 
+import { DEFAULT_USER_AGENT } from '../constants.js';
 import { defaultLogger, describeFailure } from '../logger.js';
 import { normalizeContextLength, normalizeMaxOutputTokens } from '../model-capacity.js';
 import { CREDENTIALS_API_KEY_FIELD } from '../credentials.js';
@@ -199,6 +200,8 @@ function prepareUpstreamRequest({ context, endpointPath, method }) {
     requestUrl,
     requestHeaders: {
       'content-type': 'application/json',
+      // 默认 UA 放在 extraHeaders 之前：用户配的 extraHeaders 可以覆盖它
+      'user-agent': DEFAULT_USER_AGENT,
       ...authPlan.headers,
       ...(group.request?.extraHeaders ?? {}),
     },
