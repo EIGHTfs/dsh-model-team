@@ -23,6 +23,8 @@ const IMAGE_BLOCK_TYPE = 'image';
 const IMAGE_UNSENDABLE_PREFIX = '[图片无法发送：';
 // tool 消息里带图时的两句提示（OpenAI 协议不允许 role:'tool' 放图，图要跟一条 user 消息）
 const TOOL_IMAGE_FOLLOWUP_HINT = '（附图见下一条消息）';
+// 部分取到时的提示：必须让模型知道有几张没送到，否则它会以为图都在
+const TOOL_IMAGE_PARTIAL_HINT_PREFIX = '（附图见下一条消息：';
 const TOOL_IMAGE_MISSING_HINT = '（附图未取到）';
 const TOOL_IMAGE_INTRO_TEXT = '以下是工具 read_image 返回的图片：';
 
@@ -114,7 +116,12 @@ function toOpenAiContentBlocks(message, imageUrls) {
 function splitTextAndImageBlocks(message, imageUrls) {
   const blocks = toOpenAiContentBlocks(message, imageUrls);
   if (!Array.isArray(blocks)) {
-    return { text: String(blocks == null ? '' : blocks), imageBlocks: [], hasImageBlock: messageHasImageBlock(message) };
+    return {
+      text: String(blocks == null ? '' : blocks),
+      imageBlocks: [],
+      imageBlockCount: 0,
+      hasImageBlock: messageHasImageBlock(message),
+    };
   }
   const textParts = [];
   const imageBlocks = [];
@@ -125,7 +132,16 @@ function splitTextAndImageBlocks(message, imageUrls) {
       textParts.push(block.text);
     }
   }
-  return { text: textParts.join('\n').trim(), imageBlocks, hasImageBlock: messageHasImageBlock(message) };
+  // imageBlockCount 统计**消息里所有** image 块（含没取到 url 的），用来算"几张没送到"
+  const imageBlockCount = Array.isArray(message?.content)
+    ? message.content.filter((block) => block && block.type === IMAGE_BLOCK_TYPE).length
+    : 0;
+  return {
+    text: textParts.join('\n').trim(),
+    imageBlocks,
+    imageBlockCount,
+    hasImageBlock: messageHasImageBlock(message),
+  };
 }
 
 // 该消息是否含 image 块（用于区分"本来没图"与"有图但没取到"）
@@ -182,16 +198,8 @@ const EMPTY_TOOL_RESULT_TEXT = '(no output)';
 //      （其结果同样变孤儿，一并丢弃）。两个方向的孤儿都会让上游 400；
 //   5. 顺序约束：role:'tool' 必须紧跟带 tool_calls 的 assistant——中间插入任何消息都会被
 //      上游 400，所以 developer 映射出的 system 卡在中间时要延后到这批 tool 结果之后。
-export function toOpenAiMessages(rawMessages, systemPrompt, imageUrls) {
-  // 先归一化：legacy 的包裹式工具结果升级成一等 tool 消息，后续只有一条形状路径。
-  // 新形状输入时 normalizeHarnessMessages 原样返回同一数组（零开销、行为逐字节不变）。
-  const messages = normalizeHarnessMessages(rawMessages);
-  const openAiMessages = [];
-  if (typeof systemPrompt === 'string' && systemPrompt.length > 0) {
-    openAiMessages.push({ role: 'system', content: systemPrompt });
-  }
-
-  // 第一遍：收集配对信息（双向孤儿剔除的依据）。结果 id 全集 ∩ 有 name 的调用 = 保留集。
+// 第一遍：收集配对信息（双向孤儿剔除的依据）。结果 id 全集 ∩ 有 name 的调用 = 保留集。
+function collectKeptToolCallIds(messages) {
   const resultIds = new Set();
   for (const message of messages ?? []) {
     if (message?.role === 'tool' && message.toolCallId !== undefined && message.toolCallId !== null) {
@@ -215,92 +223,111 @@ export function toOpenAiMessages(rawMessages, systemPrompt, imageUrls) {
       if (resultIds.has(toolCall.id)) keptCallIds.add(toolCall.id);
     }
   }
+  return keptCallIds;
+}
 
-  // 第二遍：组装。pendingToolResults 记当前 assistant 批还差几条结果；
-  // deferredSystemMessages 缓冲卡在 assistant 与 tool 之间的 system 消息，等结果发完补发。
-  let pendingToolResults = 0;
-  const deferredSystemMessages = [];
-  // 本批 tool 结果里收集到的图片块，等整批发完再统一跟一条 user 消息（见 tool 分支注释）
-  const pendingToolImages = [];
-  function flushPendingToolImages() {
-    if (pendingToolImages.length === 0) return;
-    openAiMessages.push({
-      role: 'user',
-      content: [{ type: 'text', text: TOOL_IMAGE_INTRO_TEXT }, ...pendingToolImages],
-    });
-    pendingToolImages.length = 0;
+// tool 正文：有图要提示"见下一条"，部分取到还要如实说几张可用；
+// 有图块但一张都没取到则明说"未取到"；纯文本逐字保留。
+function buildToolResultBody(toolParts) {
+  if (toolParts.imageBlocks.length > 0) {
+    const sentImageCount = toolParts.imageBlocks.length;
+    const totalImageCount = Math.max(sentImageCount, toolParts.imageBlockCount);
+    const followupHint = sentImageCount < totalImageCount
+      ? `${TOOL_IMAGE_PARTIAL_HINT_PREFIX}${totalImageCount} 张中 ${sentImageCount} 张可用）`
+      : TOOL_IMAGE_FOLLOWUP_HINT;
+    return toolParts.text.length > 0 ? `${toolParts.text}\n${followupHint}` : followupHint;
   }
+  if (toolParts.hasImageBlock) {
+    return toolParts.text.length > 0 ? `${toolParts.text}\n${TOOL_IMAGE_MISSING_HINT}` : TOOL_IMAGE_MISSING_HINT;
+  }
+  return toolParts.text.length > 0 ? toolParts.text : EMPTY_TOOL_RESULT_TEXT;
+}
+
+// 收尾/换批时把本批收集到的图发成一条 user 消息（顺序即收集顺序）
+function flushPendingToolImages(assembly) {
+  if (assembly.pendingToolImages.length === 0) return;
+  assembly.openAiMessages.push({
+    role: 'user',
+    content: [{ type: 'text', text: TOOL_IMAGE_INTRO_TEXT }, ...assembly.pendingToolImages],
+  });
+  assembly.pendingToolImages.length = 0;
+}
+
+// 一条 tool 结果：正文发文本，图片收集起来等整批发完再补一条 user（协议不允许 tool 带图）
+function pushToolResultMessage(assembly, message, keptCallIds, imageUrls) {
+  const callId = String(message.toolCallId ?? '');
+  if (!keptCallIds.has(callId)) return;        // 孤儿工具结果：丢弃
+  const toolParts = splitTextAndImageBlocks(message, imageUrls);
+  const body = buildToolResultBody(toolParts);
+  assembly.openAiMessages.push({
+    role: 'tool',
+    tool_call_id: callId,
+    content: message.isError === true ? `[工具执行失败]\n${body}` : body,
+  });
+  if (toolParts.imageBlocks.length > 0) assembly.pendingToolImages.push(...toolParts.imageBlocks);
+  assembly.pendingToolResults -= 1;
+  if (assembly.pendingToolResults > 0) return;
+
+  // 顺序硬要求：附图 user 必须在这批 tool 结果**全部发完**之后插入，
+  // 否则会插进 assistant(tool_calls) 与 tool 之间 → 破坏配对 → 上游 400。
+  flushPendingToolImages(assembly);
+  if (assembly.deferredSystemMessages.length > 0) {
+    assembly.openAiMessages.push(...assembly.deferredSystemMessages);
+    assembly.deferredSystemMessages.length = 0;
+  }
+}
+
+// developer / assistant / user：developer 映射 system（卡在批中间要延后）；
+// assistant 只取文本并挂 tool_calls；user 走图文块。
+function pushRegularMessage(assembly, message, role, imageUrls, keptCallIds) {
+  if (role === 'developer') {
+    const systemEntry = { role: 'system', content: toOpenAiTextOnly(message) };
+    if (assembly.pendingToolResults > 0) assembly.deferredSystemMessages.push(systemEntry);
+    else assembly.openAiMessages.push(systemEntry);
+    return;
+  }
+  const toolCalls = role === 'assistant' ? toOpenAiToolCalls(message) : undefined;
+  const textContent = role === 'assistant' ? toOpenAiTextOnly(message) : toOpenAiContentBlocks(message, imageUrls);
+  const entry = { role, content: toolCalls && textContent.length === 0 ? null : textContent };
+  if (toolCalls) {
+    const pairedCalls = toolCalls.filter((toolCall) => keptCallIds.has(toolCall.id));
+    if (pairedCalls.length > 0) {
+      entry.tool_calls = pairedCalls;
+      assembly.pendingToolResults = pairedCalls.length;
+    } else {
+      // 调用全部被剔（如全是空名）：没有 tool_calls 的消息 content 必须有值
+      entry.content = textContent.length > 0 ? textContent : EMPTY_TOOL_RESULT_TEXT;
+    }
+  }
+  assembly.openAiMessages.push(entry);
+}
+
+// 主入口：归一化 → 配对剪枝 → 逐条组装（三段拆开是为了每个函数只干一件事）
+export function toOpenAiMessages(rawMessages, systemPrompt, imageUrls) {
+  // 先归一化：legacy 的包裹式工具结果升级成一等 tool 消息，后续只有一条形状路径。
+  // 新形状输入时 normalizeHarnessMessages 原样返回同一数组（零开销、行为逐字节不变）。
+  const messages = normalizeHarnessMessages(rawMessages);
+  const keptCallIds = collectKeptToolCallIds(messages);
+
+  const assembly = {
+    openAiMessages: [],
+    pendingToolResults: 0,
+    deferredSystemMessages: [],
+    pendingToolImages: [],
+  };
+  if (typeof systemPrompt === 'string' && systemPrompt.length > 0) {
+    assembly.openAiMessages.push({ role: 'system', content: systemPrompt });
+  }
+
   for (const message of messages ?? []) {
     const role = typeof message?.role === 'string' ? message.role : 'user';
-    if (role === 'developer') {
-      const systemEntry = { role: 'system', content: toOpenAiTextOnly(message) };
-      if (pendingToolResults > 0) {
-        deferredSystemMessages.push(systemEntry); // tool 必须紧跟 assistant，延后
-      } else {
-        openAiMessages.push(systemEntry);
-      }
-      continue;
-    }
-    if (role === 'tool') {
-      const callId = String(message.toolCallId ?? '');
-      if (!keptCallIds.has(callId)) {
-        continue; // 孤儿工具结果（无配对调用，或其调用因空名被剔）：丢弃
-      }
-      // tool 结果里可能有图（read_image 返回的就是 tool 消息里的图块）。
-      // OpenAI 兼容协议**不允许 role:'tool' 带图**（content 必须是字符串），标准做法是：
-      //   tool 消息照旧发文本（并提示"附图见下一条消息"），该批结果全部发完后紧跟一条 user 承载图片。
-      const toolParts = splitTextAndImageBlocks(message, imageUrls);
-      const isError = message.isError === true;
-      let body;
-      if (toolParts.imageBlocks.length > 0) {
-        body = toolParts.text.length > 0
-          ? `${toolParts.text}\n${TOOL_IMAGE_FOLLOWUP_HINT}`
-          : TOOL_IMAGE_FOLLOWUP_HINT;
-      } else if (toolParts.hasImageBlock) {
-        // 有图块但没取到（imageUrls 里是 error 或压根没有）：明说没取到，别让模型以为图丢了
-        body = toolParts.text.length > 0 ? `${toolParts.text}\n${TOOL_IMAGE_MISSING_HINT}` : TOOL_IMAGE_MISSING_HINT;
-      } else {
-        body = toolParts.text.length > 0 ? toolParts.text : EMPTY_TOOL_RESULT_TEXT;
-      }
-      openAiMessages.push({
-        role: 'tool',
-        tool_call_id: callId,
-        content: isError ? `[工具执行失败]\n${body}` : body,
-      });
-      if (toolParts.imageBlocks.length > 0) pendingToolImages.push(...toolParts.imageBlocks);
-      pendingToolResults -= 1;
-      if (pendingToolResults <= 0) {
-        // 顺序硬要求：附图 user 必须在这批 tool 结果**全部发完**之后插入，
-        // 否则会插进 assistant(tool_calls) 与 tool 之间 → 破坏配对 → 上游 400
-        if (pendingToolImages.length > 0) {
-          flushPendingToolImages();
-        }
-        if (deferredSystemMessages.length > 0) {
-          flushPendingToolImages();          // 收尾：万一这批 tool 结果没凑齐，也别把已取到的图丢掉
-  openAiMessages.push(...deferredSystemMessages); // 该批结果发完，补发缓冲的 system
-          deferredSystemMessages.length = 0;
-        }
-      }
-      continue;
-    }
-    const toolCalls = role === 'assistant' ? toOpenAiToolCalls(message) : undefined;
-    // assistant 不该带图（上游不接受）→ 只取文本；用户/系统消息才走图文块
-    const textContent = role === 'assistant' ? toOpenAiTextOnly(message) : toOpenAiContentBlocks(message, imageUrls);
-    const assistantEntry = { role, content: toolCalls && textContent.length === 0 ? null : textContent };
-    if (toolCalls) {
-      const pairedCalls = toolCalls.filter((toolCall) => keptCallIds.has(toolCall.id));
-      if (pairedCalls.length > 0) {
-        assistantEntry.tool_calls = pairedCalls;
-        pendingToolResults = pairedCalls.length;
-      } else {
-        // 调用全部被剔（如全是空名）：没有 tool_calls 的消息 content 必须有值
-        assistantEntry.content = textContent.length > 0 ? textContent : EMPTY_TOOL_RESULT_TEXT;
-      }
-    }
-    openAiMessages.push(assistantEntry);
+    if (role === 'tool') pushToolResultMessage(assembly, message, keptCallIds, imageUrls);
+    else pushRegularMessage(assembly, message, role, imageUrls, keptCallIds);
   }
-  openAiMessages.push(...deferredSystemMessages);
-  return openAiMessages;
+
+  flushPendingToolImages(assembly);
+  assembly.openAiMessages.push(...assembly.deferredSystemMessages);
+  return assembly.openAiMessages;
 }
 
 // dsh 工具声明 → OpenAI function 工具

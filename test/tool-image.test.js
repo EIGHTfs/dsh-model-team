@@ -248,3 +248,34 @@ test('G-24-④：同一条 tool 结果里一有一无（一个 url、一个 erro
   const urls = imageMessages[0].content.filter((block) => block.type === 'image_url').map((block) => block.image_url.url);
   assert.deepEqual(urls, [DATA_URL_A], '只带取到的那张，顺序不变');
 });
+
+test('G-24-⑤：部分失败时正文必须体现「几张可用」，全成功时不许出现该提示', () => {
+  // 一会儿要用两份独立会话：写成工厂，别复用同一份数组
+  const buildTwoImages = () => buildConversation([{
+    role: 'tool',
+    toolCallId: 'c1',
+    content: [
+      { type: 'text', text: '两张图' },
+      { type: 'image', attachment: ATTACHMENT_A },
+      { type: 'image', attachment: ATTACHMENT_B },
+    ],
+  }]);
+
+  // 一条成功、一条失败：模型必须能看出"只送到 1 张"
+  const partial = toOpenAiMessages(buildTwoImages(), '', imageUrlsFor({
+    'sha256-aaaa': { url: DATA_URL_A },
+    'sha256-bbbb': { error: '读取失败' },
+  }));
+  const partialTool = partial.find((message) => message.role === 'tool');
+  assert.match(partialTool.content, /2 张中 1 张可用/, '部分失败要如实告知张数');
+  assert.match(partialTool.content, /附图见下一条消息/, '仍要指向附图消息');
+
+  // 两张都成功：不许出现"几张可用"这种噪声
+  const full = toOpenAiMessages(buildTwoImages(), '', imageUrlsFor({
+    'sha256-aaaa': { url: DATA_URL_A },
+    'sha256-bbbb': { url: DATA_URL_B },
+  }));
+  const fullTool = full.find((message) => message.role === 'tool');
+  assert.match(fullTool.content, /（附图见下一条消息）$/, '全成功用简洁提示');
+  assert.equal(fullTool.content.includes('张中'), false, '全成功时不该出现张数提示');
+});
