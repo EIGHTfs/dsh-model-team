@@ -61,6 +61,25 @@ function toBase64(bytes) {
  * 逐张读取图片，返回 Map<attachmentId, { url } | { error }>。
  * 永远返回 Map（哪怕是空的）；单张失败只写 error，不影响其它张。
  */
+// 单张图失败时的 debug 记录：正常降级不该刷 warn，但排查时必须能看出「哪张、为什么」。
+// logger 是可选依赖：没有 logger（或没有 debug 方法）时静默跳过，绝不让取图流程因此抛错。
+function debugImageFailure(logger, attachmentId, ref, reason) {
+  if (!logger || typeof logger.debug !== 'function') return;
+  const details = {
+    attachmentId,
+    mediaType: ref && ref.mediaType ? ref.mediaType : null,
+    bytes: typeof (ref && ref.bytes) === 'number' ? ref.bytes : null,
+    width: typeof (ref && ref.width) === 'number' ? ref.width : null,
+    height: typeof (ref && ref.height) === 'number' ? ref.height : null,
+    reason: String(reason == null ? 'unknown' : (reason.message || reason.code || reason)),
+  };
+  try {
+    logger.debug(`[image] 单张图无法发送：${attachmentId}（${details.reason}）`, details);
+  } catch (logError) {
+    // 日志实现异常不能打断取图：这条路径的产出比日志重要
+  }
+}
+
 export async function resolveImageUrls(messages, options = {}) {
   const attachments = options.attachments;
   const logger = options.logger;
@@ -71,12 +90,14 @@ export async function resolveImageUrls(messages, options = {}) {
 
   for (const [attachmentId, ref] of refs) {
     let version = null;
+    let lastFailureReason = null;   // 供失败时写 debug：请求版本/原图兜底的最后一次异常
     try {
       // ① 请求版本（服务端缩放/重编码，能压到目标字节内）
       if (typeof attachments.readImageRequest === 'function') {
         version = await attachments.readImageRequest(ref, requestImageTarget(ref, policy), signal);
       }
     } catch (requestError) {
+      lastFailureReason = requestError;
       if (logger && typeof logger.warn === 'function') {
         logger.warn(`图片请求版本生成失败，尝试原图：${attachmentId}（${requestError && requestError.message ? requestError.message : requestError}）`);
       }
@@ -90,6 +111,7 @@ export async function resolveImageUrls(messages, options = {}) {
           if (stored && stored.data) version = { data: stored.data, mediaType: ref.mediaType, bytes: stored.data.length };
         }
       } catch (readError) {
+        lastFailureReason = readError;
         if (logger && typeof logger.warn === 'function') {
           logger.warn(`图片读取失败，已按占位文本发送：${attachmentId}（${readError && readError.message ? readError.message : readError}）`);
         }
@@ -98,13 +120,16 @@ export async function resolveImageUrls(messages, options = {}) {
 
     if (!version || !version.data) {
       urls.set(attachmentId, { error: '读取失败' });
+      debugImageFailure(logger, attachmentId, ref, lastFailureReason || '读取失败');
       continue;
     }
 
     const encodedBytes = typeof version.bytes === 'number' ? version.bytes : version.data.length;
     if (encodedBytes > policy.maxBytes) {
       // 不静默丢：写进 Map 让序列化产出占位，模型能看出"这里本来有图"
-      urls.set(attachmentId, { error: `图片过大（${encodedBytes} 字节 > ${policy.maxBytes}）` });
+      const oversizeReason = `图片过大（${encodedBytes} 字节 > ${policy.maxBytes}）`;
+      urls.set(attachmentId, { error: oversizeReason });
+      debugImageFailure(logger, attachmentId, ref, oversizeReason);
       continue;
     }
 
