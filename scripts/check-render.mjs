@@ -46,6 +46,69 @@ function loadRenderLayer() {
   return exported;
 }
 
+/**
+ * 纯渲染断言（不需要后端、不需要浏览器、不需要宿主 projection）。
+ * 为什么放在这道门禁里：G-dock 之后「依赖悬浮球显隐」的场景在预览垫片下跑不了，
+ * 而面板本体的正确性（五个字段有内容、层级低于主窗口）必须仍然被机器守住。
+ * 这里直接跑 float.js 的 buildPanelFieldTexts 与 z-layers.js 的层级函数——
+ * 与运行时用的是同一份代码，不是复制品。
+ */
+function loadFloatPanelTexts() {
+  const source = fs.readFileSync(path.join(PROJECT_ROOT, 'ui/js/float.js'), 'utf8');
+  const sandbox = vm.createContext({ console });
+  return vm.runInContext(
+    `${source}\n;({ buildPanelFieldTexts: buildPanelFieldTexts })`,
+    sandbox,
+    { filename: 'ui/js/float.js' },
+  );
+}
+
+function loadZLayerOrder() {
+  const source = fs.readFileSync(path.join(PROJECT_ROOT, 'lib/client-parts/foundation/z-layers.js'), 'utf8');
+  const sandbox = vm.createContext({ console });
+  return vm.runInContext(
+    `${source}\n;({ pluginZIndex: pluginZIndex })`,
+    sandbox,
+    { filename: 'lib/client-parts/foundation/z-layers.js' },
+  );
+}
+
+function checkPanelRenderContract() {
+  const problems = [];
+  const LOADING_PLACEHOLDER = /加载中|loading|正在/i;
+
+  // ① 五个字段的文案函数：给一份"数据都到齐"的输入，输出必须全部有内容且不是加载中
+  const { buildPanelFieldTexts } = loadFloatPanelTexts();
+  const texts = buildPanelFieldTexts({
+    groupName: '示例平台群',
+    sessionLabel: '示例会话（abcdef12）',
+    targetLabel: '示例模型',
+    rate: '12.5 tok/s',
+    globalText: '34 次 (总计 5.6k tok)',
+  });
+  for (const fieldName of ['fpGroup', 'fpSession', 'fpTarget', 'fpRate', 'fpTotal']) {
+    const value = String(texts[fieldName] || '').trim();
+    if (!value) problems.push(`面板字段 ${fieldName} 渲染为空`);
+    else if (LOADING_PLACEHOLDER.test(value)) problems.push(`面板字段 ${fieldName} 渲染成加载中：${value}`);
+  }
+  // ② 空输入也必须落回占位符（禁止空字符串——空字段在界面上就是"没接上"）
+  const emptyTexts = buildPanelFieldTexts({});
+  for (const fieldName of ['fpGroup', 'fpSession', 'fpTarget', 'fpRate', 'fpTotal']) {
+    if (!String(emptyTexts[fieldName] || '').trim()) problems.push(`面板字段 ${fieldName} 空输入时没有占位符`);
+  }
+  // ③ 层级：面板必须低于主窗口（方向别搞反）
+  const { pluginZIndex } = loadZLayerOrder();
+  if (!(pluginZIndex('panel') < pluginZIndex('app'))) {
+    problems.push(`面板层级不低于主窗口：panel=${pluginZIndex('panel')} app=${pluginZIndex('app')}`);
+  }
+  // ④ 五个字段的 DOM 锚点必须在主题骨架里存在（否则运行时 setFloatText 找不到节点）
+  const themeHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'ui/index.html'), 'utf8');
+  for (const fieldName of ['fpGroup', 'fpSession', 'fpTarget', 'fpRate', 'fpTotal', 'fpClose']) {
+    if (!themeHtml.includes(`id="${fieldName}"`)) problems.push(`主题骨架缺少 #${fieldName}`);
+  }
+  return problems;
+}
+
 /** 读后端真实群列表：任何失败都要给出可执行的提示，而不是静默空数组 */
 async function fetchGroups() {
   const controller = new AbortController();
@@ -141,6 +204,14 @@ async function checkGroupMemberCounts(groups, render) {
 }
 
 async function main() {
+  const panelProblems = checkPanelRenderContract();
+  if (panelProblems.length > 0) {
+    console.error('❌ 面板纯渲染断言不通过：');
+    for (const problem of panelProblems) console.error(`    ${problem}`);
+    return EXIT_MISMATCH;
+  }
+  console.log('✅ 面板纯渲染断言通过：五字段非空且非加载中、空输入落占位符、层级 panel < app、骨架锚点齐全');
+
   const groups = await fetchGroups();
   const apiIds = groups.map((group) => String(group.id));
   const render = loadRenderLayer();

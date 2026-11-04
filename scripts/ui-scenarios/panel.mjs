@@ -1,5 +1,11 @@
 // 场景 panel：悬浮球 → 悬浮面板（五个字段都有值、面板不压住主窗口、关闭能收起）。
 //
+// ⚠️ 本场景**不进默认门禁**（skipInPreview）：
+//   G-dock B3 之后，「拿不到宿主 projection」按契约判「不可知」并隐藏悬浮球；
+//   minihost 预览垫片不提供 props.useProjection，所以球永远不出现、点不到。
+//   这是**环境缺能力**，不是代码 bug——在真宿主（有 projection）里本场景仍然有效。
+//   面板自身的可见性/字段/层级由 panel-open（不点球）与 check-render（纯渲染断言）补位。
+//
 // 这个场景防的是什么：
 //   ① 面板能展开，但字段停在「加载中」/空串（数据没接上，页面上看不出错）；
 //   ② 面板的层级跑到主窗口之上（面板该在主窗口之下：它是"球旁边的快捷卡片"，盖住主窗口就挡操作）；
@@ -50,6 +56,9 @@ function check(assertions, title, ok, detail) {
 
 export const scenario = {
   id: 'panel',
+  // 预览环境缺少宿主 projection → 球按契约隐藏 → 无法点开。见文件头说明。
+  skipInPreview: true,
+  skipReason: '预览垫片没有宿主 projection，悬浮球按 INV-14 隐藏，无法点开面板',
   title: '悬浮面板：五字段有值、层级低于主窗口、可关闭',
 
   async run(page, ctx) {

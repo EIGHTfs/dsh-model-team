@@ -51,15 +51,31 @@ async function main() {
   const { scenarios } = await import(pathToFileURL(path.join(REPO_ROOT, 'scripts', 'ui-scenarios', 'index.mjs')).href);
 
   if (args.list) {
-    scenarios.forEach((scenario) => console.log(`${scenario.id}\t${scenario.title}`));
+    scenarios.forEach((scenario) => {
+      const skipped = scenario.skipInPreview ? `\t[跳过] ${scenario.skipReason || ''}` : '';
+      console.log(`${scenario.id}\t${scenario.title}${skipped}`);
+    });
     return 0;
   }
 
-  const selected = args.only ? scenarios.filter((scenario) => scenario.id === args.only) : scenarios;
-  if (!selected.length) {
+  // 环境能力分流：标了 skipInPreview 的场景在预览垫片下跑不了（例如依赖球显隐的场景——
+  // 预览没有宿主 projection，球按 INV-14 隐藏）。默认运行**跳过并明说**，不是静默消失；
+  // 显式 --only 命中它时直接拒绝，避免把"没跑"当成"通过"。
+  const requested = args.only ? scenarios.filter((scenario) => scenario.id === args.only) : scenarios;
+  if (!requested.length) {
     console.error(`没有匹配的场景：--only ${args.only}（用 --list 看可用 id）`);
     return 1;
   }
+  if (args.only && requested[0].skipInPreview) {
+    console.error(`❌ 拒绝执行 ${requested[0].id}：${requested[0].skipReason || '该场景在预览环境不可用'}`);
+    console.error('   该场景在真宿主（有投影/有球）下仍然有效；预览环境请用 panel-open 与 check-render 覆盖。');
+    return 1;
+  }
+  const skippedScenarios = requested.filter((scenario) => scenario.skipInPreview);
+  const selected = requested.filter((scenario) => !scenario.skipInPreview);
+  skippedScenarios.forEach((scenario) => {
+    console.log(`⏭ 跳过 ${scenario.id}：${scenario.skipReason || '预览环境不可用'}`);
+  });
 
   let chromePath = '';
   let usefulToolsRoot = '';
