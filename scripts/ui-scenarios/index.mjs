@@ -10,8 +10,16 @@
 
 import { scenario as zLayers } from './z-layers.mjs';
 import { scenario as toastVisible } from './toast-visible.mjs';
+import { scenario as tabs } from './tabs.mjs';
+import { scenario as atSelector } from './at-selector.mjs';
+import { scenario as panel } from './panel.mjs';
+import { scenario as reloadPersist } from './reload-persist.mjs';
 
 export const scenarios = [
   zLayers,
   toastVisible,
+  tabs,
+  atSelector,
+  panel,
+  reloadPersist,
 ];

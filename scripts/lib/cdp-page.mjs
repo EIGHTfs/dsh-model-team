@@ -77,6 +77,26 @@ export function createPage({ send, on, sessionId, targetId }) {
     throw new Error(`等待条件超时（${timeoutMs}ms）：${description || expression}${reason}`);
   }
 
+  // 真实键盘：用来走「方向键 + Enter 选中 @ 条目」这种只有按键才能触发的路径。
+  // 只做场景真正用到的两个键；要更多键时在这里补定义，而不是在场景里手拼 dispatchKeyEvent。
+  const KEY_DEFINITIONS = {
+    Enter: { code: 'Enter', key: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13, text: '\r' },
+    ArrowDown: { code: 'ArrowDown', key: 'ArrowDown', windowsVirtualKeyCode: 40, nativeVirtualKeyCode: 40 },
+  };
+
+  async function pressKey(keyName) {
+    const definition = KEY_DEFINITIONS[keyName];
+    if (!definition) throw new Error(`未定义的按键：${keyName}（在 cdp-page.mjs 的 KEY_DEFINITIONS 里补）`);
+    await send('Input.dispatchKeyEvent', { type: 'keyDown', ...definition }, sessionId);
+    await send('Input.dispatchKeyEvent', { type: 'keyUp', ...definition, text: undefined }, sessionId);
+  }
+
+  // 真实鼠标点击：悬浮球用的是 pointerdown/pointerup（为了拖动），只有真实输入事件才会走那条路径
+  async function mouseClick({ x, y }) {
+    await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 }, sessionId);
+    await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 }, sessionId);
+  }
+
   async function goto(url) {
     await send('Page.navigate', { url }, sessionId);
     // 必须连地址一起确认：新 target 初始文档是 about:blank，它的 readyState 天生就是 "complete"，
@@ -118,6 +138,8 @@ export function createPage({ send, on, sessionId, targetId }) {
     sessionId,
     ready,
     evaluate,
+    pressKey,
+    mouseClick,
     waitFor,
     goto,
     screenshot,

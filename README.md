@@ -55,6 +55,7 @@ DSH 插件。模型选择器里只多出一个「模型团队 · 模型群聊」
 node --test test/*.test.js               # 用例
 node build.cjs                           # 拼接产物 lib/client.js（勿手改）
 node scripts/check-contract.mjs          # 契约门禁：端点表 ↔ 路由、DOM 钩子 ↔ html
+node scripts/gate-all.mjs                # 提交前手动跑：build/用例/契约/渲染/真渲染/代码行 六道
 ```
 
 ## 版本记录

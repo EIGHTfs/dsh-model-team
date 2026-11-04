@@ -182,9 +182,10 @@ async function startMinihost({ hostScript, pluginRoot, port, previewPath, dataRo
 // 实测这个内联 1.3MB 客户端 + React UMD 的页面偶发「首帧脚本没挂载」（页面已完整加载、
 // 没有任何控制台错误，就是 .dmt-host 不出现），重新导航一次即恢复。
 // 重试有上界（2 次）：第二次仍不挂载就照实红——绝不用无限重试掩盖真实的挂载失败。
-// 单次挂载预算：正常一次加载约 1s；实测偶发要等 10s 以上（渲染进程冷启 + 1.3MB 内联脚本解析），
-// 故给 12s 一轮、最多 3 轮（最坏 36s 才判红）。轮数有上界，绝不无限重试。
-const APP_MOUNT_TIMEOUT_MS = 12000;
+// 单次挂载预算：正常一次加载约 1s；实测偶发要等更久（渲染进程冷启 + 1.4MB 内联脚本解析）。
+// 给 8s 一轮、最多 3 轮（最坏 24s 才判红）：预算不是"断言强度"，只是给冷启动留余量，
+// 压小它能显著压低抖动时的总耗时。轮数有上界，绝不无限重试。
+const APP_MOUNT_TIMEOUT_MS = 8000;
 const APP_MOUNT_ATTEMPTS = 3;
 
 async function openApp(page, url) {
