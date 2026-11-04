@@ -16,6 +16,9 @@ __pycache__/
 # 本地自检截图：只用于验收，不入库（精选配图放 docs/images/）
 ui/shots/
 
+# 真渲染门禁的失败证据（截图 / DOM / console 日志）：每次跑都可能生成，只作排障用
+artifacts/
+
 # 临时回收目录（移动而非删除时用）
 .trash/
 node_modules.orig/
