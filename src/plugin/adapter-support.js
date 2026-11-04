@@ -18,9 +18,34 @@ import { normalizeHarnessMessages } from './message-shape.js';
 //
 // 占位文本收敛为白名单：只有 image/file 这类「模型需要知道这里有个东西」的块才值得占位；
 // 其余未知块（含 reasoning）一律静默丢弃，不再产生可被学嘴的文本。
-const PLACEHOLDER_BLOCK_TYPES = new Set(['image', 'file']);
+const PLACEHOLDER_BLOCK_TYPES = new Set(['file']);
+const IMAGE_BLOCK_TYPE = 'image';
+const IMAGE_UNSENDABLE_PREFIX = '[图片无法发送：';
 
-function toOpenAiContentBlocks(message) {
+/**
+ * 图片块 → OpenAI 内容块。
+ * 取到 data URL 就给 image_url；取不到/失败就给**占位文本**（模型能看出这里本来有图，
+ * 而"静默丢掉"会让模型坚信用户没发图）。imageUrls 为空 Map 时也走占位，不退化成"没有图"。
+ */
+function imageBlockToOpenAi(contentBlock, imageUrls) {
+  const attachment = contentBlock && contentBlock.attachment;
+  const attachmentId = attachment && attachment.attachmentId;
+  const prepared = imageUrls && attachmentId ? imageUrls.get(attachmentId) : null;
+  if (prepared && typeof prepared.url === 'string' && prepared.url.length > 0) {
+    return { type: 'image_url', image_url: { url: prepared.url } };
+  }
+  const reason = prepared && prepared.error ? prepared.error : '附件未取到';
+  return { type: 'text', text: `${IMAGE_UNSENDABLE_PREFIX}${reason}]` };
+}
+
+/**
+ * 消息 content → 上游 content。
+ * 返回类型按内容决定：**纯文本仍是字符串**（契约冻结，改了会让上游/既有断言同时变），
+ * 含图片且能发出去时返回块数组（OpenAI 多模态格式），文字与图片保持原顺序。
+ * @param {object} message
+ * @param {Map<string, {url?: string, error?: string}>} [imageUrls] 预取结果；缺省按"没有图"处理
+ */
+function toOpenAiContentBlocks(message, imageUrls) {
   const messageContent = message?.content;
   if (typeof messageContent === 'string') {
     return messageContent;
@@ -29,6 +54,14 @@ function toOpenAiContentBlocks(message) {
     return '';
   }
   const textParts = [];
+  const openAiBlocks = [];
+  let hasImageBlock = false;
+  const flushTextParts = () => {
+    if (textParts.length === 0) return;
+    openAiBlocks.push({ type: 'text', text: textParts.join('\n') });
+    textParts.length = 0;
+  };
+
   for (const contentBlock of messageContent) {
     if (typeof contentBlock === 'string') {
       textParts.push(contentBlock);
@@ -45,13 +78,40 @@ function toOpenAiContentBlocks(message) {
       textParts.push(contentBlock.text);
       continue;
     }
+    if (contentBlock?.type === IMAGE_BLOCK_TYPE) {
+      const attachmentId = contentBlock.attachment && contentBlock.attachment.attachmentId;
+      if (typeof attachmentId !== 'string' || attachmentId.length === 0) {
+        // 没有附件引用的 image 块拿不到任何字节（旧数据/设计稿里出现过这种形状）：
+        // 保留原有占位文本，别把它变成"我方声称能发图却什么都发不出去"的空数组
+        textParts.push('[image 内容已省略]');
+        continue;
+      }
+      hasImageBlock = true;
+      flushTextParts();                       // 图片前的文字先落块，保持原顺序
+      openAiBlocks.push(imageBlockToOpenAi(contentBlock, imageUrls));
+      continue;
+    }
     if (PLACEHOLDER_BLOCK_TYPES.has(contentBlock?.type)) {
       textParts.push(`[${contentBlock.type} 内容已省略]`);
       continue;
     }
     // reasoning 及其余未知块：静默丢弃。任何占位文本进了上下文都会被模型当正文复制（学嘴）
   }
-  return textParts.join('\n');
+
+  // 没有图片块：保持"纯文本返回字符串"的既有契约（逐字节不变）
+  if (!hasImageBlock) return textParts.join('\n');
+  flushTextParts();
+  return openAiBlocks;
+}
+
+/** 只要文本形态（assistant / tool / developer 走这条：这些角色不该带图） */
+function toOpenAiTextOnly(message) {
+  const content = toOpenAiContentBlocks(message, undefined);
+  if (typeof content === 'string') return content;
+  return content
+    .filter((block) => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n');
 }
 
 // 提取助手消息里的工具调用声明 → OpenAI tool_calls[] 形状。
@@ -92,7 +152,7 @@ const EMPTY_TOOL_RESULT_TEXT = '(no output)';
 //      （其结果同样变孤儿，一并丢弃）。两个方向的孤儿都会让上游 400；
 //   5. 顺序约束：role:'tool' 必须紧跟带 tool_calls 的 assistant——中间插入任何消息都会被
 //      上游 400，所以 developer 映射出的 system 卡在中间时要延后到这批 tool 结果之后。
-export function toOpenAiMessages(rawMessages, systemPrompt) {
+export function toOpenAiMessages(rawMessages, systemPrompt, imageUrls) {
   // 先归一化：legacy 的包裹式工具结果升级成一等 tool 消息，后续只有一条形状路径。
   // 新形状输入时 normalizeHarnessMessages 原样返回同一数组（零开销、行为逐字节不变）。
   const messages = normalizeHarnessMessages(rawMessages);
@@ -133,7 +193,7 @@ export function toOpenAiMessages(rawMessages, systemPrompt) {
   for (const message of messages ?? []) {
     const role = typeof message?.role === 'string' ? message.role : 'user';
     if (role === 'developer') {
-      const systemEntry = { role: 'system', content: toOpenAiContentBlocks(message) };
+      const systemEntry = { role: 'system', content: toOpenAiTextOnly(message) };
       if (pendingToolResults > 0) {
         deferredSystemMessages.push(systemEntry); // tool 必须紧跟 assistant，延后
       } else {
@@ -146,7 +206,7 @@ export function toOpenAiMessages(rawMessages, systemPrompt) {
       if (!keptCallIds.has(callId)) {
         continue; // 孤儿工具结果（无配对调用，或其调用因空名被剔）：丢弃
       }
-      const toolText = toOpenAiContentBlocks(message);
+      const toolText = toOpenAiTextOnly(message);
       const isError = message.isError === true;
       const body = toolText.length > 0 ? toolText : EMPTY_TOOL_RESULT_TEXT;
       openAiMessages.push({
@@ -162,7 +222,8 @@ export function toOpenAiMessages(rawMessages, systemPrompt) {
       continue;
     }
     const toolCalls = role === 'assistant' ? toOpenAiToolCalls(message) : undefined;
-    const textContent = toOpenAiContentBlocks(message);
+    // assistant 不该带图（上游不接受）→ 只取文本；用户/系统消息才走图文块
+    const textContent = role === 'assistant' ? toOpenAiTextOnly(message) : toOpenAiContentBlocks(message, imageUrls);
     const assistantEntry = { role, content: toolCalls && textContent.length === 0 ? null : textContent };
     if (toolCalls) {
       const pairedCalls = toolCalls.filter((toolCall) => keptCallIds.has(toolCall.id));
@@ -198,10 +259,10 @@ export function toOpenAiTools(tools) {
 }
 
 // 组装上游请求体：模型已按会话映射改写
-export function buildOpenAiRequestBody(options, targetModel) {
+export function buildOpenAiRequestBody(options, targetModel, imageUrls) {
   const requestBody = {
     model: targetModel,
-    messages: toOpenAiMessages(options?.messages, options?.system),
+    messages: toOpenAiMessages(options?.messages, options?.system, imageUrls),
     stream: true,
   };
   if (typeof options?.temperature === 'number') {

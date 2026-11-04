@@ -19,6 +19,8 @@ import { ERROR_CODES, GatewayError } from '../gateway/errors.js';
 import { classifyUpstreamFailure, createStreamChunkBuilder } from './llm-protocol.js';
 import { peekDeclaredContextWindow, resolveModelContextWindow, startContextWindowProbe } from './context-window.js';
 import { buildContextOverflowMessage, estimateMessagesTokens, evaluateContextGuard, isContextGuardEnabled } from './context-guard.js';
+import { messagesHaveImage, resolveImageUrls } from './image-prefetch.js';
+import { assertImageInputAllowed } from './image-gate.js';
 
 // 缺省 provider 路由名与展示名
 export const DEFAULT_PROVIDER_ID = 'dsh-model-team';
@@ -73,6 +75,18 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
   };
   const adapterDataRoot = resolvedDeps.dataRoot ?? getDataRoot();
 
+  // 附件服务：宿主通过 ctx.get('attachments') 提供（与 getSessionService 同一套注入方式）。
+  // 取不到就不声明图片能力——声明了却送不出图，用户只会以为图坏了。
+  const resolveAttachments = () => {
+    try {
+      const service = typeof resolvedDeps.getAttachmentsService === 'function' ? resolvedDeps.getAttachmentsService() : null;
+      return service || null;
+    } catch (serviceError) {
+      resolvedDeps.logger.warn(`附件服务获取失败，按不可用处理：${describeFailure(serviceError)}`);
+      return null;
+    }
+  };
+
   // 业务错误统一转成 LlmError：dsh 只认这个类型
   const toLlmError = (errorCandidate, fallbackCode = 'UPSTREAM_ERROR') => {
     if (errorCandidate instanceof LlmErrorClass) {
@@ -114,7 +128,7 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
   };
 
   // 一次成员调用：解析上下文 → 校验流式能力 → 调驱动流式接口（供 dispatcher 逐成员调用）
-  const buildAttemptInvoker = ({ config, options }) => async (attempt) => {
+  const buildAttemptInvoker = ({ config, options, imageUrls }) => async (attempt) => {
     const attemptContext = await resolvedDeps.resolveAttemptContext({
       attempt,
       config,
@@ -137,7 +151,7 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
         logger: resolvedDeps.logger,
         fetchImpl: resolvedDeps.fetchImpl,
       },
-      buildOpenAiRequestBody(options, attempt.modelId),
+      buildOpenAiRequestBody(options, attempt.modelId, imageUrls),
       { signal: options?.signal },
     );
   };
@@ -201,12 +215,19 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
         logger: resolvedDeps.logger,
         fetchImpl: resolvedDeps.fetchImpl,
       });
-      return {
+      const resolvedModel = {
         provider: providerId,
         id: typeof model === 'string' && model.length > 0 ? model : DEFAULT_PROVIDER_ID,
         name: PLUGIN_MODEL_NAME,
         context: { contextWindow },
       };
+      // 能力申报：只有真能送图（附件服务可用）才声明 image，否则不声明（避免骗宿主）。
+      // 这里同时把结论记在实例上，stream() 的门禁用的是**同一份**判定，不在请求期重新猜。
+      const attachments = resolveAttachments();
+      this.declaredInputModalities = attachments ? ['text', 'image'] : undefined;
+      this.declaredModelId = resolvedModel.id;
+      if (attachments) resolvedModel.inputModalities = this.declaredInputModalities;
+      return resolvedModel;
     }
 
     // 兼容 0.1.x 的 prepareCall 入口：仍走同一个 stream
@@ -231,6 +252,27 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
       }
       const target = targetResolution.target;
 
+      // 图片输入三态门禁（见 image-gate.js）：未加载完 → INVALID_REQUEST（不可重试）、
+      // 明确不支持 / 缺附件服务 → UNSUPPORTED_CONTENT。判定用的是 resolveModel 记下的同一份能力。
+      const hasImage = messagesHaveImage(options?.messages);
+      let imageUrls;
+      if (hasImage) {
+        const attachments = resolveAttachments();
+        assertImageInputAllowed({
+          modelId: this.declaredModelId || target?.id,
+          declaredModalities: this.declaredInputModalities,
+          attachmentsAvailable: Boolean(attachments),
+          hasImage: true,
+          LlmErrorClass,
+        });
+        // 先异步取图，再同步拼 body；**空 Map 也保留**（全部失败时靠它产出占位文本）
+        imageUrls = await resolveImageUrls(options?.messages, {
+          attachments,
+          logger: resolvedDeps.logger,
+          signal: options?.signal,
+        });
+      }
+
       // 发请求前超限检查（契约 02 §5.4）：只对"单模型"目标做——分组目标是运行时轮换选成员，
       // 此刻没有确定窗口，硬判会把正常请求拦掉；未知窗口也放行（宁可漏报不误报）。
       if (isContextGuardEnabled(config) && target && target.type === 'model') {
@@ -243,7 +285,7 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
         dataRoot: adapterDataRoot,
         logger: resolvedDeps.logger,
         now: () => resolvedDeps.clock.nowMs(),
-        invoke: buildAttemptInvoker({ config, options }),
+        invoke: buildAttemptInvoker({ config, options, imageUrls }),
       });
 
       const attempt = dispatchResult.attempt ?? null;

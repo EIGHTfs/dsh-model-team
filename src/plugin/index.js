@@ -193,6 +193,15 @@ export async function apply(ctx, options = {}) {
           return undefined;
         }
       },
+      // 附件服务（图片输入用）：与 sessions 一样惰性取，取不到就让适配器不声明图片能力。
+      // 不写进模块级 inject：attachments 在旧宿主上可能不存在，声明成必需会让整个插件激活失败。
+      getAttachmentsService: () => {
+        try {
+          return ctx.get('attachments');
+        } catch {
+          return undefined;
+        }
+      },
       ...(options.deps ?? {}),
     },
   });
