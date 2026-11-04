@@ -11,6 +11,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+const themeConfig = require("./scripts/lib/theme-config.cjs");
 
 const root = __dirname;
 const partsDir = path.join(root, "lib", "client-parts");
@@ -55,23 +56,14 @@ const HEADER = [
   ""
 ].join("\n");
 
-// design-only 区间：设计稿专用装饰（垫场层）只给 ui/index.html 用，构建时统一剥掉。
-// HTML 用 <!-- design-only:begin/end -->，CSS 用 /* design-only:begin/end */，两种都支持。
-const DESIGN_ONLY_HTML_PATTERN = /<!--\s*design-only:begin\s*-->[\s\S]*?<!--\s*design-only:end\s*-->/g;
-const DESIGN_ONLY_CSS_PATTERN = /\/\*\s*design-only:begin\s*\*\/[\s\S]*?\/\*\s*design-only:end\s*\*\//g;
+// 主题（HTML 骨架 + 样式清单）由 scripts/lib/theme-config.cjs 解析：
+// 优先级 --config → DSH_MODEL_TEAM_HOME/config.json → 仓库 config/config.json，都没有才回落 ui/ 的默认路径。
+// 配了但无效（文件缺失 / 缺标记 / styles 里缺一个）会在那里直接抛错——不静默回落。
+const theme = themeConfig.resolveThemeConfig({ argv: process.argv.slice(2), repoRoot: root });
 
-function stripDesignOnly(text) {
-  return text.replace(DESIGN_ONLY_HTML_PATTERN, "").replace(DESIGN_ONLY_CSS_PATTERN, "");
-}
-
-// 按 ui/app.css 的 @import 顺序读出全部样式，剥掉 design-only 段后拼成一个 CSS 字符串常量
-function readUiCss() {
-  const entry = fs.readFileSync(path.join(uiDir, "app.css"), "utf8");
-  const importPaths = Array.from(entry.matchAll(/@import\s+url\(\s*["']?([^"')]+)["']?\s*\)/g))
-    .map((match) => match[1].replace(/^\.\//, ""));
-  return importPaths
-    .map((relativePath) => stripDesignOnly(fs.readFileSync(path.join(uiDir, relativePath), "utf8")))
-    .join("\n");
+// 按主题给的样式清单顺序读，剥掉 design-only 段后拼成一个 CSS 字符串常量
+function readThemeCss() {
+  return themeConfig.readThemeStyles(theme.stylePaths).join("\n");
 }
 
 function readPart(relativePath) {
@@ -84,14 +76,14 @@ function readPart(relativePath) {
 const SKELETON_REQUIRED = ['id="floatDock"', 'id="floatPanel"', 'class="team-app"'];
 const SKELETON_FORBIDDEN = ['class="desk"', 'desk-bar', 'desk-card', 'desk-tip'];
 
-function readUiSkeleton() {
-  const html = fs.readFileSync(path.join(uiDir, "index.html"), "utf8");
+function readUiSkeleton(htmlPath) {
+  const html = themeConfig.assertThemeHtml(fs.readFileSync(htmlPath, "utf8"), htmlPath);
   const bodyStart = html.indexOf("<body>");
   const scriptStart = html.indexOf("<script");
   if (bodyStart < 0 || scriptStart < 0 || scriptStart <= bodyStart) {
-    throw new Error("[build] 无法从 ui/index.html 提取骨架（<body> / <script> 标记缺失）");
+    throw new Error("[build] 无法从主题 HTML 提取骨架（<body> / <script> 标记缺失）：" + htmlPath);
   }
-  const skeleton = stripDesignOnly(html.slice(bodyStart + "<body>".length, scriptStart)).trim();
+  const skeleton = themeConfig.stripDesignOnly(html.slice(bodyStart + "<body>".length, scriptStart)).trim();
 
   const missing = SKELETON_REQUIRED.filter((marker) => skeleton.indexOf(marker) < 0);
   if (missing.length) {
@@ -109,9 +101,9 @@ function readUiPart(relativePath) {
   return fs.readFileSync(path.join(uiDir, relativePath), "utf8");
 }
 
-const uiCssPart = "// 由 build.cjs 内联的 ui 样式（勿手改）\nvar UI_CSS = " + JSON.stringify(readUiCss()) + ";\n";
+const uiCssPart = "// 由 build.cjs 内联的 ui 样式（勿手改）\nvar UI_CSS = " + JSON.stringify(readThemeCss()) + ";\n";
 const uiSkeletonPart = "// 由 build.cjs 从 ui/index.html 抽取的界面骨架（勿手改）\nvar UI_SKELETON_HTML = "
-  + JSON.stringify(readUiSkeleton()) + ";\n";
+  + JSON.stringify(readUiSkeleton(theme.htmlPath)) + ";\n";
 const source = [
   ...CLIENT_PARTS.map(readPart),
   uiCssPart,
@@ -150,4 +142,5 @@ if (missing.length) {
 }
 
 console.log("[build] lib/client.js ← " + (CLIENT_PARTS.length + UI_PARTS.length + TAIL_PARTS.length)
-  + " 片段（含 ui 样式 " + readUiCss().length + " 字符），共 " + output.split("\n").length + " 行");
+  + " 片段（含 ui 样式 " + readThemeCss().length + " 字符），共 " + output.split("\n").length + " 行"
+  + "；主题来源 " + theme.source + (theme.configPath ? "（" + theme.configPath + "）" : "（默认 ui/）"));
