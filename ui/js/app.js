@@ -200,7 +200,8 @@ function renderApp(nextState, options) {
     );
     viewName.textContent = '加群';
   } else if (current.view === 'contacts') {
-    viewRoot.innerHTML = renderAddressBook(current.friendGroups, current.groups, current.drivers);
+    // 成员头像/来自谁只跟平台群有关（member.platformId 是群 id），不再传 drivers
+    viewRoot.innerHTML = renderAddressBook(current.friendGroups, current.groups);
     viewName.textContent = '通讯录';
   } else {
     viewRoot.innerHTML = renderProfile(current.groups);

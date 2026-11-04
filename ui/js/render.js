@@ -211,28 +211,29 @@ function renderAtGroupItem(item, index) {
 // 视图五：通讯录（好友分组管理）
 const STRATEGY_LABELS = { 'round-robin': '轮询', fallback: '故障转移' };
 
-function renderAddressBook(friendGroups, groups, drivers) {
-  const groupNameById = {};
-  groups.forEach(function (group) { groupNameById[group.id] = group.name; });
-  const driverById = {};
-  (drivers || []).forEach(function (driver) { driverById[driver.id] = driver; });
+// 只吃「好友分组 + 平台群」两份数据：成员行原来还要 drivers，是为了按驱动取头像，
+// 而 platformId 指的是群——留着这个参数等于鼓励下一个人再按驱动查一次，所以直接去掉。
+function renderAddressBook(friendGroups, groups) {
+  // 成员的 platformId 存的是**群 id**（契约 §3.5 的 agnes 就是群 id），不是驱动 id：
+  // 头像与"来自谁"都必须按群取，拿它去查 driverById 永远查不到（旧实现就这么渲染出 [?]）。
+  const groupById = {};
+  groups.forEach(function (group) { groupById[group.id] = group; });
 
   const itemsHtml = friendGroups.map(function (friendGroup) {
     const isFallback = friendGroup.strategy === 'fallback';
     const membersHtml = friendGroup.members.map(function (member, memberIndex) {
-      const driver = driverById[member.platformId];
-      // 平台显示名取短名（CodeArts (华为云) → CodeArts），与界面稿的 "(来自 CodeArts)" 对齐
-      const driverName = driver ? String(driver.name).split(' (')[0] : (groupNameById[member.platformId] || member.platformId);
-      const driverAvatar = member.platformAvatar || (driver ? driver.avatar : '[?]');
+      const memberGroup = groupById[member.platformId];
+      // 平台显示名取群名；群被删掉时回落成 platformId，让人看得出这个成员指向哪儿
+      const platformName = memberGroup && memberGroup.name ? memberGroup.name : member.platformId;
       const branch = memberIndex === friendGroup.members.length - 1 ? '└─' : '├─';
       // fallback 组按数组顺序标主/备：第一个是主，其余是备
       let roleTag = '';
       if (isFallback) roleTag = memberIndex === 0 ? '<span class="contact-role contact-role-main">[主]</span>' : '<span class="contact-role">[备]</span>';
       return `<div class="contact-member">
         <span class="contact-branch">${branch}</span>
-        <span class="avatar">${escapeHtml(driverAvatar)}</span>
+        <span class="avatar">${renderAvatar(memberGroup && memberGroup.avatar, platformName)}</span>
         <span class="contact-member-model">${escapeHtml(member.modelId)}</span>
-        <span class="contact-member-from">(来自 ${escapeHtml(driverName)})</span>
+        <span class="contact-member-from">(来自 ${escapeHtml(platformName)})</span>
         ${roleTag}
       </div>`;
     }).join('');
