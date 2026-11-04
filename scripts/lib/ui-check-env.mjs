@@ -28,11 +28,44 @@ async function isExecutableFile(candidate) {
   } catch { return false; }
 }
 
-// 浏览器：DMT_CHROME 优先；否则按候探测（DSH 应用数据目录里的 wrapper / PATH 里的常见名字）
+// 环境变量的语义是「覆盖」，不是「提示」：
+// 一旦设置了就必须真的可用，**绝不静默回落到其它候选**。
+// 为什么必须这么严：配错浏览器路径的机器会悄悄换一个浏览器照样跑绿，
+// 而"门禁其实没按你指定的环境跑"正是这个门禁最该防的假绿。
+async function requireEnvExecutableFile(environmentName, environmentValue) {
+  const candidate = String(environmentValue || '').trim();
+  if (!candidate) return '';
+  if (!(await isExecutableFile(candidate))) {
+    throw new Error(
+      `${environmentName} 已设置但不指向可执行文件：${candidate}\n`
+      + '   要么改成正确路径，要么取消该环境变量（取消后才会按候选清单探测）。',
+    );
+  }
+  return candidate;
+}
+
+// useful-tools 要的是"含 minihost 与 preview 生成器的目录"，不是可执行文件
+async function requireEnvUsefulToolsRoot(environmentName, environmentValue) {
+  const candidate = String(environmentValue || '').trim();
+  if (!candidate) return '';
+  const hostScript = path.join(candidate, 'lib', 'core', 'minihost', 'host.mjs');
+  const previewScript = path.join(candidate, 'lib', 'core', 'preview', 'gen.js');
+  if (!(await pathExists(hostScript)) || !(await pathExists(previewScript))) {
+    throw new Error(
+      `${environmentName} 已设置但不是可用的 dsh-useful-tools：${candidate}\n`
+      + '   需要包含 lib/core/minihost/host.mjs 与 lib/core/preview/gen.js；取消该环境变量才会按候选清单探测。',
+    );
+  }
+  return candidate;
+}
+
+// 浏览器：环境变量优先且必须有效；未设置时才按候选探测（DSH 应用数据目录里的 wrapper / PATH 里的常见名字）
 async function resolveChrome(executablePathFromEnv) {
+  const fromEnvironment = await requireEnvExecutableFile('DMT_CHROME', executablePathFromEnv);
+  if (fromEnvironment) return fromEnvironment;
+
   const appDataRoot = process.env.DSH_APP_DATA || '';
   const candidates = [
-    executablePathFromEnv,
     appDataRoot ? path.join(appDataRoot, 'browser-wrapper.sh') : '',
     '/volume1/@appdata/DeepSeekHarness-NAS/browser-wrapper.sh',
     '/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
@@ -46,15 +79,17 @@ async function resolveChrome(executablePathFromEnv) {
   );
 }
 
-// useful-tools：DSH_USEFUL_TOOLS_ROOT 优先；否则从本仓库的兄弟目录里找「含 minihost/preview 的那份」
+// useful-tools：环境变量优先且必须有效；未设置时才找本仓库的兄弟目录（含 minihost/preview 的那份）
 async function resolveUsefulToolsRoot(rootFromEnv) {
-  const candidates = [rootFromEnv, path.join(REPO_ROOT, '..', 'dsh-useful-tools')].filter(Boolean);
+  const fromEnvironment = await requireEnvUsefulToolsRoot('DSH_USEFUL_TOOLS_ROOT', rootFromEnv);
+  if (fromEnvironment) return fromEnvironment;
+
+  const candidates = [path.join(REPO_ROOT, '..', 'dsh-useful-tools')];
   for (const candidate of candidates) {
+    // 只需确认那两份脚本在（进程能不能执行 node 与本探测无关）
     const hostScript = path.join(candidate, 'lib', 'core', 'minihost', 'host.mjs');
     const previewScript = path.join(candidate, 'lib', 'core', 'preview', 'gen.js');
-    if (await isExecutableFile(process.execPath) && await pathExists(hostScript) && await pathExists(previewScript)) {
-      return candidate;
-    }
+    if (await pathExists(hostScript) && await pathExists(previewScript)) return candidate;
   }
   throw new Error(
     '找不到 dsh-useful-tools（需要其中的 minihost 与 preview 生成器）。请设置 DSH_USEFUL_TOOLS_ROOT=<目录>。\n'
