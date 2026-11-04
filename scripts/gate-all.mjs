@@ -22,9 +22,10 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const MAX_CODE_LINES_PER_FILE = 400;
 
 function parseArgs(argv) {
-  const args = { only: '' };
+  const args = { only: '', allowNoDeploy: false };
   for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] === '--only') { args.only = argv[index + 1] || ''; index += 1; }
+    if (argv[index] === '--allow-no-deploy') args.allowNoDeploy = true;
+    else if (argv[index] === '--only') { args.only = argv[index + 1] || ''; index += 1; }
   }
   return args;
 }
@@ -57,7 +58,7 @@ async function listSourceFiles() {
     .filter((line) => line && line !== 'lib/client.js' && !line.startsWith('artifacts/'));
 }
 
-async function collectGates() {
+async function collectGates(args) {
   const testFiles = await listTestFiles();
   const sourceFiles = await listSourceFiles();
   const gates = [
@@ -65,6 +66,12 @@ async function collectGates() {
     { name: 'test', command: process.execPath, args: ['--test', ...testFiles] },
     { name: 'contract', command: process.execPath, args: ['scripts/check-contract.mjs'] },
     { name: 'render', command: process.execPath, args: ['scripts/check-render.mjs'] },
+    {
+      name: 'deploy',
+      command: process.execPath,
+      // 没有部署副本的机器（CI / 换机）必须显式 --allow-no-deploy 才放行，不假装绿
+      args: ['scripts/check-deploy-parity.mjs', ...(args.allowNoDeploy ? ['--allow-no-deploy'] : [])],
+    },
     { name: 'css', command: process.execPath, args: ['scripts/check-css.mjs'] },
     {
       name: 'code-lines',
@@ -89,7 +96,7 @@ async function collectGates() {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const { gates, sourceFiles } = await collectGates();
+  const { gates, sourceFiles } = await collectGates(args);
   if (!sourceFiles) {
     console.error('✗ 无法用 git ls-files 列出源码文件（这个门禁需要 git 仓库上下文）');
     return 1;
