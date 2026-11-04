@@ -13,7 +13,7 @@ pnpm-lock.yaml
 __pycache__/
 .DS_Store
 
-# 本地自检截图：只用于验收，不入库（精选配图放 docs/images/）
+# 本地临时截图：跑门禁/自检时可能再生成，不入库（README 配图只放 docs/images/）
 ui/shots/
 
 # 真渲染门禁的失败证据（截图 / DOM / console 日志）：每次跑都可能生成，只作排障用

@@ -50,6 +50,18 @@ DSH 插件。模型选择器里只多出一个「模型团队 · 模型群聊」
 | 已知限制 | 子代理继承未做端到端联调（判据已定，见 `docs/06` V-01）；预览环境不提供宿主投影，依赖悬浮球显隐的场景只能在真实宿主验证；主题只在构建期生效 |
 | 未做 | 反代 / 本地网关（`docs/11`）、协议 forward/rewrite 双模式（`docs/12`）、压缩接管（已取消，由外部 `dsh-live-compact` 满足，见 `docs/10`） |
 
+## 界面
+
+> 以下为**演示用界面示意图，数据全部是假数据**（Mock），仅用于说明布局与交互，不代表真实账号、真实请求或真实额度。
+
+群列表（平台账号 = 群，右下角为悬浮球）：
+
+<img width="880" alt="群列表" src="https://raw.githubusercontent.com/EIGHTfs/dsh-model-team/main/docs/images/01-group-list.png">
+
+群聊（群友消息 = 请求记录，展开一条可看状态 / 耗时 / token / req-id）：
+
+<img width="880" alt="群聊与请求记录" src="https://raw.githubusercontent.com/EIGHTfs/dsh-model-team/main/docs/images/03-chat-request-rows.png">
+
 ## 文档
 
 从 [docs/00-索引.md](docs/00-索引.md) 进：契约在 `02`，验收在 `04`，已知问题在 `06`，任务清单在 `08`。
