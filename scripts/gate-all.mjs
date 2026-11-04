@@ -8,6 +8,8 @@
 // 设计取舍：
 //   · 任一道失败也继续跑完其余道 —— 一次就能看到全部问题，而不是修一个跑一次；
 //   · 每道都打印「✓/✗ 名称 耗时」，最后一行汇总，失败则 exit 1；
+//   · 不含浏览器端测试：那条路线已整体移除（见 docs/05 §三点五）——
+//     真渲染的正确做法是人工看一次 + 机器断言在数据层，而不是把浏览器驱动成 CI 的靶子。
 //   · 代码行门禁自己解析 scripts/code-lines.mjs 的输出并卡 400 行阈值
 //     （那个脚本只打印数字、不做判定，参数是文件清单）。
 
@@ -20,10 +22,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const MAX_CODE_LINES_PER_FILE = 400;
 
 function parseArgs(argv) {
-  const args = { fast: false, only: '' };
+  const args = { only: '' };
   for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] === '--fast') args.fast = true;
-    else if (argv[index] === '--only') { args.only = argv[index + 1] || ''; index += 1; }
+    if (argv[index] === '--only') { args.only = argv[index + 1] || ''; index += 1; }
   }
   return args;
 }
@@ -64,7 +65,7 @@ async function collectGates() {
     { name: 'test', command: process.execPath, args: ['--test', ...testFiles] },
     { name: 'contract', command: process.execPath, args: ['scripts/check-contract.mjs'] },
     { name: 'render', command: process.execPath, args: ['scripts/check-render.mjs'] },
-    { name: 'ui', command: process.execPath, args: ['scripts/check-ui.mjs'] },
+    { name: 'css', command: process.execPath, args: ['scripts/check-css.mjs'] },
     {
       name: 'code-lines',
       command: process.execPath,
@@ -95,7 +96,6 @@ async function main() {
   }
 
   const selected = gates
-    .filter((gate) => !(args.fast && gate.name === 'ui'))       // --fast：跳过最慢的真渲染门禁
     .filter((gate) => !args.only || gate.name === args.only);
   if (!selected.length) {
     console.error(`没有匹配的门禁：--only ${args.only}（可用：${gates.map((gate) => gate.name).join(' / ')}）`);
