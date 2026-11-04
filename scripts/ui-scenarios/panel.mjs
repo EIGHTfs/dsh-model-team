@@ -26,6 +26,7 @@
 //   （或直接删掉那一行 z-index），重新 build 后本场景会红在「面板层级低于主窗口」。
 
 import { openApp } from '../lib/ui-check-env.mjs';
+import { describeStoreStats } from '../lib/ui-check-diagnostics.mjs';
 
 const PANEL_FIELDS = ['fpGroup', 'fpSession', 'fpTarget', 'fpRate', 'fpTotal'];
 
@@ -79,10 +80,15 @@ export const scenario = {
     await page.waitFor('!document.getElementById("floatPanel").classList.contains("hidden")',
       { description: '点球后面板展开' });
 
-    // 全局请求量是异步拉的（state.global 到达后才写 #fpTotal，未到是「—」）：
-    // 等它落地再取值，否则会误判成"字段没接上"。等不到才算真红。
-    await page.waitFor('document.getElementById("fpTotal").textContent.trim() !== "—"',
-      { timeoutMs: 8000, description: '全局请求量已加载到面板' });
+    // 全局请求量是异步拉的（state.global 到达后才写 #fpTotal，未到是「—」）：等它落地再取值，
+    // 否则会误判成"字段没接上"。预算 20s：这条依赖一次真实网络往返，重负载下会超过 10s（防抖，不放宽语义）；
+    // 等不到仍然红，并在文案里带上 store 快照，便于区分"请求没回来"与"字段没接上"。
+    try {
+      await page.waitFor('document.getElementById("fpTotal").textContent.trim() !== "—"',
+        { timeoutMs: 20000, description: '全局请求量已加载到面板' });
+    } catch (waitError) {
+      throw new Error(`${waitError.message}\n   诊断：${await describeStoreStats(page)}`);
+    }
 
     const opened = await page.evaluate(READ_PANEL);
     check(assertions, '面板可见且尺寸大于 0', opened.visible && opened.rect.width > 0 && opened.rect.height > 0,

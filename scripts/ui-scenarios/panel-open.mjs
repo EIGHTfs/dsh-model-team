@@ -14,6 +14,7 @@
 //   重新 build 后本场景会红在「五个字段都非空且不是加载中」。
 
 import { openApp } from '../lib/ui-check-env.mjs';
+import { describeStoreStats } from '../lib/ui-check-diagnostics.mjs';
 
 const PANEL_FIELDS = ['fpGroup', 'fpSession', 'fpTarget', 'fpRate', 'fpTotal'];
 const LOADING_PLACEHOLDER = /加载中|loading|正在/i;
@@ -70,9 +71,17 @@ export const scenario = {
     check(assertions, '走打开路径后面板不再带 .hidden', opened === true, `返回 ${opened}`);
     await page.waitFor('!document.getElementById("floatPanel").classList.contains("hidden")',
       { description: '面板展开' });
-    // 全局请求量是异步拉的：等它落地再取值，否则会误判成"字段没接上"
-    await page.waitFor('document.getElementById("fpTotal").textContent.trim() !== "—"',
-      { timeoutMs: 8000, description: '全局请求量已加载到面板' });
+    // 全局请求量是异步拉的：等它落地再取值，否则会误判成"字段没接上"。
+    // 预算给 20s：这条依赖一次**真实网络往返**（GET /_team/stats/global）——
+    // 机器重负载时（gate-all 整轮跑到 50s 那种）page 就绪与请求排队都会变慢，实测会超过 10s。
+    // 提预算是防抖，不是放宽语义：等不到仍然是失败，且失败文案会带上 store 诊断（见下）。
+    try {
+      await page.waitFor('document.getElementById("fpTotal").textContent.trim() !== "—"',
+        { timeoutMs: 20000, description: '全局请求量已加载到面板' });
+    } catch (waitError) {
+      // 把 store 当前快照带进错误：下次抖动时能直接看出是"请求没回来"还是"字段没接上"
+      throw new Error(`${waitError.message}\n   诊断：${await describeStoreStats(page)}`);
+    }
 
     const panel = await page.evaluate(READ_PANEL);
     check(assertions, '面板可见且尺寸大于 0、与视口相交',
