@@ -97,6 +97,19 @@ body {
 /* 关闭整个悬浮窗时用：球与 pill 一起隐藏，只留右下角"呼出模型团队"按钮 */
 .float-dock.hidden { display: none; }
 
+/* 展开方向 → 文本在球的哪一侧：球靠右半屏时文本在左（默认 DOM 顺序就是 pill 在球前），
+   球靠左半屏时用 row-reverse 把文本换到球的右侧——等价于「文本永远朝视口内侧」。
+   方向由 float.js 的 computeOpenDir() 写到 data-open-dir，拖动松手/resize 后重算。 */
+.float-dock[data-open-dir$="right"] { flex-direction: row-reverse; }
+
+/* 动效口径：只过渡尺寸/透明度/位移；left/top 不参与过渡，否则拖拽会发飘 */
+.float-pill {
+  transition: width 220ms cubic-bezier(0.16, 1, 0.3, 1),
+              opacity 180ms ease,
+              transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.float-dock.is-dragging .float-pill { transition: none; }
+
 .float-ball {
   position: relative;
   width: 56px;

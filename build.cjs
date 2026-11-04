@@ -43,7 +43,7 @@ const UI_PARTS = [
   // 好友分组：规则层（form）→ 视图层（view）→ 接线层（modal）。
   // 三者都排在 render.js 之后（复用它的 STRATEGY_LABELS 与成员行 class），
   // 排在 app.js 之前（app.js 的点击委托直接调用 openFriendGroupModal）。
-  "js/render.js", "js/friend-group-form.js", "js/friend-group-view.js", "js/friend-group-modal.js",
+  "js/dock-state.js", "js/render.js", "js/friend-group-form.js", "js/friend-group-view.js", "js/friend-group-modal.js",
   "js/chat.js", "js/admin.js", "js/float.js", "js/app.js"
 ];
 
