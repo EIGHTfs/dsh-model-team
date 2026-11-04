@@ -8,7 +8,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const STORE_SOURCE = await fs.readFile(new URL('../ui/js/store.js', import.meta.url), 'utf8');
+// store 已拆成装配层 + 6 个模块：单测要按构建顺序拼起来执行，等价于浏览器里的同一份作用域
+// messages.js 提供 buildMessages / formatMessageTime（构建时排在 store 之前），
+// 少了它 loadChat 会抛 ReferenceError——所以按构建顺序一起拼。
+const STORE_MODULE_FILES = [
+  'messages.js', 'store-state.js', 'store-persist.js', 'store-events.js',
+  'store-groups.js', 'store-chat.js', 'store-stats.js',
+  'store-session.js', 'store-dispatch.js', 'store.js',
+];
+const STORE_SOURCE = (await Promise.all(STORE_MODULE_FILES.map(
+  (fileName) => fs.readFile(new URL(`../ui/js/${fileName}`, import.meta.url), 'utf8'),
+))).join('\n');
 const API_SOURCE = await fs.readFile(new URL('../lib/client-parts/foundation/api.js', import.meta.url), 'utf8');
 const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/render.js', import.meta.url), 'utf8');
 
@@ -152,4 +162,44 @@ ${STORE_SOURCE}
   assert.equal(state.groups.length, 0);
   assert.match(String(state.lastGroupsError), /500/, 'HTTP 500 必须落到 lastGroupsError（界面才有"加载失败"可显示）');
   assert.equal(state.drivers.length, 1, 'drivers 成功时照常写入，不受 /groups 失败影响');
+});
+
+test('G-B：群友数区分「未加载」与「确实 0 个」（未加载显示 —，加载后 0 就显示 0）', () => {
+  // eslint-disable-next-line no-new-func
+  const render = new Function(`${RENDER_SOURCE}
+;return { renderChat: renderChat };`)();
+  const group = { id: 'agnes', name: 'agnes' };
+
+  // 未加载 / 加载失败：必须显示 —（否则"未知"被当成 0，就是 G-13 那个坑）
+  assert.match(render.renderChat(group, [], [], null, 'loading'), /\[群友: —\]/);
+  assert.match(render.renderChat(group, [], [], null, 'error'), /\[群友: —\]/);
+
+  // 已加载且确实 0 个：显示 0
+  assert.match(render.renderChat(group, [], [], null, 'loaded'), /\[群友: 0\]/);
+
+  // 已加载 N 个：显示 N
+  const models = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  assert.match(render.renderChat(group, models, [], null, 'loaded'), /\[群友: 3\]/);
+
+  // 缺省（老调用方不传状态）：按已加载处理，保持既有行为
+  assert.match(render.renderChat(group, models, [], null, undefined), /\[群友: 3\]/);
+});
+
+test('G-B：loadChat 会把每个群的加载状态写进 modelsStatus（loading → loaded / error）', async () => {
+  const store = createStoreWith({
+    getGroups: () => Promise.resolve(THREE_GROUPS),
+    getDrivers: () => Promise.resolve([]),
+    getFriendGroups: () => Promise.resolve({ groups: [] }),
+    getPlatforms: () => Promise.resolve([]),
+    getSessionStats: () => Promise.resolve({ rows: [] }),
+    getGroupModels: () => Promise.resolve([{ id: 'm1' }]),
+    getSessionEvents: () => Promise.resolve({ events: [] }),
+  });
+
+  const loading = store.dispatch({ type: 'load-chat', groupId: 'agnes' });
+  // 同步阶段就应标成 loading（渲染这一刻还拿不到结果）
+  assert.equal(store.getState().modelsStatus.agnes, 'loading');
+  await loading;
+  assert.equal(store.getState().modelsStatus.agnes, 'loaded');
+  assert.equal(store.getState().models.agnes.length, 1);
 });

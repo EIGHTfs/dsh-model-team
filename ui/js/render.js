@@ -146,7 +146,10 @@ function renderGroupList(groups, currentGroupId, filterText, options) {
 
 // 视图二：群聊（sys 系统提示 / row 请求记录 / mine 我发出的 @）
 // platform：当前群对应的平台信息，用于把请求行标成「[W] WorkBuddy(model)」
-function renderChat(group, models, messages, platform) {
+// modelsStatus：该群模型清单的加载状态（'loading' | 'loaded' | 'error'）。
+// 为什么必须传进来：models 缺省是 []，"还没拉到"与"确实 0 个群友"取值一样，
+// 只按长度渲染就会把"未知"显示成 0（G-13 同类问题）。缺省按 loaded 处理，兼容既有调用方。
+function renderChat(group, models, messages, platform, modelsStatus) {
   const streamHtml = messages.map(function (message) {
     const timeHtml = message.time ? `<span class="msg-time">${escapeHtml(message.time)}</span>` : '';
     if (message.type === 'sys') {
@@ -164,7 +167,7 @@ function renderChat(group, models, messages, platform) {
     <header class="view-head chat-head">
       <button class="btn-back" id="btnChatBack" type="button">&lt; 返回</button>
       <span class="head-title">${escapeHtml(group.name)}</span>
-      <span class="group-tag">[群友: ${models.length}]</span>
+      <span class="group-tag">[群友: ${modelsStatus === undefined || modelsStatus === 'loaded' ? models.length : '—'}]</span>
       <span class="head-sub">群友 = 模型 · 消息 = 请求记录</span>
     </header>
     <div class="chat-stream" id="chatStream">${streamHtml}</div>

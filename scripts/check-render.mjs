@@ -39,7 +39,7 @@ function loadRenderLayer() {
   const source = fs.readFileSync(RENDER_SOURCE_PATH, 'utf8');
   const sandbox = vm.createContext({ console });
   const exported = vm.runInContext(
-    `${source}\n;({ renderGroupList: renderGroupList })`,
+    `${source}\n;({ renderGroupList: renderGroupList, renderChat: renderChat })`,
     sandbox,
     { filename: 'ui/js/render.js' },
   );
@@ -104,6 +104,42 @@ function describeDifference({ renderedIds, apiIds, groups, html }) {
   return { missing, extra, missingDrivers };
 }
 
+/**
+ * 群友数比对：每个群的 /_team/groups/:id/models 长度，必须与渲染出的 [群友: N] 一致。
+ * 为什么单独核这一项：models 缺省是 []，"还没拉到"与"确实 0 个"取值一样，
+ * 历史事故就是界面上「群友恒为 0」——只有把接口长度和渲染值放在一起比才抓得住。
+ */
+async function fetchGroupModelCount(groupId) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${BACKEND_BASE}/_team/groups/${encodeURIComponent(groupId)}/models`, { signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    const models = Array.isArray(payload) ? payload : payload && payload.models;
+    if (!Array.isArray(models)) throw new Error('响应里没有 models 数组');
+    return models.length;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function checkGroupMemberCounts(groups, render) {
+  const mismatches = [];
+  for (const group of groups) {
+    const expectedCount = await fetchGroupModelCount(group.id);
+    const models = new Array(expectedCount).fill(null).map((_, index) => ({ id: `m-${index}`, name: `m-${index}` }));
+    const html = String(render.renderChat(group, models, [], null, 'loaded') || '');
+    const expectedTag = `[群友: ${expectedCount}]`;
+    if (!html.includes(expectedTag)) {
+      const renderedMatch = /\[群友: ([^\]]+)\]/.exec(html);
+      const renderedValue = renderedMatch ? renderedMatch[1] : '(未渲染)';
+      mismatches.push(`群 ${group.id}：渲染 ${renderedValue} / 接口 ${expectedCount}`);
+    }
+  }
+  return mismatches;
+}
+
 async function main() {
   const groups = await fetchGroups();
   const apiIds = groups.map((group) => String(group.id));
@@ -115,8 +151,10 @@ async function main() {
   const { missing, extra, missingDrivers } = describeDifference({ renderedIds, apiIds, groups, html });
   const countMismatched = renderedCount !== groups.length || renderedIds.length !== groups.length;
 
-  if (!countMismatched && missing.length === 0 && extra.length === 0 && missingDrivers.length === 0) {
-    console.log(`✅ 渲染一致：${groups.length} 个群（逐 id 对得上，驱动列都非空）`);
+  const memberMismatches = await checkGroupMemberCounts(groups, render);
+
+  if (!countMismatched && missing.length === 0 && extra.length === 0 && missingDrivers.length === 0 && memberMismatches.length === 0) {
+    console.log(`✅ 渲染一致：${groups.length} 个群（逐 id 对得上，驱动列都非空，群友数与接口一致）`);
     return EXIT_OK;
   }
 
@@ -125,6 +163,10 @@ async function main() {
   if (missing.length > 0) console.error(`  缺：${missing.join(', ')}`);
   if (extra.length > 0) console.error(`  多（接口里没有）：${extra.join(', ')}`);
   if (missingDrivers.length > 0) console.error(`  驱动列缺失：${missingDrivers.join(', ')}`);
+  if (memberMismatches.length > 0) {
+    console.error('  群友数与接口不一致：');
+    for (const item of memberMismatches) console.error(`    ${item}`);
+  }
   return EXIT_MISMATCH;
 }
 

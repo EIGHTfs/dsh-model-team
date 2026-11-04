@@ -179,7 +179,13 @@ function renderApp(nextState, options) {
     viewName.textContent = '消息';
   } else if (current.view === 'chat') {
     const activeGroup = currentGroup();
-    viewRoot.innerHTML = renderChat(activeGroup, modelsOf(activeGroup.id), currentMessages(), platformOf(activeGroup));
+    viewRoot.innerHTML = renderChat(
+      activeGroup,
+      modelsOf(activeGroup.id),
+      currentMessages(),
+      platformOf(activeGroup),
+      current.modelsStatus ? current.modelsStatus[activeGroup.id] : undefined,
+    );
     viewName.textContent = '群聊';
   } else if (current.view === 'add') {
     viewRoot.innerHTML = renderAddGroup(

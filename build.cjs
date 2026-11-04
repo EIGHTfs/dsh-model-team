@@ -31,7 +31,12 @@ const CLIENT_PARTS = [
 // 顺序即依赖：rate（速率纯函数）→ messages（消息合并纯函数）→ store（唯一真相源）→ session-bridge → 视图 → app。
 const UI_PARTS = [
   // target-source.js 必须排在 render/app 之前：两处都只调用它，但分片是顺序拼接的
-  "js/rate.js", "js/messages.js", "js/target-source.js", "js/ui-format.js", "js/store.js", "js/model-catalog.js", "js/session-bridge.js",
+  // store-* 必须按依赖顺序排在 store.js 前面（装配层调用各工厂）
+  "js/rate.js", "js/messages.js", "js/target-source.js", "js/ui-format.js",
+  "js/store-state.js", "js/store-persist.js", "js/store-events.js",
+  "js/store-groups.js", "js/store-chat.js", "js/store-stats.js",
+  "js/store-session.js", "js/store-dispatch.js", "js/store.js",
+  "js/model-catalog.js", "js/session-bridge.js",
   "js/render.js", "js/chat.js", "js/admin.js", "js/float.js", "js/app.js"
 ];
 
@@ -122,6 +127,14 @@ const requiredSnippets = [
   ["ModelTeamRate", "ui/js/rate.js（速率唯一实现）"],
   ["function targetSourceHintOf", "ui/js/target-source.js（来源文案唯一口径）"],
   ["function renderFloatTargetMarkup", "ui/js/ui-format.js（跨视图展示口径）"],
+  ["function createPersistencePort", "ui/js/store-persist.js（持久化端口）"],
+  ["function createGroupLoaders", "ui/js/store-groups.js（群列表加载）"],
+  ["function createChatLoaders", "ui/js/store-chat.js（单群聊天加载）"],
+  ["function createStatsLoaders", "ui/js/store-stats.js（统计与目标）"],
+  ["function createSessionAndTarget", "ui/js/store-session.js（会话与目标）"],
+  ["function createDispatcher", "ui/js/store-dispatch.js（动作分派）"],
+  ["function createInitialState", "ui/js/store-state.js（状态形状）"],
+  ["function createEventHub", "ui/js/store-events.js（事件总线与错误出口）"],
   ["function mountDock", "dock.js"]
 ];
 const missing = requiredSnippets.filter(([snippet]) => output.indexOf(snippet) < 0);
