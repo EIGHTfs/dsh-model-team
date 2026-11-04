@@ -260,6 +260,29 @@
   box-shadow: 0 6px 18px rgba(16, 58, 96, 0.12);
   transform: translateY(-1px);
 }
+/* 群列表加载失败态：必须和"确实没有群"看起来不同，否则用户不知道该重试还是该加群 */
+.list-error {
+  margin: 16px;
+  padding: 18px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: 10px;
+  background: rgba(248, 113, 113, 0.08);
+  text-align: center;
+}
+.list-error-title { font-size: 13px; font-weight: 600; color: #f87171; }
+.list-error-detail { margin-top: 6px; font-size: 11px; color: var(--team-text-3); word-break: break-all; }
+.btn-retry {
+  margin-top: 12px;
+  padding: 6px 14px;
+  border: 1px solid var(--team-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--team-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.btn-retry:hover { border-color: var(--team-blue); color: var(--team-blue); }
+
 .req-head {
   display: flex;
   align-items: center;

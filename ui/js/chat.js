@@ -5,12 +5,14 @@
 function buildAtSections() {
   const current = ensureState();
   const activeGroup = currentGroup();
-  const activeDriver = current ? current.drivers.filter(function (driver) {
-    return driver.id === (activeGroup && activeGroup.driverId);
+  // 群对象的驱动字段是 driver（契约 §3.1 同名透传）；读 driverId 会恒空 → 选择器里平台名缺失
+  const activeDriverId = activeGroup ? (activeGroup.driver || activeGroup.driverId) : '';
+  const activeDriver = current && current.drivers ? current.drivers.filter(function (driver) {
+    return driver.id === activeDriverId;
   })[0] : null;
   const driverName = activeDriver
-    ? String(activeDriver.name).split(' (')[0]
-    : (activeGroup ? activeGroup.driverId : '');
+    ? String(activeDriver.name).split(/[（(]/)[0].trim()
+    : (activeDriverId || '');
 
   const modelItems = modelsOf(current.currentGroupId).map(function (model) {
     const shortName = String(model.name || model.id).replace(/^global:/, '');

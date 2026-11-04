@@ -96,7 +96,8 @@ function platformOf(group) {
   // GET /_team/groups 的驱动字段名是 driver（契约 02 §3.1：写入与读出同名）；
   // 旧代码只读 driverId → 平台名恒空、球内字母牌回落成 "?"。两处都认，避免再被字段名绊一次。
   const driverKey = group.driverId || group.driver;
-  const driver = current.drivers.filter(function (item) { return item.id === driverKey; })[0];
+  const drivers = (current && current.drivers) || [];
+  const driver = drivers.filter(function (item) { return item.id === driverKey; })[0];
   return {
     avatar: group.avatar || (driver ? driver.avatar : '[G]'),
     // 驱动名形如「OpenAI 兼容（配置型）」：去掉全角/半角括号里的补充说明，只留主名
@@ -149,7 +150,7 @@ function renderApp(nextState, options) {
     const keyword = (viewState.groupFilter || '').trim().toLowerCase();
     const visibleGroups = keyword
       ? current.groups.filter(function (group) {
-        return [group.name, group.summary, group.driverId, group.id].join(' ').toLowerCase().indexOf(keyword) >= 0;
+        return [group.name, group.summary, group.driver, group.id].join(' ').toLowerCase().indexOf(keyword) >= 0;
       })
       : current.groups;
 
@@ -160,7 +161,12 @@ function renderApp(nextState, options) {
     const caretStart = hadSearchFocus ? activeElement.selectionStart : null;
     const caretEnd = hadSearchFocus ? activeElement.selectionEnd : null;
 
-    viewRoot.innerHTML = renderGroupList(visibleGroups, current.currentGroupId, viewState.groupFilter || '');
+    viewRoot.innerHTML = renderGroupList(
+      visibleGroups,
+      current.currentGroupId,
+      viewState.groupFilter || '',
+      { loadError: current.lastGroupsError || (current.groups && current.groups.length ? '' : '') },
+    );
 
     if (hadSearchFocus) {
       const searchInput = findElement('#groupSearch');
@@ -318,6 +324,7 @@ function initViewEvents() {
     const buttonId = clickedButton ? clickedButton.id : '';
     if (buttonId === 'btnProbeModels') { probeModelCatalog(); return; }
     if (buttonId === 'btnResetModels') { resetModelCatalog(); return; }
+    if (buttonId === 'btnReloadGroups') { store.dispatch({ type: 'load-groups' }); return; }
     if (buttonId === 'btnAddModelRow') { addModelRow(); return; }
     if (buttonId === 'btnAddGroup') switchView('add');
     else if (buttonId === 'btnChatBack' || buttonId === 'btnAddBack' || buttonId === 'btnDatabaseBack' || buttonId === 'btnContactsBack') switchView('list');

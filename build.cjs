@@ -31,7 +31,7 @@ const CLIENT_PARTS = [
 // 顺序即依赖：rate（速率纯函数）→ messages（消息合并纯函数）→ store（唯一真相源）→ session-bridge → 视图 → app。
 const UI_PARTS = [
   // target-source.js 必须排在 render/app 之前：两处都只调用它，但分片是顺序拼接的
-  "js/rate.js", "js/messages.js", "js/target-source.js", "js/store.js", "js/model-catalog.js", "js/session-bridge.js",
+  "js/rate.js", "js/messages.js", "js/target-source.js", "js/ui-format.js", "js/store.js", "js/model-catalog.js", "js/session-bridge.js",
   "js/render.js", "js/chat.js", "js/admin.js", "js/float.js", "js/app.js"
 ];
 
@@ -121,6 +121,7 @@ const requiredSnippets = [
   ["function renderChat", "ui/js/render.js"],
   ["ModelTeamRate", "ui/js/rate.js（速率唯一实现）"],
   ["function targetSourceHintOf", "ui/js/target-source.js（来源文案唯一口径）"],
+  ["function renderFloatTargetMarkup", "ui/js/ui-format.js（跨视图展示口径）"],
   ["function mountDock", "dock.js"]
 ];
 const missing = requiredSnippets.filter(([snippet]) => output.indexOf(snippet) < 0);

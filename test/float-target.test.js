@@ -7,18 +7,30 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
+const FORMAT_SOURCE = await fs.readFile(new URL('../ui/js/ui-format.js', import.meta.url), 'utf8');
 const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/render.js', import.meta.url), 'utf8');
 const CLIENT_SOURCE = await fs.readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 const FLOAT_SOURCE = await fs.readFile(new URL('../ui/js/float.js', import.meta.url), 'utf8');
 
+// 球内标记已搬到 ui-format.js；它调用 render.js 的 renderAvatar（同一 bundle 作用域），
+// 单测里按同名垫片注入，保证测的是真实拼装逻辑而不是复制品。
 function loadRenderLayer() {
+  globalThis.escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  globalThis.renderAvatar = (avatarText, fallbackName) => {
+    const rawValue = String(avatarText == null ? '' : avatarText).trim();
+    const isImageUrl = /^https?:\/\//i.test(rawValue) || /^data:/i.test(rawValue);
+    const initial = String(fallbackName == null ? '' : fallbackName).trim().charAt(0).toUpperCase() || '?';
+    if (isImageUrl) return `<img class="avatar-img" src="${globalThis.escapeHtml(rawValue)}" alt="" data-fallback="${initial}">`;
+    return globalThis.escapeHtml(rawValue || initial);
+  };
   // eslint-disable-next-line no-new-func
-  const factory = new Function(`${RENDER_SOURCE}
-;return {
-  renderFloatTargetMarkup: renderFloatTargetMarkup,
-  renderGroupList: renderGroupList
-};`);
-  return factory();
+  const formatFactory = new Function(`${FORMAT_SOURCE}
+;return { renderFloatTargetMarkup: renderFloatTargetMarkup };`);
+  // eslint-disable-next-line no-new-func
+  const renderFactory = new Function(`${RENDER_SOURCE}
+;return { renderGroupList: renderGroupList };`);
+  return Object.assign({}, formatFactory(), renderFactory());
 }
 
 test('G6-A：有 URL 头像 → 只有 <img>，不出现任何文字（模型名/首字母都不许露出来）', () => {

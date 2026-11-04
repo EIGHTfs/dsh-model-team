@@ -66,16 +66,7 @@ function requestRow(row, index, isExpanded, platform) {
   </div>`;
 }
 
-// 球内目标标记（G6）：有 URL 头像就只显示图、不显示任何文字；没有头像就用平台首字母圆牌。
-// 为什么不另写一套首字母规则：renderAvatar 已经封装了「URL 判定 + 首字母 + 转义」，
-// 复制一份必然在"空名/小写/非 URL"这些边界上漂移。
-function renderFloatTargetMarkup(platform) {
-  const avatarText = platform && platform.avatar;
-  const platformName = platform && platform.name;
-  const renderedAvatar = renderAvatar(avatarText, platformName);
-  if (renderedAvatar.indexOf('<img') === 0) return renderedAvatar;
-  return '<span class="fb-initial">' + renderedAvatar + '</span>';
-}
+// 球内标记 / 窗口格式化这类跨视图口径搬到 ui-format.js（render.js 保持只做本视图的骨架）。
 
 // 群列表时间：当天 HH:mm、昨天显示「昨天」、更早 MM-DD；lastUpdated 缺失/非法 → 空
 function formatGroupTime(isoText) {
@@ -109,8 +100,11 @@ function renderAvatar(avatarText, fallbackName) {
   return escapeHtml(rawValue || initial);
 }
 
-// 视图一：群列表（= 平台账号列表）：顶部搜索 +「我」入口，每项右侧 lastUpdated 本地化时间
-function renderGroupList(groups, currentGroupId, filterText) {
+// 视图一：群列表（= 平台账号列表）：顶部搜索 + 加群入口，每项右侧 lastUpdated 本地化时间。
+// options.loadError：群接口最近一次失败原因。空列表 + 有失败原因 → 显示"加载失败 + 重试"，
+// 不能渲染成「0 个群」——那会把"加载失败"伪装成"确实没有数据"，用户没法判断该重试还是该加群。
+function renderGroupList(groups, currentGroupId, filterText, options) {
+  const loadError = options && options.loadError ? String(options.loadError) : '';
   const itemsHtml = groups.map(function (group) {
     const timeText = formatGroupTime(group.lastUpdated);
     return `<li class="group-item${group.id === currentGroupId ? ' active' : ''}" data-group-id="${escapeHtml(group.id)}" tabindex="0">
@@ -121,20 +115,32 @@ function renderGroupList(groups, currentGroupId, filterText) {
       </div>
       <div class="group-right">
         ${timeText ? `<span class="group-time">${escapeHtml(timeText)}</span>` : ''}
-        <span class="group-driver">${escapeHtml(group.driverId)}</span>
+        <span class="group-driver">${escapeHtml(group.driver)}</span>
       </div>
     </li>`;
   }).join('');
+
+  const isLoadFailure = groups.length === 0 && loadError !== '';
+  const countHtml = isLoadFailure
+    ? '<span class="list-count list-count-error">加载失败</span>'
+    : `<span class="list-count">${groups.length} 个群 · 每个群 = 一个平台账号</span>`;
+  const listHtml = isLoadFailure
+    ? `<div class="list-error" role="alert">
+         <div class="list-error-title">群列表加载失败</div>
+         <div class="list-error-detail">${escapeHtml(loadError)}</div>
+         <button class="btn-retry" id="btnReloadGroups" type="button">点此重试</button>
+       </div>`
+    : `<ul class="group-list" id="groupList">${itemsHtml}</ul>`;
 
   return `<section class="view view-list">
     <div class="list-head">
       <h2>消息</h2>
       <input class="group-search" id="groupSearch" type="search" autocomplete="off"
              placeholder="🔍 搜索群聊 (账号)" value="${escapeHtml(filterText || '')}">
-      <span class="list-count">${groups.length} 个群 · 每个群 = 一个平台账号</span>
+      ${countHtml}
       <button class="btn-add" id="btnAddGroup" type="button">＋ 加群</button>
     </div>
-    <ul class="group-list" id="groupList">${itemsHtml}</ul>
+    ${listHtml}
   </section>`;
 }
 
@@ -178,15 +184,6 @@ function renderChat(group, models, messages, platform) {
 // 选择器分组标题（本群群友 / 我的好友分组）
 function renderAtSection(title) {
   return `<div class="at-section">${escapeHtml(title)}</div>`;
-}
-
-// 上下文窗口的展示口径：未知一律 —（契约 02 §3.7：缺失不填，不许编造）
-function formatContextLength(contextLength) {
-  const numericValue = typeof contextLength === 'number' ? contextLength : Number(contextLength);
-  if (!Number.isFinite(numericValue) || numericValue <= 0) return '—';
-  if (numericValue >= 1000000) return (numericValue / 1000000).toFixed(numericValue % 1000000 === 0 ? 0 : 1) + 'M';
-  if (numericValue >= 1000) return Math.round(numericValue / 1000) + 'K';
-  return String(numericValue);
 }
 
 // @ 选择器：单个模型项（本群群友）；display 带来源平台，label 是纯模型名
@@ -433,7 +430,7 @@ function renderProfile(groups) {
       <span class="avatar">${renderAvatar(group.avatar, group.name)}</span>
       <div>
         <div class="conn-name">${escapeHtml(group.name)}</div>
-        <div class="conn-meta conn-meta-compact">${escapeHtml(group.driverId)}</div>
+        <div class="conn-meta conn-meta-compact">${escapeHtml(group.driver)}</div>
       </div>
       <span class="conn-meta">${escapeHtml(group.summary)}</span>
     </div>`;

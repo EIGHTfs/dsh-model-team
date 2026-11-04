@@ -24,6 +24,12 @@ function createTeamStore(options) {
     effectiveTarget: null,        // 实际生效的目标（含后端回落），面板/球/群聊都用它
     targetSource: 'none',         // explicit | parent | last-session | fallback-group | none
     groups: [],
+    // drivers / friendGroups 必须在初始 state 里：渲染路径（platformOf）会直接读 state.drivers，
+    // 缺字段时抛 TypeError 会把整条 boot 链打断，表现就是"群列表 0 个群但接口有数据"。
+    drivers: [],
+    friendGroups: [],
+    // 群列表最近一次加载失败的原因（null = 没失败）：渲染层据此区分"真的空"与"加载失败"
+    lastGroupsError: null,
     platforms: [],
     currentGroupId: '',
     models: {},
@@ -34,6 +40,25 @@ function createTeamStore(options) {
     anchor: null,
     errors: []
   };
+
+  // api.js 的失败上报通道：三类失败（HTTP / JSON / 网络）都进 state.errors，
+  // 界面上"加载失败"才有依据，而不是静默变成空列表。
+  // 本次加载里 /groups 的失败原因：apiJson 对失败只上报不 reject，
+  // 只看 Promise 状态会把"500"当成"成功返回空"，界面就仍然显示「0 个群」。
+  var pendingGroupsFailure = null;
+  if (typeof apiSetErrorReporter === 'function') {
+    apiSetErrorReporter(function (failure) {
+      var detail = failure && failure.detail ? String(failure.detail) : 'request failed';
+      reportError('api:' + (failure && failure.kind) + ':' + (failure && failure.path), { message: detail });
+      if (failure && failure.path === '/groups') {
+        // detail 自身已带类别信息（http-status 是「HTTP 500」、json-parse 是解析错误原文），
+        // 这里只给其余两类补一个可读前缀，避免出现「HTTP HTTP 500」
+        pendingGroupsFailure = failure.kind === 'http-status'
+          ? detail
+          : (failure.kind === 'json-parse' ? '数据解析失败：' : '网络异常：') + detail;
+      }
+    });
+  }
 
   var loadedOnce = false;
   var pendingWrites = {};
@@ -129,16 +154,48 @@ function createTeamStore(options) {
   }
 
   // ---------- 数据加载（apply：只改 state + 广播，不碰 DOM） ----------
+  // 四个接口并发拉，但**任一失败不许清空其它三份**：
+  // Promise.all 的"一败全败"会让单个 500（如 platforms 挂掉）把群列表也变成空，
+  // 而界面上只会显示"0 个群"，与真实数据矛盾（用户已实测过这个现象）。
   function loadGroups() {
-    return Promise.all([api.getGroups(), api.getDrivers(), api.getFriendGroups(), api.getPlatforms()]).then(function (results) {
-      state.groups = results[0] || [];
-      state.drivers = results[1] || [];
-      state.friendGroups = results[2] && results[2].groups ? results[2].groups : [];
-      state.platforms = results[3] || [];
+    pendingGroupsFailure = null;
+    var requests = [api.getGroups(), api.getDrivers(), api.getFriendGroups(), api.getPlatforms()];
+    var requestNames = ['groups', 'drivers', 'friend-groups', 'platforms'];
+    return Promise.all(requests.map(function (request) {
+      // 每个请求都兜成 settled：allSettled 在旧 WebView 上不一定有，这里不依赖它
+      return Promise.resolve(request).then(
+        function (value) { return { status: 'fulfilled', value: value }; },
+        function (reason) { return { status: 'rejected', reason: reason }; },
+      );
+    })).then(function (settled) {
+      var failed = [];
+      settled.forEach(function (entry, index) {
+        if (entry.status === 'rejected') {
+          failed.push(requestNames[index]);
+          reportError('load-groups:' + requestNames[index], entry.reason);
+          return;                       // 保留上一份数据，绝不清空
+        }
+        var value = entry.value;
+        if (index === 0) state.groups = value || [];
+        else if (index === 1) state.drivers = value || [];
+        else if (index === 2) state.friendGroups = value && value.groups ? value.groups : [];
+        else state.platforms = value || [];
+      });
+      // 群列表的成功与失败要分开记：三条来源都算失败——Promise 被 reject、
+      // apiJson 上报的 HTTP/JSON/网络失败（它不会 reject）、以及返回 null。
+      state.lastGroupsError = pendingGroupsFailure
+        || (settled[0].status === 'rejected' ? describeLoadFailure(settled[0].reason) : null);
       if (!state.currentGroupId && state.groups.length) state.currentGroupId = state.groups[0].id;
-      broadcast('groups:updated', { groups: state.groups });
+      broadcast('groups:updated', { groups: state.groups, failed: failed });
       return state.groups;
     });
+  }
+
+  // 失败原因给渲染层看的一句话（不含栈，避免把内部细节写进界面）
+  function describeLoadFailure(reason) {
+    if (!reason) return '接口无响应';
+    if (typeof reason === 'string') return reason;
+    return reason.message ? String(reason.message) : String(reason);
   }
 
   // 只刷新平台清单：平台预置是数据文件（config/platforms.json 或 <dataRoot>/platforms.json），
