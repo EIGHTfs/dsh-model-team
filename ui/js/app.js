@@ -52,6 +52,8 @@ function showModal(title, bodyHtml) {
   modalMask.addEventListener('click', function (event) {
     if (event.target === modalMask) modalMask.remove();
   });
+  // 交回遮罩节点：调用方要往弹窗里装表单、重画正文（好友分组表单就这么用）
+  return modalMask;
 }
 
 // ---------------------------------------------------------------- 读取辅助（只读 state）
@@ -312,6 +314,17 @@ function initViewEvents() {
     }
     const groupItem = event.target.closest('.group-item');
     if (groupItem) { openChat(groupItem.dataset.groupId); return; }
+    // 通讯录：新建 / 编辑好友分组都走同一个弹窗（表单与校验在 friend-group-form.js）
+    if (event.target.closest('#btnCreateGroup')) { openFriendGroupModal('create', null); return; }
+    const editGroupButton = event.target.closest('[data-edit-group]');
+    if (editGroupButton) {
+      const friendGroupsNow = (ensureState() || { friendGroups: [] }).friendGroups;
+      const editingFriendGroup = friendGroupsNow.filter(function (friendGroup) {
+        return friendGroup.id === editGroupButton.dataset.editGroup;
+      })[0];
+      if (editingFriendGroup) openFriendGroupModal('edit', editingFriendGroup);
+      return;
+    }
     const atItem = event.target.closest('.at-item');
     if (atItem) {
       const picked = viewState.atPicker.items[Number(atItem.dataset.index)];

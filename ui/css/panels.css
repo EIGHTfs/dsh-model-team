@@ -206,7 +206,7 @@
   left: 50%;
   bottom: 34px;
   transform: translate(-50%, 12px);
-  z-index: 200;
+  z-index: var(--dmt-z-toast, 1);  /* 必须最高：提示要能在弹窗之上被看见 */
   padding: 9px 18px;
   border-radius: 999px;
   background: rgba(31, 35, 41, 0.88);
@@ -224,7 +224,10 @@
 .modal-mask {
   position: fixed;
   inset: 0;
-  z-index: 300;
+  /* 必须高于插件主窗口：弹窗是从主窗口里点开的，层高低于它就会被整块盖住
+     （实测：表单字段全被遮住，只剩标题和底部按钮）。具体数值由
+     lib/client-parts/foundation/z-layers.js 的层级列表统一分配，这里只引用变量。 */
+  z-index: var(--dmt-z-modal, 1);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -280,6 +283,64 @@
   word-break: break-all;
 }
 .modal-table th { color: var(--team-text-3); font-weight: 600; background: #fafcfe; }
+
+/* ========================================================================
+   好友分组表单（弹窗内）：字段错误与服务端失败原文必须看得见，不靠颜色区分
+   ==================================================================== */
+.friend-group-form .fg-picker {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.friend-group-form .fg-picker .field-select { flex: 1 1 140px; min-width: 0; }
+.fg-error {
+  margin-top: 4px;
+  min-height: 14px;
+  font-size: 11.5px;
+  color: var(--team-red);
+}
+.fg-form-error {
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid rgba(217, 45, 32, 0.35);
+  border-radius: 8px;
+  background: rgba(217, 45, 32, 0.06);
+  font-size: 12px;
+  color: var(--team-red);
+  word-break: break-all;
+}
+.fg-remove {
+  margin-left: 8px;
+  padding: 2px 6px;
+  border: 1px solid var(--team-line);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 11.5px;
+  color: var(--team-text-2);
+  cursor: pointer;
+}
+.fg-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--team-line);
+}
+.fg-actions .btn-primary { min-width: 96px; padding: 8px 16px; }
+.btn-danger {
+  padding: 8px 14px;
+  border: 1px solid rgba(217, 45, 32, 0.45);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--team-red);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-danger:hover { background: rgba(217, 45, 32, 0.08); }
 
 /* ========================================================================
    视图五：通讯录（好友分组管理）

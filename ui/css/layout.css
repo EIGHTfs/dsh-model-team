@@ -88,7 +88,7 @@ body {
   position: fixed;
   left: calc(100% - 320px);      /* 初始位置：右下角往内缩一点 */
   top: 58%;
-  z-index: 2147482000;           /* 契约条款 4：悬浮件必须压住宿主所有界面 */
+  z-index: var(--dmt-z-dock, 1);  /* 层级见 lib/client-parts/foundation/z-layers.js */
   display: flex;
   align-items: center;
   gap: 10px;
@@ -190,7 +190,7 @@ body {
 /* ------------------------------------------------------------ 悬浮面板 */
 .float-panel {
   position: fixed;
-  z-index: 2147482001;           /* 面板压在球之上，两者都在宿主界面之上 */
+  z-index: var(--dmt-z-panel, 1); /* 面板压在球之上，两者都在宿主界面之上 */
   width: 384px;
   border-radius: 12px;
   background: var(--team-white);
@@ -301,7 +301,7 @@ body {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 2147482000;
+  z-index: var(--dmt-z-recall, 1);
   padding: 10px 16px;
   border: 1px solid rgba(18, 167, 245, 0.35);
   border-radius: 999px;
@@ -318,7 +318,7 @@ body {
   position: fixed;
   left: 50%;
   top: 50%;
-  z-index: 2147482002;           /* 主窗口压在悬浮件之上（契约条款 4） */
+  z-index: var(--dmt-z-app, 1);   /* 主窗口压在悬浮件之上（契约条款 4） */
   transform: translate(-50%, -50%);
   width: var(--team-window-width);
   height: var(--team-window-height);
