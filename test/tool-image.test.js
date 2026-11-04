@@ -140,3 +140,111 @@ test('G-img-tool-⑤：collectImageRefs 也能扫到 tool 消息里的图块（�
   const refs = collectImageRefs(messages);
   assert.equal(refs.has('sha256-aaaa'), true, 'tool 消息里的图必须进预取清单');
 });
+
+// ---------------------------------------------------------------- G-24 边界：多图 / 混排 / 部分取不到
+
+test('G-24-①：同一条 tool 结果两个 image 块 → 同一条附图消息里按原顺序排放', () => {
+  const messages = buildConversation([{
+    role: 'tool',
+    toolCallId: 'c1',
+    content: [
+      { type: 'text', text: '两张图都读到了' },
+      { type: 'image', attachment: ATTACHMENT_A },
+      { type: 'image', attachment: ATTACHMENT_B },
+    ],
+  }]);
+
+  const converted = toOpenAiMessages(messages, '', imageUrlsFor({
+    'sha256-aaaa': { url: DATA_URL_A },
+    'sha256-bbbb': { url: DATA_URL_B },
+  }));
+
+  const toolIndex = converted.findIndex((message) => message.role === 'tool');
+  const imageMessages = converted.filter((message) => message.role === 'user'
+    && Array.isArray(message.content) && message.content.some((block) => block.type === 'image_url'));
+  assert.equal(imageMessages.length, 1, '两张图要合并成一条附图消息，不许拆成两条');
+  assert.equal(converted.indexOf(imageMessages[0]), toolIndex + 1, '附图消息紧跟 tool 结果');
+
+  const imageUrlsInOrder = imageMessages[0].content
+    .filter((block) => block.type === 'image_url')
+    .map((block) => block.image_url.url);
+  assert.deepEqual(imageUrlsInOrder, [DATA_URL_A, DATA_URL_B], '多图必须严格保持原有顺序');
+  assert.match(converted[toolIndex].content, /附图见下一条消息/);
+});
+
+test('G-24-②：用户消息带图 + 工具结果带图混排 → 各自留在自己的位置，互不合并', () => {
+  const attachmentC = { attachmentId: 'sha256-cccc', mediaType: 'image/png', bytes: 68, width: 2, height: 2 };
+  const dataUrlC = 'data:image/png;base64,AAAA';
+  const messages = [
+    { role: 'user', content: [{ type: 'text', text: '先看我这张' }, { type: 'image', attachment: attachmentC }] },
+    { role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'read_image', arguments: '{}' }] },
+    {
+      role: 'tool',
+      toolCallId: 'c1',
+      content: [{ type: 'text', text: '工具读到的图' }, { type: 'image', attachment: ATTACHMENT_A }],
+    },
+  ];
+
+  const converted = toOpenAiMessages(messages, '', imageUrlsFor({
+    'sha256-aaaa': { url: DATA_URL_A },
+    'sha256-cccc': { url: dataUrlC },
+  }));
+
+  // 第一条 user 消息自己带图（不进 tool 附图机制）
+  const firstUser = converted.find((message) => message.role === 'user');
+  const firstUserImages = firstUser.content.filter((block) => block.type === 'image_url').map((block) => block.image_url.url);
+  assert.deepEqual(firstUserImages, [dataUrlC], '用户的图留在用户消息里，不被搬到别处');
+
+  // tool 之后仍会追加一条附图消息，且只包含工具的图
+  const toolIndex = converted.findIndex((message) => message.role === 'tool');
+  const appendedUser = converted[toolIndex + 1];
+  assert.equal(appendedUser.role, 'user');
+  const appendedImages = appendedUser.content.filter((block) => block.type === 'image_url').map((block) => block.image_url.url);
+  assert.deepEqual(appendedImages, [DATA_URL_A], '工具附图消息里不该混进用户的图');
+  assert.equal(converted.filter((message) => message.role === 'user').length, 2, '两条 user 消息各司其职');
+});
+
+test('G-24-③：Map 里是 {error}（而不是 {url}）→ 该图不进附图消息，只在正文写明未取到', () => {
+  const messages = buildConversation([{
+    role: 'tool',
+    toolCallId: 'c1',
+    content: [
+      { type: 'text', text: '图读到了但可能拿不到内容' },
+      { type: 'image', attachment: ATTACHMENT_A },
+    ],
+  }]);
+
+  const converted = toOpenAiMessages(messages, '', imageUrlsFor({
+    'sha256-aaaa': { error: '图片过大（2000000 字节 > 1048576）' },
+  }));
+
+  const toolMessage = converted.find((message) => message.role === 'tool');
+  assert.match(toolMessage.content, /附图未取到/, '取不到要说清楚');
+  assert.equal(toolMessage.content.includes('附图见下一条消息'), false, '没有附图就不能说"见下一条"');
+  assert.equal(toolMessage.content.includes('[图片无法发送'), false, '占位文本不许进 tool 正文');
+  assert.equal(converted.some((message) => Array.isArray(message.content)
+    && message.content.some((block) => block.type === 'image_url')), false, '一张都没取到就不生成附图消息');
+});
+
+test('G-24-④：同一条 tool 结果里一有一无（一个 url、一个 error）→ 只带取到的那张', () => {
+  const messages = buildConversation([{
+    role: 'tool',
+    toolCallId: 'c1',
+    content: [
+      { type: 'text', text: '两张图' },
+      { type: 'image', attachment: ATTACHMENT_A },
+      { type: 'image', attachment: ATTACHMENT_B },
+    ],
+  }]);
+
+  const converted = toOpenAiMessages(messages, '', imageUrlsFor({
+    'sha256-aaaa': { url: DATA_URL_A },
+    'sha256-bbbb': { error: '读取失败' },
+  }));
+
+  const imageMessages = converted.filter((message) => message.role === 'user'
+    && Array.isArray(message.content) && message.content.some((block) => block.type === 'image_url'));
+  assert.equal(imageMessages.length, 1, '有一张能发就仍要有附图消息');
+  const urls = imageMessages[0].content.filter((block) => block.type === 'image_url').map((block) => block.image_url.url);
+  assert.deepEqual(urls, [DATA_URL_A], '只带取到的那张，顺序不变');
+});
