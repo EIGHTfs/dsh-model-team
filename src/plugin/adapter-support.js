@@ -21,6 +21,10 @@ import { normalizeHarnessMessages } from './message-shape.js';
 const PLACEHOLDER_BLOCK_TYPES = new Set(['file']);
 const IMAGE_BLOCK_TYPE = 'image';
 const IMAGE_UNSENDABLE_PREFIX = '[图片无法发送：';
+// tool 消息里带图时的两句提示（OpenAI 协议不允许 role:'tool' 放图，图要跟一条 user 消息）
+const TOOL_IMAGE_FOLLOWUP_HINT = '（附图见下一条消息）';
+const TOOL_IMAGE_MISSING_HINT = '（附图未取到）';
+const TOOL_IMAGE_INTRO_TEXT = '以下是工具 read_image 返回的图片：';
 
 /**
  * 图片块 → OpenAI 内容块。
@@ -105,6 +109,32 @@ function toOpenAiContentBlocks(message, imageUrls) {
 }
 
 /** 只要文本形态（assistant / tool / developer 走这条：这些角色不该带图） */
+// 把一条消息的内容拆成「文本」与「图片块」两部分。
+// tool 消息要用：协议不允许 role:'tool' 带图，图必须拆出来另发一条 user 消息。
+function splitTextAndImageBlocks(message, imageUrls) {
+  const blocks = toOpenAiContentBlocks(message, imageUrls);
+  if (!Array.isArray(blocks)) {
+    return { text: String(blocks == null ? '' : blocks), imageBlocks: [], hasImageBlock: messageHasImageBlock(message) };
+  }
+  const textParts = [];
+  const imageBlocks = [];
+  for (const block of blocks) {
+    if (block && block.type === 'image_url') imageBlocks.push(block);
+    // 取不到图时 imageBlockToOpenAi 会产出占位文本；tool 文本里不能出现它（改由 HINT 说明）
+    else if (block && block.type === 'text' && !String(block.text || '').startsWith(IMAGE_UNSENDABLE_PREFIX)) {
+      textParts.push(block.text);
+    }
+  }
+  return { text: textParts.join('\n').trim(), imageBlocks, hasImageBlock: messageHasImageBlock(message) };
+}
+
+// 该消息是否含 image 块（用于区分"本来没图"与"有图但没取到"）
+function messageHasImageBlock(message) {
+  const content = message?.content;
+  if (!Array.isArray(content)) return false;
+  return content.some((block) => block && block.type === IMAGE_BLOCK_TYPE);
+}
+
 function toOpenAiTextOnly(message) {
   const content = toOpenAiContentBlocks(message, undefined);
   if (typeof content === 'string') return content;
@@ -190,6 +220,16 @@ export function toOpenAiMessages(rawMessages, systemPrompt, imageUrls) {
   // deferredSystemMessages 缓冲卡在 assistant 与 tool 之间的 system 消息，等结果发完补发。
   let pendingToolResults = 0;
   const deferredSystemMessages = [];
+  // 本批 tool 结果里收集到的图片块，等整批发完再统一跟一条 user 消息（见 tool 分支注释）
+  const pendingToolImages = [];
+  function flushPendingToolImages() {
+    if (pendingToolImages.length === 0) return;
+    openAiMessages.push({
+      role: 'user',
+      content: [{ type: 'text', text: TOOL_IMAGE_INTRO_TEXT }, ...pendingToolImages],
+    });
+    pendingToolImages.length = 0;
+  }
   for (const message of messages ?? []) {
     const role = typeof message?.role === 'string' ? message.role : 'user';
     if (role === 'developer') {
@@ -206,18 +246,40 @@ export function toOpenAiMessages(rawMessages, systemPrompt, imageUrls) {
       if (!keptCallIds.has(callId)) {
         continue; // 孤儿工具结果（无配对调用，或其调用因空名被剔）：丢弃
       }
-      const toolText = toOpenAiTextOnly(message);
+      // tool 结果里可能有图（read_image 返回的就是 tool 消息里的图块）。
+      // OpenAI 兼容协议**不允许 role:'tool' 带图**（content 必须是字符串），标准做法是：
+      //   tool 消息照旧发文本（并提示"附图见下一条消息"），该批结果全部发完后紧跟一条 user 承载图片。
+      const toolParts = splitTextAndImageBlocks(message, imageUrls);
       const isError = message.isError === true;
-      const body = toolText.length > 0 ? toolText : EMPTY_TOOL_RESULT_TEXT;
+      let body;
+      if (toolParts.imageBlocks.length > 0) {
+        body = toolParts.text.length > 0
+          ? `${toolParts.text}\n${TOOL_IMAGE_FOLLOWUP_HINT}`
+          : TOOL_IMAGE_FOLLOWUP_HINT;
+      } else if (toolParts.hasImageBlock) {
+        // 有图块但没取到（imageUrls 里是 error 或压根没有）：明说没取到，别让模型以为图丢了
+        body = toolParts.text.length > 0 ? `${toolParts.text}\n${TOOL_IMAGE_MISSING_HINT}` : TOOL_IMAGE_MISSING_HINT;
+      } else {
+        body = toolParts.text.length > 0 ? toolParts.text : EMPTY_TOOL_RESULT_TEXT;
+      }
       openAiMessages.push({
         role: 'tool',
         tool_call_id: callId,
         content: isError ? `[工具执行失败]\n${body}` : body,
       });
+      if (toolParts.imageBlocks.length > 0) pendingToolImages.push(...toolParts.imageBlocks);
       pendingToolResults -= 1;
-      if (pendingToolResults <= 0 && deferredSystemMessages.length > 0) {
-        openAiMessages.push(...deferredSystemMessages); // 该批结果发完，补发缓冲的 system
-        deferredSystemMessages.length = 0;
+      if (pendingToolResults <= 0) {
+        // 顺序硬要求：附图 user 必须在这批 tool 结果**全部发完**之后插入，
+        // 否则会插进 assistant(tool_calls) 与 tool 之间 → 破坏配对 → 上游 400
+        if (pendingToolImages.length > 0) {
+          flushPendingToolImages();
+        }
+        if (deferredSystemMessages.length > 0) {
+          flushPendingToolImages();          // 收尾：万一这批 tool 结果没凑齐，也别把已取到的图丢掉
+  openAiMessages.push(...deferredSystemMessages); // 该批结果发完，补发缓冲的 system
+          deferredSystemMessages.length = 0;
+        }
       }
       continue;
     }
