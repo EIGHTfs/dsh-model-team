@@ -60,11 +60,9 @@ export async function launchBrowser({ executablePath, userDataDir, port, extraAr
   let closed = false;
   childProcess.on('exit', () => { closed = true; });
 
-  const webSocketUrl = await fetchWebSocketUrl(port, Date.now() + LAUNCH_TIMEOUT_MS).catch(async (launchError) => {
-    await stop();
-    throw launchError;
-  });
-
+  // 声明必须在任何可能调用 stop() 的代码之前：启动失败时 catch 里就会调 stop()，
+  // 若把它留在下面（let 的暂时性死区），真实失败原因会被
+  // ReferenceError: Cannot access 'stopPromise' before initialization 盖掉。
   let stopPromise = null;
   // 必须可重复调用：场景失败、断言失败、finally 都可能各调一次
   function stop() {
@@ -80,6 +78,12 @@ export async function launchBrowser({ executablePath, userDataDir, port, extraAr
     })();
     return stopPromise;
   }
+
+  // 等 CDP 端口就绪；失败要把这次起的浏览器收掉再抛（stop 已在上面定义好，无 TDZ）
+  const webSocketUrl = await fetchWebSocketUrl(port, Date.now() + LAUNCH_TIMEOUT_MS).catch(async (launchError) => {
+    await stop();
+    throw launchError;
+  });
 
   return { webSocketUrl, processId: childProcess.pid, stop };
 }
