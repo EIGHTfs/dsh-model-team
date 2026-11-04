@@ -44,24 +44,53 @@ function readSessionTitle(props, sessionId) {
 // INV-14：判定"当前 session 是否选中本插件的虚拟模型"。
 // 两个比对值都只能来自服务端 GET /_team/meta（契约 02 §3.8）：部署方可以改 config.virtualModel
 // 与 options.providerIds，客户端写死任一侧，都会让球在该显示的部署上永远不显示。
-// 判定收敛成一个纯函数（不读全局、不产生副作用），各种状态才能在单测里直接跑：
+// 判定收敛成纯函数（不读全局、不产生副作用），各种状态才能在单测里直接跑：
 //   selection           宿主 projection(modelSelection) 的当前值，形如 { next, lastUsed }
-//   meta                { virtualModel, providerIds } | { failed: true }（拉取失败）| null（还没到）
-//   projectionAvailable 宿主是否提供 useProjection（false = 连 selection 都取不到，判不了）
-// 返回 'ours' | 'other' | 'unknown' | 'degraded'
-// 顺序即优先级：判不了（无 projection / meta 失败）先降级；其次 unknown（先不显示）；最后才比对我们。
-function decideDock(input) {
+//   meta                { virtualModel, providerIds } | { failed: true }（重试用尽仍不可用）| null（还没到）
+//   projectionAvailable 宿主是否提供 useProjection（false = 连 selection 都取不到）
+// 返回 'ours' | 'other' | 'unknown' | 'degraded'；**只有 'ours' 会显示**（显示口径在 dock.js）。
+//   'degraded' 只保留给日志：它表示"判不了"，而判不了按契约就该隐藏，不再当可见用。
+// 顺序即优先级：判不了（无 projection / meta 用尽）→ degraded/unknown；先 unknown（还没到）；最后才比对我们。
+function evaluateDock(input) {
   var options = input || {};
-  if (options.projectionAvailable === false) return "degraded";
+  if (options.projectionAvailable === false) {
+    return { decision: "degraded", reason: "reason=projection-unavailable" };
+  }
   var selection = options.selection;
   var current = selection && (selection.next || selection.lastUsed);
-  if (!current) return "unknown";
+  if (!current) return { decision: "unknown", reason: "reason=selection-empty" };
+
+  var projectionLabel = String(current.model || current.provider || "unknown");
   var meta = options.meta;
-  if (!meta) return "unknown";                  // 还没到：先不显示，到达后由 recomputeDockDecision 重算
-  if (meta.failed === true) return "degraded";  // 拉取失败（不是"还没到"）：判不了 → 常显 + 一次性告警
+  if (!meta) return { decision: "unknown", reason: "reason=meta-pending" };
+  // 重试用尽仍拿不到 meta：判不了 → 隐藏（宁可少显示，也不把不属于本插件的入口摆给用户）
+  if (meta.failed === true) return { decision: "degraded", reason: "reason=meta-unavailable" };
+
   var providerIds = Array.isArray(meta.providerIds) ? meta.providerIds : [];
   var isOurs = providerIds.indexOf(current.provider) >= 0 && current.model === meta.virtualModel;
-  return isOurs ? "ours" : "other";
+  return {
+    decision: isOurs ? "ours" : "other",
+    reason: "projection=" + projectionLabel,
+  };
+}
+
+// 兼容既有调用点：只要结论
+function decideDock(input) {
+  return evaluateDock(input).decision;
+}
+
+// 每次结论变化打一行（含理由），便于现场判断"为什么球不显示"；结论没变就不刷屏
+var lastDockLogKey = null;
+function reportDockDecision(result) {
+  var logKey = result.decision + "|" + result.reason;
+  if (logKey !== lastDockLogKey) {
+    lastDockLogKey = logKey;
+    try {
+      console.info("[dock] " + result.decision + " ← " + result.reason);
+    } catch (logError) { /* 没有 console 的环境不影响显隐 */ }
+  }
+  applyDockDecision(result.decision);
+  return result.decision;
 }
 
 // meta 是异步拉的：到达时 React 不会因为 selection 没变而重渲染，所以显隐必须由这里主动重算下发。
@@ -85,17 +114,23 @@ function rememberDockInputs(selection, projectionAvailable) {
     projectionAvailable: projectionAvailable !== false,
     hasBridge: true
   };
-  return decideDock({
+  // 记输入 + 下发结论（含日志）：判定结论变化时球要立即响应，
+  // 不能等宿主再渲染一次。注意这里只切球的显隐，不碰整个宿主容器（见 dock.js setDockVisibility）。
+  return reportDockDecision(evaluateDock({
     selection: latestDockInputs.selection,
     meta: currentMetaInput(),
     projectionAvailable: latestDockInputs.projectionAvailable
-  });
+  }));
 }
 
-// 重算入口：meta 到达 / 失败时调一次。桥还没渲染过就没有输入可算，等它首帧自己算。
+// 重算入口：meta 到达 / 重试用尽时调一次。桥还没渲染过就没有输入可算，等它首帧自己算。
 function recomputeDockDecision() {
   if (!latestDockInputs.hasBridge) return;
-  applyDockDecision(rememberDockInputs(latestDockInputs.selection, latestDockInputs.projectionAvailable));
+  reportDockDecision(evaluateDock({
+    selection: latestDockInputs.selection,
+    meta: currentMetaInput(),
+    projectionAvailable: latestDockInputs.projectionAvailable
+  }));
 }
 
 // 订阅 modelSelection 的变化（G-15 根因）。
@@ -109,7 +144,7 @@ function subscribeModelSelection({ session, key, onChange } = {}) {
     const projections = session && session.projections;
     const face = projections && typeof projections.faceOf === "function" ? projections.faceOf(key) : null;
     if (!face || typeof face.subscribe !== "function") return null;
-    const unsubscribe = face.subscribe(function () {
+    const emitSelection = function () {
       let nextSelection;
       try {
         nextSelection = typeof face.getSnapshot === "function" ? face.getSnapshot() : undefined;
@@ -118,7 +153,12 @@ function subscribeModelSelection({ session, key, onChange } = {}) {
         nextSelection = undefined;
       }
       if (typeof onChange === "function") onChange(nextSelection);
-    });
+    };
+
+    const unsubscribe = face.subscribe(emitSelection);
+    // 订阅成功后**立刻取一次快照**：projection 的值可能在订阅之前就已设定（恢复历史会话就是这样），
+    // 之后不会再有变化事件；不补这一下，selection 会一直是 undefined → 判定 unknown → 球永久隐藏。
+    emitSelection();
     return typeof unsubscribe === "function" ? unsubscribe : null;
   } catch (error) {
     // 订阅失败不算致命：退回渲染期取值（比现在不多也不少）
@@ -127,29 +167,59 @@ function subscribeModelSelection({ session, key, onChange } = {}) {
   }
 }
 
-// 启动取一次 meta（契约 02 §2.9）。失败或字段不全一律按"拉取失败"降级：
-// apiJson 把非 2xx 与网络异常都吞成 null，所以这里只能靠"字段齐不齐"判成败。
-function loadTeamMetaOnce() {
+// meta 重试预算：首次失败后按这三档重试；三次都失败 = 判不了 → 隐藏。
+// 为什么需要重试：启动时客户端常比插件路由先就绪，第一次请求打空是常态；
+// 只试一次会让整个页面生命周期都停在"判不了"，表现为球常显（旧实现的缺陷）。
+var TEAM_META_RETRY_DELAYS_MS = [500, 2000, 5000];
+
+// 拉 meta（契约 02 §2.9）。字段不齐也算失败：apiJson 把非 2xx 与网络异常都吞成 null，
+// 只能靠"字段齐不齐"判成败。schedule 可注入，单测里换成同步执行即可复现整条重试链。
+function loadTeamMetaWithRetry(options) {
+  var settings = options || {};
   if (teamMetaRequestStarted) return;
   teamMetaRequestStarted = true;
+  var retryDelays = Array.isArray(settings.retryDelays) ? settings.retryDelays : TEAM_META_RETRY_DELAYS_MS;
+  var schedule = typeof settings.schedule === "function"
+    ? settings.schedule
+    : function (run, delayMs) { return setTimeout(run, delayMs); };
+  requestTeamMeta(retryDelays, schedule, 0);
+}
+
+function requestTeamMeta(retryDelays, schedule, attemptIndex) {
   if (typeof api === "undefined" || !api || typeof api.getMeta !== "function") {
-    teamMetaState = { status: "failed", value: null };
-    warnOnce("INV-14 判定降级：api.getMeta 不可用", null);
-    recomputeDockDecision();
+    markTeamMetaUnavailable(attemptIndex);
     return;
   }
-  api.getMeta().then(function (payload) {
+  Promise.resolve(api.getMeta()).then(function (payload) {
     if (payload && typeof payload.virtualModel === "string" && Array.isArray(payload.providerIds)) {
       teamMetaState = {
         status: "ready",
         value: { virtualModel: payload.virtualModel, providerIds: payload.providerIds }
       };
-    } else {
-      teamMetaState = { status: "failed", value: null };
-      warnOnce("INV-14 判定降级：GET /_team/meta 拉取失败", null);
+      recomputeDockDecision();
+      return;
     }
-    recomputeDockDecision();
+    retryOrGiveUp(retryDelays, schedule, attemptIndex);
+  }, function () {
+    retryOrGiveUp(retryDelays, schedule, attemptIndex);
   });
+}
+
+// 还有预算就排队重试，没有就把状态钉成 failed（判定侧会转成 degraded → 隐藏）
+function retryOrGiveUp(retryDelays, schedule, attemptIndex) {
+  if (attemptIndex >= retryDelays.length) {
+    markTeamMetaUnavailable(attemptIndex);
+    return;
+  }
+  schedule(function () {
+    requestTeamMeta(retryDelays, schedule, attemptIndex + 1);
+  }, retryDelays[attemptIndex]);
+}
+
+function markTeamMetaUnavailable(attemptIndex) {
+  teamMetaState = { status: "failed", value: null };
+  warnOnce("INV-14 判定隐藏：GET /_team/meta 连续 " + (attemptIndex + 1) + " 次不可用", null);
+  recomputeDockDecision();
 }
 
 // 槽位桥组件：不渲染任何 DOM，只把当前会话 id（与标题）的变化灌进工厂，
@@ -184,8 +254,22 @@ function createSessionBridgeComponent(reactRuntime) {
 
     // 响应式路径一（渲染驱动）：宿主重渲染时重新取值并下发
     reactRuntime.useEffect(function () {
-      applyDockDecision(selectionState);
+      reportDockDecision(evaluateDock({
+        selection: selection,
+        meta: currentMetaInput(),
+        projectionAvailable: hasProjection
+      }));
     }, [selectionState]);
+
+    // 挂载即下发一次：渲染期 props.useProjection 已经有值（恢复历史会话）时，
+    // 不能等"下一次变化"——那时可能永远不来。只在挂载与换会话时执行。
+    reactRuntime.useEffect(function () {
+      reportDockDecision(evaluateDock({
+        selection: selection,
+        meta: currentMetaInput(),
+        projectionAvailable: hasProjection
+      }));
+    }, [sessionId]);
 
     // 响应式路径二（订阅驱动，G-15）：宿主不重渲染时也能感知 modelSelection 变化。
     // 依赖 sessionId：切会话要重新订阅新 session 的 projection face；同一会话内不重复订阅。

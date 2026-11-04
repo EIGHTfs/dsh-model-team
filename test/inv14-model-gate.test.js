@@ -17,7 +17,7 @@ function loadBridge() {
 ;return {
   decideDock: decideDock,
   rememberDockInputs: rememberDockInputs,
-  loadTeamMetaOnce: loadTeamMetaOnce,
+  loadTeamMetaWithRetry: loadTeamMetaWithRetry,
   currentMetaInput: currentMetaInput,
   subscribeModelSelection: subscribeModelSelection
 };`);
@@ -105,23 +105,26 @@ test('INV-14 判定⑤：同 model 不同 provider → other', () => {
   );
 });
 
-test('INV-14 判定⑥：meta 拉取失败 → degraded（显示 + 只告警一次，不重试）', async () => {
+test('INV-14 判定⑥：meta 三档重试仍失败 → degraded（隐藏由显示口径决定）', async () => {
   const bridge = loadBridge();
   // 纯函数层：失败标记与"还没到"必须区分开
   assert.equal(bridge.decideDock({ selection: OURS_SELECTION, meta: { failed: true } }), 'degraded');
   assert.equal(bridge.decideDock({ selection: OURS_SELECTION, meta: null }), 'unknown');
 
-  // 集成层：apiJson 把非 2xx / 网络异常都吞成 null，null 必须落到 degraded
+  // 集成层：apiJson 把非 2xx / 网络异常都吞成 null，null 必须走有限重试，用尽后判不可知
   const recorded = installClientShims({ metaPayload: null });
   const loadingBridge = loadBridge();
   loadingBridge.rememberDockInputs(OURS_SELECTION, true);
-  loadingBridge.loadTeamMetaOnce();
-  loadingBridge.loadTeamMetaOnce();   // 第二次必须被"只取一次"挡住：不重试
+  // schedule 换成同步执行：整条重试链在同一个 tick 里跑完，用例不必真等 7.5 秒
+  loadingBridge.loadTeamMetaWithRetry({ retryDelays: [0, 0, 0], schedule: (run) => run() });
+  loadingBridge.loadTeamMetaWithRetry({ retryDelays: [0, 0, 0], schedule: (run) => run() });  // 第二次被「只取一次」挡住
   await flushPromises();
 
-  assert.equal(recorded.metaRequests, 1, 'meta 只允许请求一次，失败后不重试');
-  assert.deepEqual(recorded.decisions, ['degraded'], '失败必须把 degraded 下发（常显）');
-  assert.equal(recorded.warnings.length, 1, '降级只告警一次');
+  assert.equal(recorded.metaRequests, 4, '首次 + 三档重试，之后不再请求（不轮询）');
+  // 断言「最后一次结论」而不是整个数组：中途一定会有一次 unknown（meta 还没到时的首帧判定），
+  // 那不属于本用例要守的行为；要守的是「重试用尽后落到 degraded」
+  assert.equal(recorded.decisions[recorded.decisions.length - 1], 'degraded', '用尽后下发 degraded（隐藏由 dock.js 口径决定）');
+  assert.equal(recorded.warnings.length, 1, '用尽只告警一次，不刷屏');
   assert.deepEqual(loadingBridge.currentMetaInput(), { failed: true });
 });
 
@@ -132,18 +135,17 @@ test('INV-14 判定⑦：meta 迟到 —— 先 unknown 后 ours（重算生效�
   // 首帧：meta 还没到 → unknown（不显示）
   const firstDecision = bridge.rememberDockInputs(OURS_SELECTION, true);
   assert.equal(firstDecision, 'unknown');
-  // 桥的 useEffect 在这里不会跑（测试不渲染 React），手动下发首帧结论
-  globalThis.applyDockDecision(firstDecision);
+  // G-dock A 之后，rememberDockInputs 自己就会把结论下发（含日志），这里不用再手动补一次
   assert.deepEqual(recorded.decisions, ['unknown']);
 
   // meta 到达：selection 没变、React 不会重渲染，必须由重算入口补一次
-  bridge.loadTeamMetaOnce();
+  bridge.loadTeamMetaWithRetry({ retryDelays: [0, 0, 0], schedule: (run) => run() });
   await flushPromises();
 
-  assert.deepEqual(recorded.decisions, ['unknown', 'ours'], 'meta 到达必须重算并重新下发显隐');
+  assert.equal(recorded.decisions[recorded.decisions.length - 1], 'ours', 'meta 到达后必须重算成 ours');
 });
 
-test('INV-14 判定：宿主没有 useProjection → degraded（保持降级常显语义）', () => {
+test('INV-14 判定：宿主没有 useProjection → degraded（判不了，按新口径隐藏）', () => {
   const bridge = loadBridge();
 
   // 没有 projection 时连 selection 都取不到，不能被"selection 无值"误判成 unknown（那样球永远不显示）
@@ -183,7 +185,7 @@ test('G-15：selection 变化但不触发组件重渲染 → 判定仍要更新�
   const bridge = loadBridge();
   const recorded = installClientShims({ metaPayload: READY_META });
   // 先把 meta 拉到 ready：否则判定是 unknown（还没到），验不出 selection 的作用
-  bridge.loadTeamMetaOnce();
+  bridge.loadTeamMetaWithRetry({ retryDelays: [0, 0, 0], schedule: (run) => run() });
   await flushPromises();
   const fake = createFakeProjectionSession(OURS_SELECTION);
   const decisions = [];
@@ -205,8 +207,10 @@ test('G-15：selection 变化但不触发组件重渲染 → 判定仍要更新�
   fake.emit(OTHER_SELECTION);
   fake.emit(OURS_SELECTION);
 
-  assert.deepEqual(recorded.decisions, [], '订阅回调只负责重算，下发由调用方 effect 执行');
-  assert.deepEqual(decisions, ['other', 'ours'], '隐藏后切回 ours 必须重新判定为显示');
+  // G-dock A：订阅成功后立刻用快照回调一次（消除「事件发生在订阅之前」的窗口），
+  // 所以这里先有 1 次 ours（订阅瞬间的当前值），随后才是 other / ours
+  assert.equal(recorded.decisions[0], 'ours', '订阅瞬间必须补发一次当前判定');
+  assert.deepEqual(decisions.slice(-2), ['other', 'ours'], '隐藏后切回 ours 必须重新判定为显示');
   assert.equal(latestSelection, OURS_SELECTION);
 
   unsubscribe();
