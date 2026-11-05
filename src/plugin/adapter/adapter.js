@@ -13,6 +13,7 @@ import { resolveAttemptContext } from '../../gateway/transport/attempt-context.j
 import { DEFAULT_MAX_REQUEST_ROWS, appendRequestRow, buildRequestRow, readRequestRows } from '../../gateway/stats/index.js';
 import { createClock } from '../../gateway/clock.js';
 import { DEFAULT_USAGE_PATH, extractUsage } from '../../gateway/mapping.js';
+import { resolveGroupCredentials } from '../../gateway/config/credentials.js';
 import { parseSseJsonData } from '../../gateway/transport/sse.js';
 import { defaultLogger, describeFailure } from '../../gateway/logger.js';
 import { ERROR_CODES, GatewayError } from '../../gateway/errors.js';
@@ -72,10 +73,8 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
     clock: createClock(),
     logger: defaultLogger,
     fetchImpl: undefined,
-    // 本插件注册的 provider 路由名：forward 的递归守卫要拿它比对（目标是自己就绝不转发）
-    providerIds: [],
-    // 宿主 llm 服务的流式入口（rewrite 不用它）：forward 模式下由它真正发请求
-    llmStream: undefined,
+    // 群凭据解析：forward 的 resolveApiKey 用（与 rewrite 共用同一份实现，不另写一套凭据逻辑）
+    resolveCredential: (group) => resolveGroupCredentials(group, { dataRoot: adapterDataRoot }),
     ...deps,
   };
   const adapterDataRoot = resolvedDeps.dataRoot ?? getDataRoot();
@@ -253,8 +252,8 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
       // 转发预检 + 首块探测都在 openForwardRequest 里；它返回 null 表示"这次不转发"
       const forwardRequest = await openForwardRequest({
         options, config, sessionId, startedAtMs,
-        providerIds: resolvedDeps.providerIds,
         logger: resolvedDeps.logger,
+        resolveCredential: resolvedDeps.resolveCredential,
         deps: resolvedDeps,
         resolveTarget,
         recordRow: (rowInput) => this.recordRow(rowInput),

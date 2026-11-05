@@ -20,19 +20,12 @@ export function isModeValue(value) {
   return value === MODE_FORWARD || value === MODE_REWRITE;
 }
 
-// 目标 provider 是否就是本插件自己：转发给自己必然打转（docs/12 §四.1 递归守卫）
-export function isSelfProvider(provider, providerIds) {
-  if (typeof provider !== 'string' || provider.length === 0) return false;
-  const knownProviderIds = Array.isArray(providerIds) ? providerIds : [];
-  return knownProviderIds.includes(provider);
-}
-
 // 解析本次调用该用哪种模式。
-// 入参：{ group, providerIds, logger }
-//   group.mode      显式声明（'forward' | 'rewrite'），未声明走默认
-//   group.provider  目标 host provider id：命中 providerIds 说明目标是自己 → 强制 rewrite
+// 入参：{ group, logger }
+//   group.mode  显式声明（'forward' | 'rewrite'），未声明走默认
 // 返回 'forward' | 'rewrite'；非法值只告警一次（本次解析一次）并回退默认。
-export function resolveMode({ group, providerIds, logger } = {}) {
+// 递归守卫不在这里：新形态的 forward 直接实例化官方适配器，不经过宿主路由，天然不可能转回自己。
+export function resolveMode({ group, logger } = {}) {
   const declaredMode = group?.mode;
   let mode = DEFAULT_MODE;
   if (isModeValue(declaredMode)) {
@@ -47,11 +40,6 @@ export function resolveMode({ group, providerIds, logger } = {}) {
       );
     }
     mode = DEFAULT_MODE;
-  }
-
-  // 递归守卫：目标 provider 是自己 → 无论配置写了什么都只能 rewrite
-  if (mode === MODE_FORWARD && isSelfProvider(group?.provider, providerIds)) {
-    return MODE_REWRITE;
   }
   return mode;
 }

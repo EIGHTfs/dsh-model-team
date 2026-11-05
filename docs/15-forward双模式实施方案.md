@@ -56,6 +56,21 @@ DSH 落会话；本插件旁路记录请求行（usage / latency / decodeMs / �
 | profile 怎么拼 | 用包内导出的 `Config`（zod schema）解析群配置得到，缺项走包默认；**不手写** `ResolvedPiAiProviderProfile` |
 | 凭据怎么给 | `resolveApiKey` 返回群 `auth` / `apiKeyRef` 解出的值（复用现有 `credentials.js`） |
 
+## 二点五、宿主能力自愈（启动补导出 / 卸载还原）
+
+forward 需要宿主包导出 `resolveProfiles`。宿主没导出时，插件在 `apply` 阶段自己补上，`dispose` 阶段还原——不依赖人工跑脚本。
+
+| 时机 | 动作 |
+|---|---|
+| `apply` | `import.meta.resolve(@deepseek-ai/dsh-llm-pi-ai)` 定位 bundle（不写死路径）→ 读文件 → **已导出则什么都不做**；未导出则：备份原文到内存 → 末尾追加 `export { resolveProfiles };` → 动态 import 验证是函数 → 失败则**回滚并 warn 一次**，插件照常加载（forward 降级 rewrite） |
+| `dispose` | **只在我们确实补过、且当前文件内容与我们写入的一致时**才还原（比对内容，不比时间戳）；否则不动——避免踩掉宿主升级或别人的补丁 |
+| 权限不足 / 文件只读 | warn 一次（含路径与原因），降级 rewrite，**不抛错、不影响插件加载** |
+| 宿主升级 | 文件被覆盖 → 我们的补丁消失 → 下次 `apply` 自动重补 |
+| 并发（主实例 + 测试实例） | 不做跨进程锁；还原前校验内容一致，不一致就留给对方，只 warn |
+| 门禁 / 单测进程 | `NODE_TEST_CONTEXT` 存在时跳过自动补导出（跑测试不该改宿主文件）；测这段逻辑的用例直接调 `ensureHostExport` 并注入假 bundle |
+
+**为什么要「内容一致才还原」**：直接按备份覆盖回去，会把宿主升级后的新文件、或另一个实例刚补的导出一起抹掉——那比不还原糟得多。
+
 ## 三、降级与失败语义
 
 | 情形 | 行为 |

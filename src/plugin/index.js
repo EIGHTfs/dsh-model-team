@@ -12,6 +12,7 @@ import { getDataRoot } from '../gateway/config/paths.js';
 import { readConfig } from '../gateway/config/config.js';
 import { defaultLogger, describeFailure } from '../gateway/logger.js';
 import { DEFAULT_PROVIDER_ID, createModelTimAdapter } from './adapter/adapter.js';
+import { ensureHostExport } from './host-patch.js';
 import { startContextWindowProbe } from './context/window.js';
 import { TEAM_ROUTE_PREFIX, disposeGatewayRoutes, registerGatewayRoutes } from './web-routes.js';
 import { createHostSessionLookup, createHostSessionSource } from '../gateway/session/current.js';
@@ -179,6 +180,22 @@ export async function apply(ctx, options = {}) {
     return undefined;
   }
 
+  // 宿主能力自愈（docs/15 §二点五）：forward 需要宿主包导出 resolveProfiles。
+  // 失败只 warn（不抛），forward 会自动降级 rewrite；还原动作挂在与 adapter 注册同一个 effect 生命周期上。
+  // 测试进程里跳过：门禁跑 `node --test` 时不该去改宿主 bundle（那会让"跑测试"带副作用）。
+  // 需要覆盖这段逻辑的用例直接调 ensureHostExport（自己注入假 bundle），不经过这里。
+  const hostPatch = options.disableHostPatch === true || process.env.NODE_TEST_CONTEXT
+    ? { patched: false, restore: async () => {} }
+    : await ensureHostExport({ logger });
+  if (typeof ctx?.effect === 'function') {
+    ctx.effect(function registerHostPatchCleanup() {
+      return function restoreHostPatch() {
+        // 清理函数不能 await：插件卸载路径上没人等它，失败也已在自己的 warn 里记过了
+        void hostPatch.restore();
+      };
+    }, 'dsh-model-team: host export patch');
+  }
+
   const ModelTimAdapter = createModelTimAdapter({
     BaseAdapter,
     LlmErrorClass,
@@ -186,19 +203,6 @@ export async function apply(ctx, options = {}) {
     deps: {
       dataRoot,
       logger,
-      // 本插件注册的路由名：适配器用它做 forward 的递归守卫
-      providerIds,
-      // forward 模式的真正出口：宿主 llm 服务的流式入口。
-      // 惰性取而不是启动时抓一次——apply 阶段 llm 服务可能还没就绪；取不到时抛出可识别的错误，
-      // 由 forward 的预检/降级逻辑处理（不会把插件激活打挂）。
-      llmStream: (streamOptions) => {
-        if (!ctx?.llm || typeof ctx.llm.stream !== 'function') {
-          const llmMissingError = new Error('ctx.llm.stream 不可用，forward 无法转发');
-          llmMissingError.code = 'LLM_STREAM_UNAVAILABLE';
-          throw llmMissingError;
-        }
-        return ctx.llm.stream(streamOptions);
-      },
       getSessionService: () => {
         try {
           return ctx.get('sessions');

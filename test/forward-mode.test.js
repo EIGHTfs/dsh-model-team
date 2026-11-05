@@ -1,7 +1,11 @@
-// forward 双模式用例（docs/15）：模式解析 / 递归守卫 / 降级 / 等价性。
-// 约定：全部用假群名与假 provider 名，不依赖本机配置；期望值由输入推导或由导出常量给出。
+// forward 双模式用例（docs/15）：模式解析 / 宿主自愈 / 官方库直调 / 降级时机 / 等价性。
+// 约定：全部用假群名、假 provider 名与假 bundle；不碰真实宿主文件，不联网。
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import {
   DEFAULT_MODE,
   MODE_FORWARD,
@@ -13,27 +17,24 @@ import { GROUP_MODE_FIELD, GROUP_MODES } from '../src/gateway/config/constants.j
 import { readConfig, writeConfig } from '../src/gateway/config/config.js';
 import {
   FORWARD_SKIP_REASONS,
-  NO_ADAPTER_CODE,
-  createForwardObservation,
-  forwardStream,
-  isNoAdapterError,
+  buildRawProviders,
+  loadPiAiRuntime,
   openForwardRequest,
-  planForward,
-  toRowUsage,
+  resetPiAiRuntimeCacheForTest,
 } from '../src/plugin/adapter/forward.js';
+import {
+  RESOLVE_PROFILES_EXPORT_LINE,
+  ensureHostExport,
+  hasResolveProfilesExport,
+  resetHostPatchWarningForTest,
+} from '../src/plugin/host-patch.js';
 import {
   BLOCK_TYPE_REASONING,
   BLOCK_TYPE_TEXT,
   BLOCK_TYPE_TOOL_CALL,
-  classifyUpstreamFailure,
   createStreamChunkBuilder,
 } from '../src/plugin/adapter/llm-protocol.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
-
-// 本插件注册的 provider 路由名：用假值，避免与部署侧的 providerIds 绑定
-const SELF_PROVIDER_IDS = ['test-team-provider'];
-// 目标群声明的外部 provider（宿主侧路由名）：与上面不同名即"不是自己"
-const EXTERNAL_PROVIDER = 'test-host-provider';
 
 // 模式解析用的最小 logger 桩：只收 warn 文本，用来证明"非法值只告警一次"
 function createWarningCollector() {
@@ -41,23 +42,25 @@ function createWarningCollector() {
   return { warnings, warn: (message) => warnings.push(String(message)) };
 }
 
+// ===== 模式解析 =====
+
 test('mode：显式 forward 就用 forward', () => {
   const logger = createWarningCollector();
-  const mode = resolveMode({ group: { id: 'group-a', mode: MODE_FORWARD, provider: EXTERNAL_PROVIDER }, providerIds: SELF_PROVIDER_IDS, logger });
+  const mode = resolveMode({ group: { id: 'group-a', mode: MODE_FORWARD }, logger });
   assert.equal(mode, MODE_FORWARD);
   assert.equal(logger.warnings.length, 0, '合法值不该告警');
 });
 
 test('mode：显式 rewrite 就用 rewrite', () => {
   const logger = createWarningCollector();
-  const mode = resolveMode({ group: { id: 'group-a', mode: MODE_REWRITE, provider: EXTERNAL_PROVIDER }, providerIds: SELF_PROVIDER_IDS, logger });
+  const mode = resolveMode({ group: { id: 'group-a', mode: MODE_REWRITE }, logger });
   assert.equal(mode, MODE_REWRITE);
   assert.equal(logger.warnings.length, 0);
 });
 
 test('mode：未声明 → 默认值（forward）', () => {
   const logger = createWarningCollector();
-  const mode = resolveMode({ group: { id: 'group-a', provider: EXTERNAL_PROVIDER }, providerIds: SELF_PROVIDER_IDS, logger });
+  const mode = resolveMode({ group: { id: 'group-a' }, logger });
   assert.equal(mode, DEFAULT_MODE);
   assert.equal(mode, MODE_FORWARD, 'docs/15 规定默认是 forward');
   assert.equal(logger.warnings.length, 0, '未声明是合法状态，不该告警');
@@ -65,8 +68,8 @@ test('mode：未声明 → 默认值（forward）', () => {
 
 test('mode：非法值 → 告警一次并回退默认（不静默当 rewrite）', () => {
   const logger = createWarningCollector();
-  const illegalValue = 'forwrad'; // 故意拼错，模拟手写配置
-  const mode = resolveMode({ group: { id: 'group-a', mode: illegalValue }, providerIds: SELF_PROVIDER_IDS, logger });
+  const illegalValue = 'forwrad';
+  const mode = resolveMode({ group: { id: 'group-a', mode: illegalValue }, logger });
 
   assert.equal(mode, DEFAULT_MODE);
   assert.notEqual(mode, MODE_REWRITE, '非法值不得被当成 rewrite');
@@ -75,19 +78,7 @@ test('mode：非法值 → 告警一次并回退默认（不静默当 rewrite）
   assert.equal(VALID_MODES.includes(illegalValue), false);
 });
 
-test('mode：递归守卫——目标 provider 是自己时强制 rewrite（即使显式写了 forward）', () => {
-  const logger = createWarningCollector();
-  const mode = resolveMode({
-    group: { id: 'group-a', mode: MODE_FORWARD, provider: SELF_PROVIDER_IDS[0] },
-    providerIds: SELF_PROVIDER_IDS,
-    logger,
-  });
-  assert.equal(mode, MODE_REWRITE, '转发给自己必然打转，必须降回 rewrite');
-  assert.equal(logger.warnings.length, 0, '守卫是正常判定，不是配置错误');
-});
-
-// ===== config：groups[].mode 校验（docs/15 §一）=====
-// 用例只写临时目录，不碰真实数据根；断言按"剔除/保留/告警"三件事分开写。
+// ===== config：groups[].mode 校验 =====
 
 test('config：合法 mode 原样保留（forward 与 rewrite 都算合法）', async (t) => {
   const dataRoot = await createTempDirectory(t);
@@ -113,223 +104,275 @@ test('config：非法 mode 被剔除（回到"未声明"），并逐条点名告
   assert.equal(logger.hasLine('warn', 'group-a'), true, '告警要带群 id');
 });
 
-// ===== forward.js：预检、递归守卫、原样透传 =====
-// 全部用桩：不联网、不碰宿主，只验证"调没调 llmStream / 传了什么 / 块有没有被包装"。
+// ===== 宿主能力自愈（docs/15 §二点五）=====
+// 全部用临时目录里的假 bundle，绝不碰真实宿主文件。
 
-// 计数桩：既能断言调用次数，也能按需返回固定块序列
-function createLlmStreamStub(chunks) {
-  const calls = [];
-  const llmStream = async (options) => {
-    calls.push(options);
-    return (async function* emit() {
-      for (const chunk of chunks || []) yield chunk;
-    })();
-  };
-  return { calls, llmStream };
+// 造一个假 bundle：模拟宿主 lib/index.js 的最小形态
+async function createFakeBundle(t, { exported = false } = {}) {
+  const directory = await createTempDirectory(t);
+  const bundlePath = path.join(directory, 'index.mjs');
+  const baseSource = 'export const name = "fake-pi-ai";\nexport function resolveProfiles() { return new Map(); }\n';
+  const sourceText = exported ? `${baseSource}${RESOLVE_PROFILES_EXPORT_LINE}\n` : baseSource;
+  await fs.writeFile(bundlePath, sourceText, 'utf8');
+  return { bundlePath, sourceText, bundleUrl: pathToFileURL(bundlePath).href };
 }
 
-test('forward：递归守卫——目标 provider 是自己时判定不能转发，且绝不调用 llmStream', () => {
-  const stub = createLlmStreamStub([]);
-  const plan = planForward({
-    target: { provider: SELF_PROVIDER_IDS[0], model: 'model-a' },
-    providerIds: SELF_PROVIDER_IDS,
-    deps: stub,
+// 假导入器：断言 import 的是同一个 bundle（允许带缓存穿透参数），并按需给出 resolveProfiles
+function createBundleImporter(bundleUrl, { exposeResolveProfiles = true } = {}) {
+  return async (specifier) => {
+    assert.equal(specifier.startsWith(bundleUrl), true, '必须 import 同一个 bundle');
+    return exposeResolveProfiles ? { resolveProfiles: () => new Map() } : {};
+  };
+}
+
+test('host-patch：文件里已有导出 → 什么都不做，也不需要还原', async (t) => {
+  resetHostPatchWarningForTest();
+  const fixture = await createFakeBundle(t, { exported: true });
+  const logger = createRecordingLogger();
+
+  const result = await ensureHostExport({
+    logger,
+    resolveUrl: () => fixture.bundleUrl,
+    importModule: createBundleImporter(fixture.bundleUrl),
   });
 
-  assert.equal(plan.ok, false);
-  assert.equal(plan.reason, FORWARD_SKIP_REASONS.SELF_PROVIDER);
-  assert.equal(stub.calls.length, 0, '守卫命中时一次都不许调宿主');
+  assert.equal(result.patched, false);
+  assert.equal(result.reason, 'already-exported');
+  assert.equal(await fs.readFile(fixture.bundlePath, 'utf8'), fixture.sourceText, '文件一个字节都不该变');
+  await result.restore(); // 没补过：restore 必须是空操作
+  assert.equal(await fs.readFile(fixture.bundlePath, 'utf8'), fixture.sourceText);
 });
 
-test('forward：没有声明 host provider 时判定不能转发（不猜 provider）', () => {
-  const stub = createLlmStreamStub([]);
-  const plan = planForward({ target: { provider: '', model: 'model-a' }, providerIds: SELF_PROVIDER_IDS, deps: stub });
-  assert.equal(plan.ok, false);
-  assert.equal(plan.reason, FORWARD_SKIP_REASONS.PROVIDER_MISSING);
-  assert.equal(stub.calls.length, 0);
+test('host-patch：未导出 → 末尾补一行并验证通过；restore 后逐字节还原', async (t) => {
+  resetHostPatchWarningForTest();
+  const fixture = await createFakeBundle(t, { exported: false });
+  const logger = createRecordingLogger();
+
+  const result = await ensureHostExport({
+    logger,
+    resolveUrl: () => fixture.bundleUrl,
+    importModule: createBundleImporter(fixture.bundleUrl),
+  });
+
+  assert.equal(result.patched, true);
+  const patchedText = await fs.readFile(fixture.bundlePath, 'utf8');
+  assert.equal(patchedText.endsWith(`${RESOLVE_PROFILES_EXPORT_LINE}\n`), true, '只在末尾追加导出行');
+  assert.equal(hasResolveProfilesExport(patchedText), true);
+
+  await result.restore();
+  assert.equal(await fs.readFile(fixture.bundlePath, 'utf8'), fixture.sourceText, '还原必须逐字节回到原文');
 });
 
-test('forward：宿主没注入 llmStream 时判定不能转发', () => {
-  const plan = planForward({ target: { provider: EXTERNAL_PROVIDER, model: 'model-a' }, providerIds: SELF_PROVIDER_IDS, deps: {} });
-  assert.equal(plan.ok, false);
-  assert.equal(plan.reason, FORWARD_SKIP_REASONS.LLM_STREAM_MISSING);
+test('host-patch：验证不通过 → 回滚原文并只 warn', async (t) => {
+  resetHostPatchWarningForTest();
+  const fixture = await createFakeBundle(t, { exported: false });
+  const logger = createRecordingLogger();
+
+  const result = await ensureHostExport({
+    logger,
+    resolveUrl: () => fixture.bundleUrl,
+    // 导入成功但没给出 resolveProfiles：触发"验证失败"分支
+    importModule: createBundleImporter(fixture.bundleUrl, { exposeResolveProfiles: false }),
+  });
+
+  assert.equal(result.patched, false);
+  assert.equal(result.reason, 'verify-failed');
+  assert.equal(await fs.readFile(fixture.bundlePath, 'utf8'), fixture.sourceText, '验证失败必须回滚');
+  assert.equal(logger.hasLine('warn', '回滚'), true);
 });
 
-test('forward：只覆盖 provider/model，其余 options 原样透传；块原样 yield（不二次包装）', async () => {
-  const passthroughChunk = { type: 'text-delta', index: 0, text: 'hi' };
-  const usageChunk = { type: 'usage', usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 } };
-  const finishChunk = { type: 'finish', reason: 'stop' };
-  const stub = createLlmStreamStub([passthroughChunk, usageChunk, finishChunk]);
+test('host-patch：dispose 时内容被别人改过 → 不还原，只 warn', async (t) => {
+  resetHostPatchWarningForTest();
+  const fixture = await createFakeBundle(t, { exported: false });
+  const logger = createRecordingLogger();
 
-  const observation = createForwardObservation();
-  const options = { messages: [{ role: 'user' }], sessionId: 'session-a', provider: 'other-provider', model: 'other-model' };
-  const received = [];
-  for await (const chunk of forwardStream({
-    options,
-    target: { provider: EXTERNAL_PROVIDER, model: 'model-a' },
-    deps: stub,
-    observation,
-  })) {
-    received.push(chunk);
-  }
+  const result = await ensureHostExport({
+    logger,
+    resolveUrl: () => fixture.bundleUrl,
+    importModule: createBundleImporter(fixture.bundleUrl),
+  });
+  assert.equal(result.patched, true);
 
-  assert.equal(stub.calls.length, 1);
-  assert.equal(stub.calls[0].provider, EXTERNAL_PROVIDER, 'provider 必须被换成目标');
-  assert.equal(stub.calls[0].model, 'model-a', 'model 必须被换成目标');
-  assert.equal(stub.calls[0].sessionId, options.sessionId, '其余 options 原样透传');
-  assert.deepEqual(stub.calls[0].messages, options.messages);
+  // 模拟宿主升级：文件被整体替换
+  const upgradedText = 'export const name = "fake-pi-ai-v2";\n';
+  await fs.writeFile(fixture.bundlePath, upgradedText, 'utf8');
 
-  assert.equal(received.length, 3);
-  assert.equal(received[0], passthroughChunk, '必须是同一个对象引用（包一层就不是等价链路了）');
-  assert.equal(observation.usage, usageChunk.usage, 'usage 只旁路观测');
-  assert.equal(observation.finishReason, 'stop');
+  await result.restore();
+  assert.equal(await fs.readFile(fixture.bundlePath, 'utf8'), upgradedText, '别人的新文件不许被我们覆盖');
+  assert.equal(logger.hasLine('warn', '已被改动'), true);
 });
 
-test('forward：NO_ADAPTER 识别只认该错误码', () => {
-  assert.equal(isNoAdapterError({ code: NO_ADAPTER_CODE }), true);
-  assert.equal(isNoAdapterError({ code: 'AUTH' }), false);
-  assert.equal(isNoAdapterError(new Error('boom')), false);
-  assert.equal(isNoAdapterError(null), false);
+test('host-patch：文件不可写 → warn 一次且不抛错', async (t) => {
+  resetHostPatchWarningForTest();
+  const fixture = await createFakeBundle(t, { exported: false });
+  const logger = createRecordingLogger();
+  const permissionError = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+
+  const result = await ensureHostExport({
+    logger,
+    resolveUrl: () => fixture.bundleUrl,
+    writeFile: async () => { throw permissionError; },
+    importModule: createBundleImporter(fixture.bundleUrl),
+  });
+
+  assert.equal(result.patched, false);
+  assert.equal(result.reason, 'write-failed');
+  assert.equal(logger.hasLine('warn', 'EACCES'), true, '告警要带原因原文');
+  assert.equal(await fs.readFile(fixture.bundlePath, 'utf8'), fixture.sourceText, '写失败时文件保持原样');
 });
 
-test('forward：宿主 TokenUsage → 请求行口径（缺 total 时用加减补，有就用原值）', () => {
-  const withTotal = toRowUsage({ inputTokens: 5, outputTokens: 2, totalTokens: 6, cacheReadTokens: 4 });
-  assert.deepEqual(withTotal, { promptTokens: 5, completionTokens: 2, totalTokens: 6, cacheHit: 4 });
+// ===== 官方库探测与转发编排 =====
 
-  const withoutTotal = toRowUsage({ inputTokens: 5, outputTokens: 2 });
-  assert.deepEqual(withoutTotal, { promptTokens: 5, completionTokens: 2, totalTokens: 7 });
+const FORWARD_GROUP_ID = 'group-forward';
+const REWRITE_GROUP_ID = 'group-rewrite';
+const STUB_BASE_URL = 'http://stub.invalid/v1';
 
-  assert.equal(toRowUsage(null), null);
-});
-
-// ===== openForwardRequest：分流、降级时机、请求行 =====
-// 这些用例直接驱动编排函数，不经过 dsh 的适配器生命周期，因此只依赖两个桩：
-// resolveTarget（会话 → 目标）与 deps.llmStream（宿主出口）。
-
-const FORWARD_TARGET_GROUP_ID = 'group-forward';
-const REWRITE_TARGET_GROUP_ID = 'group-rewrite';
-
-function buildForwardGroup(overrides) {
+function buildGroup(overrides) {
   return Object.assign({
-    id: FORWARD_TARGET_GROUP_ID,
+    id: FORWARD_GROUP_ID,
     name: '假群',
-    provider: EXTERNAL_PROVIDER,
     mode: MODE_FORWARD,
+    baseURL: STUB_BASE_URL,
   }, overrides);
 }
 
-function buildOpenParams({ group, target, llmStream, recordRow }) {
+// 假运行时：形状与官方包一致（PiAiAdapter / resolveProfiles / InMemoryCredentialStore）
+function createFakeRuntime({ chunks, error } = {}) {
+  const calls = [];
+  class FakeAdapter {
+    constructor(options) {
+      this.options = options;
+    }
+
+    stream(streamOptions) {
+      calls.push({ constructorOptions: this.options, streamOptions });
+      return (async function* emit() {
+        for (const chunk of chunks ?? []) yield chunk;
+        if (error) throw error;
+      })();
+    }
+  }
   return {
-    options: { messages: [{ role: 'user' }], sessionId: 'session-a' },
+    calls,
+    runtime: {
+      ok: true,
+      dshPiAi: {
+        PiAiAdapter: FakeAdapter,
+        // 与官方同形：入参是原始 providers 对象，返回 Map
+        resolveProfiles: (rawProviders) => new Map(Object.entries(rawProviders)),
+      },
+      piAi: { InMemoryCredentialStore: class FakeCredentialStore {} },
+    },
+  };
+}
+
+function buildOpenParams({ group, target, runtime, recordRow, logger, credential }) {
+  return {
+    options: { messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }], sessionId: 'session-a' },
     config: { groups: [group] },
     sessionId: 'session-a',
     startedAtMs: 0,
-    providerIds: SELF_PROVIDER_IDS,
-    logger: createRecordingLogger(),
-    deps: { llmStream },
+    logger: logger || createRecordingLogger(),
+    deps: {},
     resolveTarget: async () => ({ target, source: 'explicit' }),
+    resolveCredential: async () => credential ?? { ok: true, credentials: { apiKey: 'sk-test' } },
+    runtime,
     recordRow: recordRow || (async () => {}),
   };
 }
 
-test('forward 分流：群声明了 provider 且 mode=forward → 走转发并原样出块', async () => {
-  const chunk = { type: 'text-delta', index: 0, text: 'hello' };
-  const stub = createLlmStreamStub([chunk]);
-  const rowInputs = [];
+test('forward：官方运行时探测——import 失败 / 缺 resolveProfiles 都判不可用', async () => {
+  resetPiAiRuntimeCacheForTest();
+  const importFailed = await loadPiAiRuntime({
+    importer: async () => { throw new Error('cannot find module'); },
+  });
+  assert.equal(importFailed.ok, false);
+  assert.equal(importFailed.reason, FORWARD_SKIP_REASONS.RUNTIME_IMPORT_FAILED);
+
+  resetPiAiRuntimeCacheForTest();
+  const incomplete = await loadPiAiRuntime({
+    // 宿主版本没导出 resolveProfiles：只有 PiAiAdapter
+    importer: async () => ({ PiAiAdapter: class {} }),
+  });
+  assert.equal(incomplete.ok, false);
+  assert.equal(incomplete.reason, FORWARD_SKIP_REASONS.RUNTIME_INCOMPLETE);
+  resetPiAiRuntimeCacheForTest();
+});
+
+test('forward：群配置 → 官方 resolveProfiles 的原始入参形状', () => {
+  const rawProviders = buildRawProviders({ group: buildGroup(), model: 'model-a' });
+  assert.deepEqual(Object.keys(rawProviders), [FORWARD_GROUP_ID]);
+  assert.equal(rawProviders[FORWARD_GROUP_ID].api, 'openai-completions');
+  assert.equal(rawProviders[FORWARD_GROUP_ID].baseURL, STUB_BASE_URL);
+  assert.deepEqual(rawProviders[FORWARD_GROUP_ID].models, [{ id: 'model-a' }]);
+});
+
+test('forward：显式 rewrite 的群不构造官方适配器', async () => {
+  const fake = createFakeRuntime({ chunks: [] });
+  const request = await openForwardRequest(buildOpenParams({
+    group: buildGroup({ id: REWRITE_GROUP_ID, mode: MODE_REWRITE }),
+    target: { type: 'model', id: 'model-a', platformId: REWRITE_GROUP_ID },
+    runtime: fake.runtime,
+  }));
+  assert.equal(request, null);
+  assert.equal(fake.calls.length, 0);
+});
+
+test('forward：运行时不可用 → 降级 rewrite，且只 warn 一次', async () => {
+  const logger = createRecordingLogger();
+  const unavailableRuntime = { ok: false, reason: FORWARD_SKIP_REASONS.RUNTIME_INCOMPLETE };
   const params = buildOpenParams({
-    group: buildForwardGroup(),
-    target: { type: 'model', id: 'model-a', platformId: FORWARD_TARGET_GROUP_ID },
-    llmStream: stub.llmStream,
-    recordRow: async (rowInput) => rowInputs.push(rowInput),
+    group: buildGroup(),
+    target: { type: 'model', id: 'model-a', platformId: FORWARD_GROUP_ID },
+    runtime: unavailableRuntime,
+    logger,
   });
 
-  const request = await openForwardRequest(params);
-  assert.notEqual(request, null, '应判定可以转发');
-  const received = [];
-  for await (const item of request.chunks) received.push(item);
-
-  assert.equal(stub.calls.length, 1, '只允许调一次宿主出口');
-  assert.equal(stub.calls[0].provider, EXTERNAL_PROVIDER);
-  assert.equal(stub.calls[0].model, 'model-a');
-  assert.equal(received[0], chunk, '块必须原样透出');
-  assert.equal(rowInputs.length, 1, '完成后记一行');
-  assert.equal(rowInputs[0].upstreamStatus, 200);
+  assert.equal(await openForwardRequest(params), null);
+  assert.equal(await openForwardRequest(params), null);
+  const warnLines = logger.lines.filter((line) => line.level === 'warn' && line.message.includes('不可用'));
+  assert.equal(warnLines.length, 1, '不可用只告警一次，不能每请求刷屏');
 });
 
-test('forward 分流：群显式 rewrite → 不转发（null），且一次都不调宿主出口', async () => {
-  const stub = createLlmStreamStub([]);
-  const request = await openForwardRequest(buildOpenParams({
-    group: buildForwardGroup({ id: REWRITE_TARGET_GROUP_ID, mode: MODE_REWRITE }),
-    target: { type: 'model', id: 'model-a', platformId: REWRITE_TARGET_GROUP_ID },
-    llmStream: stub.llmStream,
-  }));
-
-  assert.equal(request, null);
-  assert.equal(stub.calls.length, 0);
-});
-
-test('forward 分流：分组轮换目标（非单模型）不转发', async () => {
-  const stub = createLlmStreamStub([]);
-  const request = await openForwardRequest(buildOpenParams({
-    group: buildForwardGroup(),
-    target: { type: 'group', id: 'friend-group-a' },
-    llmStream: stub.llmStream,
-  }));
-
-  assert.equal(request, null);
-  assert.equal(stub.calls.length, 0);
-});
-
-test('forward 降级：首个 chunk 之前抛 NO_ADAPTER → 返回 null（改为 rewrite），只尝试一次', async () => {
-  const calls = [];
-  const llmStream = async (streamOptions) => {
-    calls.push(streamOptions);
-    const noAdapterError = new Error('no adapter registered');
-    noAdapterError.code = NO_ADAPTER_CODE;
-    throw noAdapterError;
-  };
+test('forward：首块前抛错 → 同一次调用内降级（返回 null），不重发', async () => {
+  const firstChunkError = Object.assign(new Error('boom before first chunk'), { code: 'NO_ADAPTER' });
+  const fake = createFakeRuntime({ chunks: [], error: firstChunkError });
+  const logger = createRecordingLogger();
 
   const request = await openForwardRequest(buildOpenParams({
-    group: buildForwardGroup(),
-    target: { type: 'model', id: 'model-a', platformId: FORWARD_TARGET_GROUP_ID },
-    llmStream,
+    group: buildGroup(),
+    target: { type: 'model', id: 'model-a', platformId: FORWARD_GROUP_ID },
+    runtime: fake.runtime,
+    logger,
   }));
 
-  assert.equal(request, null, '首块前失败才允许降级');
-  assert.equal(calls.length, 1, '降级前只尝试一次，不重试');
+  assert.equal(request, null, '首块前失败允许降级');
+  assert.equal(fake.calls.length, 1, '降级前只尝试一次');
+  assert.equal(logger.lines.some((line) => line.message.includes('首块前失败')), true, '要 warn 含原文');
 });
 
-test('forward 不可降级：首块之后抛 NO_ADAPTER → 原样抛出，不重发', async () => {
+test('forward：首块后抛错 → 原样抛出，已出块保留，不重发', async () => {
   const firstChunk = { type: 'text-delta', index: 0, text: 'partial' };
-  const calls = [];
-  const llmStream = async (streamOptions) => {
-    calls.push(streamOptions);
-    return (async function* emit() {
-      yield firstChunk;
-      const noAdapterError = new Error('adapter vanished mid-stream');
-      noAdapterError.code = NO_ADAPTER_CODE;
-      throw noAdapterError;
-    })();
-  };
+  const lateError = new Error('stream broke mid-way');
+  const fake = createFakeRuntime({ chunks: [firstChunk], error: lateError });
 
   const request = await openForwardRequest(buildOpenParams({
-    group: buildForwardGroup(),
-    target: { type: 'model', id: 'model-a', platformId: FORWARD_TARGET_GROUP_ID },
-    llmStream,
+    group: buildGroup(),
+    target: { type: 'model', id: 'model-a', platformId: FORWARD_GROUP_ID },
+    runtime: fake.runtime,
   }));
   assert.notEqual(request, null, '首块已拿到，说明已进入转发');
 
   const received = [];
   await assert.rejects(async () => {
-    for await (const item of request.chunks) received.push(item);
-  }, /adapter vanished mid-stream/);
-  assert.deepEqual(received, [firstChunk], '已吐出的块照常交付，且不再重发');
-  assert.equal(calls.length, 1, '不许为降级再发一次');
+    for await (const chunk of request.chunks) received.push(chunk);
+  }, /stream broke mid-way/);
+  assert.deepEqual(received, [firstChunk]);
+  assert.equal(fake.calls.length, 1, '不许为降级再发一次');
 });
 
-// ===== 等价性对拍（docs/15 §六）：同一份内容，两条路径交给 dsh 的可观测结果必须一致 =====
+// ===== 等价性对拍（docs/15 §五）：六项投影逐项一致 =====
 
-// 只保留"下游真正能观察到"的部分：正文、思考、工具调用序列、块边界、usage、完成原因
 function projectChunks(chunks) {
   const joinDeltas = (type) => chunks.filter((chunk) => chunk.type === type).map((chunk) => chunk.text).join('');
   const toolCalls = chunks
@@ -351,41 +394,36 @@ function projectChunks(chunks) {
 }
 
 const FINISH_KIND_TOOL_CALLS = 'tool-calls';
-const REWRITE_TOOL_ARGUMENTS_FIRST = '{"city":';
-const REWRITE_TOOL_ARGUMENTS_SECOND = '"北京"}';
+const TOOL_ARGUMENTS_FIRST = '{"city":';
+const TOOL_ARGUMENTS_SECOND = '"北京"}';
 
-test('等价性：思考 + 正文 + 工具调用 + usage + 完成原因，两模式投影逐项一致', async () => {
+test('等价性：思考 + 正文 + 工具调用 + 块边界 + usage + 完成原因，两模式六项一致', async () => {
   const reasoningText = '想';
   const answerText = '你好';
-  // 块构建器的 usage 入参是**请求行口径**（promptTokens/completionTokens），不是 OpenAI 原始字段名
-  const openAiUsage = { promptTokens: 5, completionTokens: 2 };
+  const rowUsage = { promptTokens: 5, completionTokens: 2 };
 
-  // rewrite 侧：上游 OpenAI 分片 → 本插件的块构建器（这就是 rewrite 链路真正做的事）
+  // rewrite 侧：上游 OpenAI 分片 → 本插件的块构建器
   const builder = createStreamChunkBuilder();
   const openAiPayloads = [
     { choices: [{ delta: { reasoning_content: reasoningText } }] },
     { choices: [{ delta: { content: answerText } }] },
-    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: 'lookup', arguments: REWRITE_TOOL_ARGUMENTS_FIRST } }] } }] },
-    { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: REWRITE_TOOL_ARGUMENTS_SECOND } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: 'lookup', arguments: TOOL_ARGUMENTS_FIRST } }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: TOOL_ARGUMENTS_SECOND } }] } }] },
     { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
   ];
   const rewriteChunks = [];
-  for (const openAiPayload of openAiPayloads) {
-    rewriteChunks.push(...builder.appendOpenAiChunk(openAiPayload));
-  }
-  rewriteChunks.push(...builder.finish({ finishReason: 'tool_calls', usage: openAiUsage }));
+  for (const openAiPayload of openAiPayloads) rewriteChunks.push(...builder.appendOpenAiChunk(openAiPayload));
+  rewriteChunks.push(...builder.finish({ finishReason: 'tool_calls', usage: rowUsage }));
 
-  // forward 侧：宿主 pi-ai 会给出的块。按 dsh 契约**独立手工构造**（不是把 rewrite 的输出抄一遍），
-  // 否则这组对拍就成了自证。字段名与顺序都按 StreamChunk 类型定义写。
+  // forward 侧：官方库会给出的块（按 StreamChunk 契约独立手工构造，不抄 rewrite 的输出）
   const hostChunks = [
     { type: 'block-start', index: 0, blockType: BLOCK_TYPE_REASONING },
     { type: 'reasoning-delta', index: 0, text: reasoningText },
     { type: 'block-start', index: 1, blockType: BLOCK_TYPE_TEXT },
     { type: 'text-delta', index: 1, text: answerText },
     { type: 'block-start', index: 2, blockType: BLOCK_TYPE_TOOL_CALL },
-    { type: 'tool-call-delta', index: 2, id: 'call-1', name: 'lookup', argumentsDelta: REWRITE_TOOL_ARGUMENTS_FIRST },
-    // 续块的 id/name 与首块一致（StreamChunk 契约里 id 必填、name 可选；这里给全，避免把"可选"当差异）
-    { type: 'tool-call-delta', index: 2, id: 'call-1', name: 'lookup', argumentsDelta: REWRITE_TOOL_ARGUMENTS_SECOND },
+    { type: 'tool-call-delta', index: 2, id: 'call-1', name: 'lookup', argumentsDelta: TOOL_ARGUMENTS_FIRST },
+    { type: 'tool-call-delta', index: 2, id: 'call-1', name: 'lookup', argumentsDelta: TOOL_ARGUMENTS_SECOND },
     { type: 'block-end', index: 0, block: { type: BLOCK_TYPE_REASONING, text: reasoningText } },
     { type: 'block-end', index: 1, block: { type: BLOCK_TYPE_TEXT, text: answerText } },
     {
@@ -395,52 +433,43 @@ test('等价性：思考 + 正文 + 工具调用 + usage + 完成原因，两模
         type: BLOCK_TYPE_TOOL_CALL,
         id: 'call-1',
         name: 'lookup',
-        arguments: REWRITE_TOOL_ARGUMENTS_FIRST + REWRITE_TOOL_ARGUMENTS_SECOND,
+        arguments: TOOL_ARGUMENTS_FIRST + TOOL_ARGUMENTS_SECOND,
       },
     },
     { type: 'usage', usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7, cacheReadTokens: 0 } },
     { type: 'finish', reason: { kind: FINISH_KIND_TOOL_CALLS } },
   ];
 
-  const stub = createLlmStreamStub(hostChunks);
+  const fake = createFakeRuntime({ chunks: hostChunks });
+  const request = await openForwardRequest(buildOpenParams({
+    group: buildGroup(),
+    target: { type: 'model', id: 'model-a', platformId: FORWARD_GROUP_ID },
+    runtime: fake.runtime,
+  }));
   const forwardChunks = [];
-  for await (const chunk of forwardStream({
-    options: {},
-    target: { provider: EXTERNAL_PROVIDER, model: 'model-a' },
-    deps: stub,
-    observation: createForwardObservation(),
-  })) {
-    forwardChunks.push(chunk);
-  }
+  for await (const chunk of request.chunks) forwardChunks.push(chunk);
 
-  assert.deepEqual(projectChunks(forwardChunks), projectChunks(rewriteChunks), '两条路径的下游可观测结果必须等价');
+  assert.deepEqual(projectChunks(forwardChunks), projectChunks(rewriteChunks), '六项投影必须逐项一致');
+  // 顺带钉住调用形状：provider 用群 id、model 用真实模型、其余 options 原样透传
+  assert.equal(fake.calls[0].streamOptions.provider, FORWARD_GROUP_ID);
+  assert.equal(fake.calls[0].streamOptions.model, 'model-a');
+  assert.equal(fake.calls[0].streamOptions.sessionId, 'session-a');
 });
 
-test('等价性：错误口径——forward 原样透传宿主错误，rewrite 才做状态码归类（设计差异，不是回归）', async () => {
-  const hostError = Object.assign(new Error('host exploded'), { code: 'RATE_LIMIT' });
-  const stub = {
-    calls: [],
-    llmStream: async (streamOptions) => {
-      stub.calls.push(streamOptions);
-      throw hostError;
-    },
-  };
+test('等价性：错误口径——forward 原样透传官方库错误，rewrite 才做状态码归类（设计差异）', async () => {
+  const officialError = Object.assign(new Error('official exploded'), { code: 'RATE_LIMIT' });
+  const fake = createFakeRuntime({ chunks: [{ type: 'text-delta', index: 0, text: 'x' }], error: officialError });
+
+  const request = await openForwardRequest(buildOpenParams({
+    group: buildGroup(),
+    target: { type: 'model', id: 'model-a', platformId: FORWARD_GROUP_ID },
+    runtime: fake.runtime,
+  }));
 
   await assert.rejects(async () => {
-    for await (const chunk of forwardStream({
-      options: {},
-      target: { provider: EXTERNAL_PROVIDER, model: 'model-a' },
-      deps: stub,
-      observation: createForwardObservation(),
-    })) {
-      void chunk;
-    }
+    for await (const chunk of request.chunks) void chunk;
   }, (error) => {
-    assert.equal(error, hostError, 'forward 必须原样抛出宿主错误对象（不改文案、不换码）');
+    assert.equal(error, officialError, 'forward 必须原样抛出官方库的错误对象');
     return true;
   });
-
-  // 对照：rewrite 侧的错误码来自状态码归类，两者本来就不同口径
-  assert.equal(classifyUpstreamFailure(429), hostError.code, '这一组恰好同名，但分类逻辑属于 rewrite');
-  assert.equal(classifyUpstreamFailure(500), 'UPSTREAM_ERROR');
 });
