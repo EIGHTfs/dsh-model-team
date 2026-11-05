@@ -11,6 +11,15 @@ import {
 } from '../src/plugin/adapter/mode.js';
 import { GROUP_MODE_FIELD, GROUP_MODES } from '../src/gateway/config/constants.js';
 import { readConfig, writeConfig } from '../src/gateway/config/config.js';
+import {
+  FORWARD_SKIP_REASONS,
+  NO_ADAPTER_CODE,
+  createForwardObservation,
+  forwardStream,
+  isNoAdapterError,
+  planForward,
+  toRowUsage,
+} from '../src/plugin/adapter/forward.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 
 // 本插件注册的 provider 路由名：用假值，避免与部署侧的 providerIds 绑定
@@ -94,4 +103,93 @@ test('config：非法 mode 被剔除（回到"未声明"），并逐条点名告
   assert.equal(GROUP_MODE_FIELD in config.groups[0], false, '非法值必须被删掉而不是改成 rewrite');
   assert.equal(logger.hasLine('warn', illegalValue), true, '告警要带原值');
   assert.equal(logger.hasLine('warn', 'group-a'), true, '告警要带群 id');
+});
+
+// ===== forward.js：预检、递归守卫、原样透传 =====
+// 全部用桩：不联网、不碰宿主，只验证"调没调 llmStream / 传了什么 / 块有没有被包装"。
+
+// 计数桩：既能断言调用次数，也能按需返回固定块序列
+function createLlmStreamStub(chunks) {
+  const calls = [];
+  const llmStream = async (options) => {
+    calls.push(options);
+    return (async function* emit() {
+      for (const chunk of chunks || []) yield chunk;
+    })();
+  };
+  return { calls, llmStream };
+}
+
+test('forward：递归守卫——目标 provider 是自己时判定不能转发，且绝不调用 llmStream', () => {
+  const stub = createLlmStreamStub([]);
+  const plan = planForward({
+    target: { provider: SELF_PROVIDER_IDS[0], model: 'model-a' },
+    providerIds: SELF_PROVIDER_IDS,
+    deps: stub,
+  });
+
+  assert.equal(plan.ok, false);
+  assert.equal(plan.reason, FORWARD_SKIP_REASONS.SELF_PROVIDER);
+  assert.equal(stub.calls.length, 0, '守卫命中时一次都不许调宿主');
+});
+
+test('forward：没有声明 host provider 时判定不能转发（不猜 provider）', () => {
+  const stub = createLlmStreamStub([]);
+  const plan = planForward({ target: { provider: '', model: 'model-a' }, providerIds: SELF_PROVIDER_IDS, deps: stub });
+  assert.equal(plan.ok, false);
+  assert.equal(plan.reason, FORWARD_SKIP_REASONS.PROVIDER_MISSING);
+  assert.equal(stub.calls.length, 0);
+});
+
+test('forward：宿主没注入 llmStream 时判定不能转发', () => {
+  const plan = planForward({ target: { provider: EXTERNAL_PROVIDER, model: 'model-a' }, providerIds: SELF_PROVIDER_IDS, deps: {} });
+  assert.equal(plan.ok, false);
+  assert.equal(plan.reason, FORWARD_SKIP_REASONS.LLM_STREAM_MISSING);
+});
+
+test('forward：只覆盖 provider/model，其余 options 原样透传；块原样 yield（不二次包装）', async () => {
+  const passthroughChunk = { type: 'text-delta', index: 0, text: 'hi' };
+  const usageChunk = { type: 'usage', usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 } };
+  const finishChunk = { type: 'finish', reason: 'stop' };
+  const stub = createLlmStreamStub([passthroughChunk, usageChunk, finishChunk]);
+
+  const observation = createForwardObservation();
+  const options = { messages: [{ role: 'user' }], sessionId: 'session-a', provider: 'other-provider', model: 'other-model' };
+  const received = [];
+  for await (const chunk of forwardStream({
+    options,
+    target: { provider: EXTERNAL_PROVIDER, model: 'model-a' },
+    deps: stub,
+    observation,
+  })) {
+    received.push(chunk);
+  }
+
+  assert.equal(stub.calls.length, 1);
+  assert.equal(stub.calls[0].provider, EXTERNAL_PROVIDER, 'provider 必须被换成目标');
+  assert.equal(stub.calls[0].model, 'model-a', 'model 必须被换成目标');
+  assert.equal(stub.calls[0].sessionId, options.sessionId, '其余 options 原样透传');
+  assert.deepEqual(stub.calls[0].messages, options.messages);
+
+  assert.equal(received.length, 3);
+  assert.equal(received[0], passthroughChunk, '必须是同一个对象引用（包一层就不是等价链路了）');
+  assert.equal(observation.usage, usageChunk.usage, 'usage 只旁路观测');
+  assert.equal(observation.finishReason, 'stop');
+});
+
+test('forward：NO_ADAPTER 识别只认该错误码', () => {
+  assert.equal(isNoAdapterError({ code: NO_ADAPTER_CODE }), true);
+  assert.equal(isNoAdapterError({ code: 'AUTH' }), false);
+  assert.equal(isNoAdapterError(new Error('boom')), false);
+  assert.equal(isNoAdapterError(null), false);
+});
+
+test('forward：宿主 TokenUsage → 请求行口径（缺 total 时用加减补，有就用原值）', () => {
+  const withTotal = toRowUsage({ inputTokens: 5, outputTokens: 2, totalTokens: 6, cacheReadTokens: 4 });
+  assert.deepEqual(withTotal, { promptTokens: 5, completionTokens: 2, totalTokens: 6, cacheHit: 4 });
+
+  const withoutTotal = toRowUsage({ inputTokens: 5, outputTokens: 2 });
+  assert.deepEqual(withoutTotal, { promptTokens: 5, completionTokens: 2, totalTokens: 7 });
+
+  assert.equal(toRowUsage(null), null);
 });
