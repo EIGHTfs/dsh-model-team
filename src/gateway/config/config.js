@@ -6,7 +6,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getConfigPath, getDataRoot } from './paths.js';
-import { JSON_INDENT_WIDTH, TEMPORARY_FILE_SUFFIX } from './constants.js';
+import { GROUP_MODE_FIELD, GROUP_MODES, JSON_INDENT_WIDTH, TEMPORARY_FILE_SUFFIX } from './constants.js';
 import { defaultLogger, describeFailure } from '../logger.js';
 
 // 配置对象里承载群列表的字段名，读写两侧都引用这里，避免字面量散落
@@ -26,16 +26,41 @@ function isConfigObject(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// 群级 mode 校验（docs/15 §一）：只认 forward / rewrite。
+// 非法值**剔除**而不是改成 rewrite —— 剔除后语义回到"未声明"，由 adapter 走默认（forward）；
+// 静默改成 rewrite 会让配置写错的人以为"我的选择生效了"，排查时看不到任何线索。
+// 返回剔除明细，由 readConfig 统一告警（本函数保持纯函数，不碰 logger）。
+export function normalizeGroupModes(groups) {
+  const droppedModes = [];
+  let changed = false;
+  const normalizedGroups = groups.map((group) => {
+    if (!isConfigObject(group) || !(GROUP_MODE_FIELD in group)) return group;
+    const modeValue = group[GROUP_MODE_FIELD];
+    if (GROUP_MODES.includes(modeValue)) return group;
+    changed = true;
+    droppedModes.push({ groupId: typeof group.id === 'string' ? group.id : null, modeValue });
+    const groupCopy = { ...group };
+    delete groupCopy[GROUP_MODE_FIELD];
+    return groupCopy;
+  });
+  return { groups: changed ? normalizedGroups : groups, droppedModes };
+}
+
 // 归一化：groups 必须是数组；其它字段原样保留，便于后续扩展（账号/映射等）
-// 返回 { config, wasRepaired }，wasRepaired=true 表示结构不合法被修过，由调用方决定是否告警
+// 返回 { config, wasRepaired, droppedModes }，wasRepaired=true 表示结构不合法被修过，
+// droppedModes 是群级 mode 被判非法并剔除的明细（由调用方决定怎么告警）
 export function normalizeConfig(rawConfig) {
   if (!isConfigObject(rawConfig)) {
-    return { config: createEmptyConfig(), wasRepaired: true };
+    return { config: createEmptyConfig(), wasRepaired: true, droppedModes: [] };
   }
   if (!Array.isArray(rawConfig[CONFIG_GROUPS_FIELD])) {
-    return { config: { ...rawConfig, [CONFIG_GROUPS_FIELD]: [] }, wasRepaired: true };
+    return { config: { ...rawConfig, [CONFIG_GROUPS_FIELD]: [] }, wasRepaired: true, droppedModes: [] };
   }
-  return { config: rawConfig, wasRepaired: false };
+  const { groups, droppedModes } = normalizeGroupModes(rawConfig[CONFIG_GROUPS_FIELD]);
+  if (droppedModes.length === 0) {
+    return { config: rawConfig, wasRepaired: false, droppedModes };
+  }
+  return { config: { ...rawConfig, [CONFIG_GROUPS_FIELD]: groups }, wasRepaired: false, droppedModes };
 }
 
 // 读配置：任何失败都返回可用配置，不向调用方抛错（INV-06）
@@ -61,9 +86,16 @@ export async function readConfig({ dataRoot = getDataRoot(), logger = defaultLog
     return createEmptyConfig();
   }
 
-  const { config, wasRepaired } = normalizeConfig(parsedConfig);
+  const { config, wasRepaired, droppedModes } = normalizeConfig(parsedConfig);
   if (wasRepaired) {
     logger.warn(`配置文件结构不合法（${CONFIG_GROUPS_FIELD} 不是数组），已按空群列表处理：${configPath}`);
+  }
+  // 群级 mode 写错：逐条点名（含群 id 与原值），让用户能直接改回配置，而不是只看到"没生效"
+  for (const droppedMode of droppedModes) {
+    logger.warn(
+      `群 ${droppedMode.groupId ?? '(无 id)'} 的 ${GROUP_MODE_FIELD} 值不合法：`
+      + `${JSON.stringify(droppedMode.modeValue)}（只认 ${GROUP_MODES.join(' / ')}），已按未声明处理`,
+    );
   }
   return config;
 }

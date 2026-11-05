@@ -43,3 +43,11 @@ export const TEMPORARY_FILE_SUFFIX = '.tmp';
 
 // 人工可读 JSON 的缩进宽度（配置与状态文件会被手工打开）
 export const JSON_INDENT_WIDTH = 2;
+
+// 群级转发模式（docs/15 §一）：config.groups[].mode 只认这两个值。
+// 默认值刻意不放在这里——"未声明时用哪个"属于策略，由 adapter/mode.js 决定；
+// 配置层只负责"认不认这个值"，两处职责分开才不会被一处改动带偏另一处。
+export const GROUP_MODE_FIELD = 'mode';
+export const GROUP_MODE_FORWARD = 'forward';
+export const GROUP_MODE_REWRITE = 'rewrite';
+export const GROUP_MODES = Object.freeze([GROUP_MODE_FORWARD, GROUP_MODE_REWRITE]);

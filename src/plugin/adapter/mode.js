@@ -4,9 +4,12 @@
 // 思路：显式合法值优先 → 未声明用默认（forward）→ 非法值告警并回退默认（绝不静默当 rewrite，
 //      否则配置写错会悄悄走旧链路，排查时看不到任何线索）。
 
-// 两种模式的字面量：调用方与本文件都不直接写字符串，避免拼错后才在运行期发现
-export const MODE_FORWARD = 'forward';
-export const MODE_REWRITE = 'rewrite';
+// 两种模式的字面量：与配置层共用同一份常量（gateway/config/constants.js），
+// 避免"配置校验认 forward、运行期判 rewrite"这类拼写漂移
+import { GROUP_MODE_FORWARD, GROUP_MODE_REWRITE } from '../../gateway/config/constants.js';
+
+export const MODE_FORWARD = GROUP_MODE_FORWARD;
+export const MODE_REWRITE = GROUP_MODE_REWRITE;
 
 // 默认模式：docs/15 §一 —— 未声明即 forward（rewrite 退为特定协议的后备）
 export const DEFAULT_MODE = MODE_FORWARD;
