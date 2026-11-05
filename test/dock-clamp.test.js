@@ -13,7 +13,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const FLOAT_SOURCE = await fs.readFile(new URL('../ui/js/float.js', import.meta.url), 'utf8');
+const FLOAT_SOURCE = await fs.readFile(new URL('../ui/js/float/float.js', import.meta.url), 'utf8');
 
 function loadFloatLayer() {
   // eslint-disable-next-line no-new-func

@@ -3,7 +3,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_VIRTUAL_MODEL_ID } from '../src/gateway/router.js';
+import { DEFAULT_VIRTUAL_MODEL_ID } from '../src/gateway/transport/router.js';
 import { createFixedClock } from '../src/gateway/clock.js';
 import { DEFAULT_CHAT_COMPLETION, buildDefaultUpstreamRoutes, chatAs, selectModelRequest, startGatewayHarness } from './helpers/gateway-harness.js';
 

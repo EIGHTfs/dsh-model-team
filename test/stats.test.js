@@ -14,7 +14,7 @@ import {
   readRequestRows,
   statusTextFor,
   toPublicRequestRow,
-} from '../src/gateway/stats.js';
+} from '../src/gateway/stats/index.js';
 import { formatClockTime } from '../src/gateway/clock.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 

@@ -5,8 +5,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { detectMessageShape, normalizeHarnessMessages } from '../src/plugin/message-shape.js';
-import { toOpenAiMessages } from '../src/plugin/adapter-support.js';
+import { detectMessageShape, normalizeHarnessMessages } from '../src/plugin/adapter/message-shape.js';
+import { toOpenAiMessages } from '../src/plugin/adapter/support.js';
 
 // 助手侧两条工具调用（name 非空，才会进 tool_calls[]）
 const ASSISTANT_WITH_CALLS = {

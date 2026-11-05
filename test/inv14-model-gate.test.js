@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const BRIDGE_SOURCE = await fs.readFile(new URL('../ui/js/session-bridge.js', import.meta.url), 'utf8');
+const BRIDGE_SOURCE = await fs.readFile(new URL('../ui/js/interaction/session-bridge.js', import.meta.url), 'utf8');
 const CLIENT_SOURCE = await fs.readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 
 // 每次加载都重新执行一遍源码：分片里的 meta 缓存是模块级的，用例之间不能互相污染

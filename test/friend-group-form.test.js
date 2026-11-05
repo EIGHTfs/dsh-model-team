@@ -9,8 +9,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const RULES_SOURCE = await fs.readFile(new URL('../ui/js/friend-group-form.js', import.meta.url), 'utf8');
-const VIEW_SOURCE = await fs.readFile(new URL('../ui/js/friend-group-view.js', import.meta.url), 'utf8');
+const RULES_SOURCE = await fs.readFile(new URL('../ui/js/friend-group/form.js', import.meta.url), 'utf8');
+const VIEW_SOURCE = await fs.readFile(new URL('../ui/js/friend-group/view.js', import.meta.url), 'utf8');
 const API_SOURCE = await fs.readFile(new URL('../lib/client-parts/foundation/api.js', import.meta.url), 'utf8');
 
 function installRenderShims() {

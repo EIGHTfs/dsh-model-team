@@ -12,15 +12,15 @@ import fs from 'node:fs/promises';
 // messages.js 提供 buildMessages / formatMessageTime（构建时排在 store 之前），
 // 少了它 loadChat 会抛 ReferenceError——所以按构建顺序一起拼。
 const STORE_MODULE_FILES = [
-  'messages.js', 'store-state.js', 'store-persist.js', 'store-events.js',
-  'store-groups.js', 'store-chat.js', 'store-stats.js',
-  'store-session.js', 'store-dispatch.js', 'store.js',
+  'view/messages.js', 'store/state.js', 'store/persist.js', 'store/events.js',
+  'store/groups.js', 'store/chat.js', 'store/stats.js',
+  'store/session.js', 'store/dispatch.js', 'store/index.js',
 ];
 const STORE_SOURCE = (await Promise.all(STORE_MODULE_FILES.map(
   (fileName) => fs.readFile(new URL(`../ui/js/${fileName}`, import.meta.url), 'utf8'),
 ))).join('\n');
 const API_SOURCE = await fs.readFile(new URL('../lib/client-parts/foundation/api.js', import.meta.url), 'utf8');
-const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/render.js', import.meta.url), 'utf8');
+const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/view/render.js', import.meta.url), 'utf8');
 
 const THREE_GROUPS = [
   { id: 'agnes', name: 'agnes', driver: 'openai-compatible', summary: '官方接入' },

@@ -7,11 +7,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-import { buildOpenAiRequestBody, toOpenAiMessages } from '../src/plugin/adapter-support.js';
-import { DEFAULT_IMAGE_POLICY, resolveImageUrls } from '../src/plugin/image-prefetch.js';
-import { assertImageInputAllowed } from '../src/plugin/image-gate.js';
-import { createModelTimAdapter } from '../src/plugin/adapter.js';
-import { writeConfig } from '../src/gateway/config.js';
+import { buildOpenAiRequestBody, toOpenAiMessages } from '../src/plugin/adapter/support.js';
+import { DEFAULT_IMAGE_POLICY, resolveImageUrls } from '../src/plugin/image/prefetch.js';
+import { assertImageInputAllowed } from '../src/plugin/image/gate.js';
+import { createModelTimAdapter } from '../src/plugin/adapter/adapter.js';
+import { writeConfig } from '../src/gateway/config/config.js';
 import { createFixedClock } from '../src/gateway/clock.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 

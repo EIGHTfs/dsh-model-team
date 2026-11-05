@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const rateSource = await fs.readFile(new URL('../ui/js/rate.js', import.meta.url), 'utf8');
+const rateSource = await fs.readFile(new URL('../ui/js/format/rate.js', import.meta.url), 'utf8');
 // eslint-disable-next-line no-new-func
 new Function(rateSource)();
 const rate = globalThis.ModelTeamRate;

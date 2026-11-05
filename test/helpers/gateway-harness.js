@@ -1,9 +1,9 @@
 // 端到端测试脚手架：临时数据根 + stub 上游 + 真网关（监听 0 端口），退出时全部关闭。
 // 目的：用真 HTTP 跑通"dsh -> 网关 -> 上游"整条链路，同时保持零外网、零真实 Key。
 
-import { createGatewayServer } from '../../src/gateway/http-server.js';
+import { createGatewayServer } from '../../src/gateway/transport/http-server.js';
 import { createFixedClock } from '../../src/gateway/clock.js';
-import { writeConfig } from '../../src/gateway/config.js';
+import { writeConfig } from '../../src/gateway/config/config.js';
 import { createRecordingLogger, createTempDirectory, setEnvironmentVariableForTest } from './test-environment.js';
 import { startStubUpstream, writeJson } from './stub-upstream.js';
 

@@ -33,22 +33,48 @@ const CLIENT_PARTS = [
 // 设计稿分片：直接读 ui/js/*，不复制副本（改 ui 即改客户端）。
 // 顺序即依赖：rate（速率纯函数）→ messages（消息合并纯函数）→ store（唯一真相源）→ session-bridge → 视图 → app。
 const UI_PARTS = [
-  // target-source.js 必须排在 render/app 之前：两处都只调用它，但分片是顺序拼接的
-  // store-* 必须按依赖顺序排在 store.js 前面（装配层调用各工厂）
-  "js/rate.js", "js/messages.js", "js/target-source.js", "js/ui-format.js",
-  "js/store-state.js", "js/store-persist.js", "js/store-events.js",
-  "js/store-groups.js", "js/store-chat.js", "js/store-stats.js",
-  "js/store-session.js", "js/store-dispatch.js", "js/store.js",
-  "js/model-catalog.js", "js/session-bridge.js",
-  // 好友分组：规则层（form）→ 视图层（view）→ 接线层（modal）。
-  // 三者都排在 render.js 之后（复用它的 STRATEGY_LABELS 与成员行 class），
-  // 排在 app.js 之前（app.js 的点击委托直接调用 openFriendGroupModal）。
-  "js/dock-state.js", "js/render.js", "js/friend-group-form.js", "js/friend-group-view.js", "js/friend-group-modal.js",
-  "js/chat.js", "js/admin.js", "js/float.js", "js/app.js"
+  // 顺序即依赖（数组顺序 = 拼接顺序，没有 import）：
+  // format（纯函数）→ view 的 messages → float/target-source → store 各工厂 → store 装配
+  // → view 的 model-catalog → interaction/session-bridge → float/dock-state → view/render
+  // → friend-group 三层 → interaction/chat → view/admin → float/float → app 入口
+  "js/format/rate.js", "js/view/messages.js", "js/float/target-source.js", "js/format/ui-format.js",
+  "js/store/state.js", "js/store/persist.js", "js/store/events.js",
+  "js/store/groups.js", "js/store/chat.js", "js/store/stats.js",
+  "js/store/session.js", "js/store/dispatch.js", "js/store/index.js",
+  "js/view/model-catalog.js", "js/interaction/session-bridge.js",
+  "js/float/dock-state.js", "js/view/render.js",
+  "js/friend-group/form.js", "js/friend-group/view.js", "js/friend-group/modal.js",
+  "js/interaction/chat.js", "js/view/admin.js", "js/float/float.js", "js/app.js"
 ];
 
 // 收尾：DOM 骨架 + apply
 const TAIL_PARTS = ["dock.js", "apply.js"];
+
+// 拼接前自检：分片不是模块，数组顺序就是依赖顺序——错了只有运行时才炸。
+// 把"文件存在"与"关键顺序"变成构建期失败，别指望注释维持。
+function assertPartList(partNames, baseDirectory, listLabel) {
+  const missing = partNames.filter((name) => !fs.existsSync(path.join(baseDirectory, name)));
+  if (missing.length > 0) throw new Error(`[build] ${listLabel} 里有不存在的分片：${missing.join("、")}`);
+}
+
+function assertPartOrder() {
+  const pairs = [
+    [CLIENT_PARTS, "foundation/z-layers.js", "foundation/styles.js", "z-layers 必须早于 styles"],
+    [UI_PARTS, "js/store/state.js", "js/store/index.js", "store/state 必须早于 store/index"],
+    [UI_PARTS, "js/float/dock-state.js", "js/float/float.js", "dock-state 必须早于 float"],
+  ];
+  for (const [list, early, late, reason] of pairs) {
+    const earlyIndex = list.indexOf(early);
+    const lateIndex = list.indexOf(late);
+    if (earlyIndex < 0 || lateIndex < 0) throw new Error(`[build] 顺序断言找不到分片：${early} / ${late}`);
+    if (earlyIndex > lateIndex) throw new Error(`[build] 分片顺序错误：${reason}（${early}=${earlyIndex} > ${late}=${lateIndex}）`);
+  }
+}
+
+assertPartList(CLIENT_PARTS, partsDir, "CLIENT_PARTS");
+assertPartList(UI_PARTS, uiDir, "UI_PARTS");
+assertPartList(TAIL_PARTS, partsDir, "TAIL_PARTS");
+assertPartOrder();
 
 const HEADER = [
   "// ⚠️ 本文件由 build.cjs 自动生成（拼接 lib/client-parts/ 与 ui/js/ 片段），请勿手改——",

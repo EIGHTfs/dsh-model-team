@@ -13,7 +13,7 @@ import {
   resolveSessionIdentity,
   toSessionFileName,
   writeSessionMapping,
-} from '../src/gateway/session-store.js';
+} from '../src/gateway/session/store.js';
 import { GatewayError } from '../src/gateway/errors.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 

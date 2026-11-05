@@ -12,7 +12,7 @@ import {
   getConfigPath,
   getDataRoot,
   getDriversDirectory,
-} from '../src/gateway/paths.js';
+} from '../src/gateway/config/paths.js';
 import { setEnvironmentVariableForTest } from './helpers/test-environment.js';
 
 test('数据根：环境变量优先于主目录缺省值', () => {

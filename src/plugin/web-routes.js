@@ -8,10 +8,10 @@
 // 思路：webServer.register 的 prefix handler 收到的是原始 req/res（路径不剥前缀），
 //      因此直接复用 http-server 的管道（handleGatewayRequest），不另写一套分发。
 
-import { API_PREFIX } from '../gateway/constants.js';
-import { resolveHttpConfig } from '../gateway/config.js';
-import { getDataRoot } from '../gateway/paths.js';
-import { handleGatewayRequest } from '../gateway/http-server.js';
+import { API_PREFIX } from '../gateway/config/constants.js';
+import { resolveHttpConfig } from '../gateway/config/config.js';
+import { getDataRoot } from '../gateway/config/paths.js';
+import { handleGatewayRequest } from '../gateway/transport/http-server.js';
 import { resolveGatewayDeps } from '../gateway/gateway-deps.js';
 import { defaultLogger, describeFailure } from '../gateway/logger.js';
 

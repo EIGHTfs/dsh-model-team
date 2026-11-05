@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { startGatewayHarness } from './helpers/gateway-harness.js';
-import { readConfig } from '../src/gateway/config.js';
+import { readConfig } from '../src/gateway/config/config.js';
 
 // 测试用假明文（不是真实凭据）
 const SUBMITTED_API_KEY = 'plaintext-input-for-test-only';

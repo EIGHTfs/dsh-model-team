@@ -7,7 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveImageUrls } from '../src/plugin/image-prefetch.js';
+import { resolveImageUrls } from '../src/plugin/image/prefetch.js';
 
 const REF = { attachmentId: 'sha256-debug', mediaType: 'image/png', bytes: 4096, width: 8, height: 8 };
 const MESSAGES = [{ role: 'user', content: [{ type: 'text', text: '看图' }, { type: 'image', attachment: REF }] }];

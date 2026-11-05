@@ -8,7 +8,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { getDriversDirectory } from '../paths.js';
+import { getDriversDirectory } from '../config/paths.js';
 import { defaultLogger, describeFailure } from '../logger.js';
 import { openAiCompatibleDriver } from './openai-compatible.js';
 

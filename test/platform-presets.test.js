@@ -6,13 +6,13 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { startGatewayHarness, buildGroup } from './helpers/gateway-harness.js';
-import { writeConfig } from '../src/gateway/config.js';
-import { API_PREFIX } from '../src/gateway/constants.js';
+import { writeConfig } from '../src/gateway/config/config.js';
+import { API_PREFIX } from '../src/gateway/config/constants.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 import {
   DEFAULT_PLATFORMS_FILE_URL,
   loadPlatformPresets,
-} from '../src/gateway/platform-presets.js';
+} from '../src/gateway/config/platform-presets.js';
 
 const REQUIRED_FIELDS = ['id', 'name', 'baseURL'];
 

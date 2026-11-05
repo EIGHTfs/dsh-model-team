@@ -2,10 +2,10 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGatewayServer } from '../src/gateway/http-server.js';
-import { API_PREFIX } from '../src/gateway/constants.js';
-import { ROUTES } from '../src/gateway/routes.js';
-import { createHostSessionLookup, createHostSessionSource } from '../src/gateway/session-current.js';
+import { createGatewayServer } from '../src/gateway/transport/http-server.js';
+import { API_PREFIX } from '../src/gateway/config/constants.js';
+import { ROUTES } from '../src/gateway/routes/index.js';
+import { createHostSessionLookup, createHostSessionSource } from '../src/gateway/session/current.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 
 const KNOWN_SESSION = {

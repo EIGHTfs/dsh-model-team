@@ -3,8 +3,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startGatewayHarness } from './helpers/gateway-harness.js';
-import { readConfig } from '../src/gateway/config.js';
-import { normalizeModelList } from '../src/gateway/model-catalog.js';
+import { readConfig } from '../src/gateway/config/config.js';
+import { normalizeModelList } from '../src/gateway/model/catalog.js';
 import { createRecordingLogger } from './helpers/test-environment.js';
 
 function buildStaticGroupPayload(baseURL, staticModels, overrides = {}) {

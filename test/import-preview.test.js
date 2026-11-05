@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const ADMIN_SOURCE = await fs.readFile(new URL('../ui/js/admin.js', import.meta.url), 'utf8');
+const ADMIN_SOURCE = await fs.readFile(new URL('../ui/js/view/admin.js', import.meta.url), 'utf8');
 
 function loadAdminLayer() {
   globalThis.escapeHtml = (value) => String(value ?? '')

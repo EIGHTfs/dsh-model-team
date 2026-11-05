@@ -3,9 +3,9 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createGatewayServer } from '../src/gateway/http-server.js';
-import { API_PREFIX } from '../src/gateway/constants.js';
-import { createHostSessionLookup, createHostSessionSource } from '../src/gateway/session-current.js';
+import { createGatewayServer } from '../src/gateway/transport/http-server.js';
+import { API_PREFIX } from '../src/gateway/config/constants.js';
+import { createHostSessionLookup, createHostSessionSource } from '../src/gateway/session/current.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 
 // 造一个"活会话"：sessionTitle.get() 只认带 snapshotEvents 方法的对象

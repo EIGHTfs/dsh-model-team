@@ -8,9 +8,9 @@ import {
   readParentChain,
   resolveSessionTargetWithFallback,
   TARGET_SOURCE,
-} from '../src/gateway/session-fallback.js';
-import { writeSessionTarget } from '../src/gateway/session-store.js';
-import { buildRequestRow, toPublicRequestRow } from '../src/gateway/stats.js';
+} from '../src/gateway/session/fallback.js';
+import { writeSessionTarget } from '../src/gateway/session/store.js';
+import { buildRequestRow, toPublicRequestRow } from '../src/gateway/stats/index.js';
 import { startGatewayHarness, chatAs, selectModelRequest } from './helpers/gateway-harness.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 

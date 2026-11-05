@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createEmptyConfig, normalizeConfig, readConfig, writeConfig } from '../src/gateway/config.js';
+import { createEmptyConfig, normalizeConfig, readConfig, writeConfig } from '../src/gateway/config/config.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 
 test('config：文件缺失时自动创建目录与空配置，并打 info 日志', async (t) => {

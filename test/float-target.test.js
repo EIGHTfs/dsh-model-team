@@ -7,10 +7,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const FORMAT_SOURCE = await fs.readFile(new URL('../ui/js/ui-format.js', import.meta.url), 'utf8');
-const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/render.js', import.meta.url), 'utf8');
+const FORMAT_SOURCE = await fs.readFile(new URL('../ui/js/format/ui-format.js', import.meta.url), 'utf8');
+const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/view/render.js', import.meta.url), 'utf8');
 const CLIENT_SOURCE = await fs.readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
-const FLOAT_SOURCE = await fs.readFile(new URL('../ui/js/float.js', import.meta.url), 'utf8');
+const FLOAT_SOURCE = await fs.readFile(new URL('../ui/js/float/float.js', import.meta.url), 'utf8');
 
 // 球内标记已搬到 ui-format.js；它调用 render.js 的 renderAvatar（同一 bundle 作用域），
 // 单测里按同名垫片注入，保证测的是真实拼装逻辑而不是复制品。

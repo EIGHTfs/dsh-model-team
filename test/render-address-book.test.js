@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/render.js', import.meta.url), 'utf8');
+const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/view/render.js', import.meta.url), 'utf8');
 
 function loadRenderLayer() {
   globalThis.escapeHtml = (value) => String(value ?? '')

@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGroup, chatAs, selectModelRequest, startGatewayHarness } from './helpers/gateway-harness.js';
-import { writeSessionMapping } from '../src/gateway/session-store.js';
+import { writeSessionMapping } from '../src/gateway/session/store.js';
 
 // 两个群共用同一个 stub 上游：靠"模型名"区分实际由谁接活
 function buildTwoGroupConfig(stubBaseURL, friendGroups = []) {
@@ -29,7 +29,7 @@ const ROUND_ROBIN_GROUP = {
 async function startHarnessWithGroups(t, friendGroups = [ROUND_ROBIN_GROUP]) {
   const harness = await startGatewayHarness(t, { groups: [] });
   // harness 先建了临时数据根与 stub 上游，这里按 stub 地址写入完整配置
-  const { writeConfig } = await import('../src/gateway/config.js');
+  const { writeConfig } = await import('../src/gateway/config/config.js');
   await writeConfig(
     { ...buildTwoGroupConfig(harness.stubUpstream.baseURL, friendGroups), http: { externalOpenAiCompat: true } },
     { dataRoot: harness.dataRoot },

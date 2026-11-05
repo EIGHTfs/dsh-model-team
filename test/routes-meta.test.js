@@ -3,12 +3,12 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { handleGatewayRequest } from '../src/gateway/http-server.js';
+import { handleGatewayRequest } from '../src/gateway/transport/http-server.js';
 import { resolveGatewayDeps } from '../src/gateway/gateway-deps.js';
 import { registerGatewayRoutes } from '../src/plugin/web-routes.js';
-import { writeConfig } from '../src/gateway/config.js';
-import { DEFAULT_PROVIDER_ID } from '../src/plugin/adapter.js';
-import { DEFAULT_VIRTUAL_MODEL_ID } from '../src/gateway/router.js';
+import { writeConfig } from '../src/gateway/config/config.js';
+import { DEFAULT_PROVIDER_ID } from '../src/plugin/adapter/adapter.js';
+import { DEFAULT_VIRTUAL_MODEL_ID } from '../src/gateway/transport/router.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 import { startGatewayHarness } from './helpers/gateway-harness.js';
 

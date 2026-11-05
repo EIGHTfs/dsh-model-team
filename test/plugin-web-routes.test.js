@@ -5,7 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { apply } from '../src/plugin/index.js';
 import { OPENAI_ROUTE_PREFIX, TEAM_ROUTE_PREFIX } from '../src/plugin/web-routes.js';
-import { writeConfig } from '../src/gateway/config.js';
+import { writeConfig } from '../src/gateway/config/config.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 
 // 桩 LlmAdapter / LlmError：让 apply 能走完 adapter 注册

@@ -5,9 +5,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createGatewayServer } from '../src/gateway/http-server.js';
-import { writeConfig } from '../src/gateway/config.js';
-import { API_PREFIX } from '../src/gateway/constants.js';
+import { createGatewayServer } from '../src/gateway/transport/http-server.js';
+import { writeConfig } from '../src/gateway/config/config.js';
+import { API_PREFIX } from '../src/gateway/config/constants.js';
 import { loadExternalDrivers, resetDriverRegistry } from '../src/gateway/drivers/index.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 

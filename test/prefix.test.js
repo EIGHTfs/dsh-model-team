@@ -5,8 +5,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { API_PREFIX } from '../src/gateway/constants.js';
-import { ROUTES } from '../src/gateway/routes.js';
+import { API_PREFIX } from '../src/gateway/config/constants.js';
+import { ROUTES } from '../src/gateway/routes/index.js';
 import { TEAM_ROUTE_PREFIX } from '../src/plugin/web-routes.js';
 
 // 客户端在 lib/client.js 里自行声明前缀（浏览器端不能 import 服务端模块）

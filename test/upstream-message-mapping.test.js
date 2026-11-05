@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { toOpenAiMessages, toOpenAiToolCalls } from '../src/plugin/adapter-support.js';
+import { toOpenAiMessages, toOpenAiToolCalls } from '../src/plugin/adapter/support.js';
 
 test('工具链路：助手 tool-call 声明 + tool 结果配对（G-16 主场景）', () => {
   const messages = toOpenAiMessages([
@@ -174,7 +174,7 @@ test('普通纯文本消息 content 必须是字符串（不得包装成块数�
 // ===== G-17：tool-call.arguments 必须是原始 JSON 字符串（对象 → token 估算 NaN → 会话打不开）=====
 
 test('G-17：finish() 产出的 tool-call.arguments 是字符串，且字节透传', async () => {
-  const { StreamChunkBuilder } = await import('../src/plugin/llm-protocol.js');
+  const { StreamChunkBuilder } = await import('../src/plugin/adapter/llm-protocol.js');
   const runStream = (argumentText) => {
     const builder = new StreamChunkBuilder();
     builder.appendToolCallDelta({ index: 0, id: 'tc1', function: { name: 'read_file' } });

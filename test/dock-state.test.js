@@ -11,7 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const DOCK_STATE_SOURCE = await fs.readFile(new URL('../ui/js/dock-state.js', import.meta.url), 'utf8');
+const DOCK_STATE_SOURCE = await fs.readFile(new URL('../ui/js/float/dock-state.js', import.meta.url), 'utf8');
 
 // 每个用例独立加载：工厂是模块级单例，用例之间不能互相污染。
 // localStorage 用内存桩注入（模块加载时就会读一次，所以桩必须在加载前装好）。

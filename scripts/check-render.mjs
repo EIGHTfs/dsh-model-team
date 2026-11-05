@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
-const RENDER_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/render.js');
+const RENDER_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/view/render.js');
 
 // 缺省打运行中的插件宿主；换了端口用 DMT_BACKEND 覆盖，不写死第二处地址
 const BACKEND_BASE = (process.env.DMT_BACKEND || 'http://127.0.0.1:30801').replace(/\/+$/, '');
@@ -33,7 +33,7 @@ const EXIT_MISMATCH = 1;
  * 在隔离上下文里执行渲染分片，取回纯渲染函数。
  * 为什么用 vm 而不是字符串求值：分片是"给浏览器用的普通脚本"（没有 export），
  * 要拿到其中函数只能执行它；vm 给它一个空沙箱，既拿得到函数，也不会污染门禁进程的全局。
- * render.js 的函数在调用时才碰全局（escapeHtml 等都在同文件内定义），空沙箱足够。
+ * view/render.js 的函数在调用时才碰全局（escapeHtml 等都在同文件内定义），空沙箱足够。
  */
 function loadRenderLayer() {
   const source = fs.readFileSync(RENDER_SOURCE_PATH, 'utf8');
@@ -41,7 +41,7 @@ function loadRenderLayer() {
   const exported = vm.runInContext(
     `${source}\n;({ renderGroupList: renderGroupList, renderChat: renderChat })`,
     sandbox,
-    { filename: 'ui/js/render.js' },
+    { filename: 'ui/js/view/render.js' },
   );
   return exported;
 }
@@ -54,12 +54,12 @@ function loadRenderLayer() {
  * 与运行时用的是同一份代码，不是复制品。
  */
 function loadFloatPanelTexts() {
-  const source = fs.readFileSync(path.join(PROJECT_ROOT, 'ui/js/float.js'), 'utf8');
+  const source = fs.readFileSync(path.join(PROJECT_ROOT, 'ui/js/float/float.js'), 'utf8');
   const sandbox = vm.createContext({ console });
   return vm.runInContext(
     `${source}\n;({ buildPanelFieldTexts: buildPanelFieldTexts })`,
     sandbox,
-    { filename: 'ui/js/float.js' },
+    { filename: 'ui/js/float/float.js' },
   );
 }
 

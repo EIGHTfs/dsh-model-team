@@ -10,8 +10,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { toOpenAiMessages } from '../src/plugin/adapter-support.js';
-import { collectImageRefs } from '../src/plugin/image-prefetch.js';
+import { toOpenAiMessages } from '../src/plugin/adapter/support.js';
+import { collectImageRefs } from '../src/plugin/image/prefetch.js';
 
 const ATTACHMENT_A = { attachmentId: 'sha256-aaaa', mediaType: 'image/png', bytes: 68, width: 2, height: 2 };
 const ATTACHMENT_B = { attachmentId: 'sha256-bbbb', mediaType: 'image/png', bytes: 68, width: 2, height: 2 };

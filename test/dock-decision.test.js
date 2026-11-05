@@ -9,7 +9,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const BRIDGE_SOURCE = await fs.readFile(new URL('../ui/js/session-bridge.js', import.meta.url), 'utf8');
+const BRIDGE_SOURCE = await fs.readFile(new URL('../ui/js/interaction/session-bridge.js', import.meta.url), 'utf8');
 const DOCK_SOURCE = await fs.readFile(new URL('../lib/client-parts/dock.js', import.meta.url), 'utf8');
 
 const READY_META = { virtualModel: 'dsh-model-team', providerIds: ['dsh-model-team'] };

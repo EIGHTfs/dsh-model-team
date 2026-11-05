@@ -3,12 +3,12 @@
 //          不能各写一套兜底（曾因插件侧未传 clock 导致所有写路径 500）。
 // 思路：只在请求入口（http-server 的 handleGatewayRequest）解析一次，其余模块一律拿结果对象用。
 
-import { getDataRoot } from './paths.js';
+import { getDataRoot } from './config/paths.js';
 import { createClock } from './clock.js';
 import { defaultLogger } from './logger.js';
-import { defaultJsonlSessionResolver } from './session-store.js';
-import { createEmptySessionLookup, createEmptySessionSource } from './session-current.js';
-import { DEFAULT_PROVIDER_ID } from '../plugin/adapter.js';
+import { defaultJsonlSessionResolver } from './session/store.js';
+import { createEmptySessionLookup, createEmptySessionSource } from './session/current.js';
+import { DEFAULT_PROVIDER_ID } from '../plugin/adapter/adapter.js';
 
 // 归一化请求依赖：调用方给了就用，没给就落到同一批缺省实现
 export function resolveGatewayDeps(options = {}) {

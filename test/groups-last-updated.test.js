@@ -5,8 +5,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { startGatewayHarness } from './helpers/gateway-harness.js';
-import { readConfig, writeConfig } from '../src/gateway/config.js';
-import { resolveGroupLastUpdatedIso } from '../src/gateway/group-last-updated.js';
+import { readConfig, writeConfig } from '../src/gateway/config/config.js';
+import { resolveGroupLastUpdatedIso } from '../src/gateway/group/last-updated.js';
 
 const NEWER_REQUEST_ISO = '2026-11-02T11:24:25.691Z';
 const OLDER_REQUEST_ISO = '2026-11-02T10:00:00.000Z';

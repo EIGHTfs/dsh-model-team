@@ -17,8 +17,8 @@ import { fileURLToPath } from 'node:url';
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
 
-const ROUTES_FILE = path.join(PROJECT_ROOT, 'src/gateway/routes.js');
-const CONSTANTS_FILE = path.join(PROJECT_ROOT, 'src/gateway/constants.js');
+const ROUTES_FILE = path.join(PROJECT_ROOT, 'src/gateway/routes/index.js');
+const CONSTANTS_FILE = path.join(PROJECT_ROOT, 'src/gateway/config/constants.js');
 const CONTRACT_FILE = path.join(PROJECT_ROOT, 'docs/02-契约.md');
 const UI_SPEC_FILE = path.join(PROJECT_ROOT, 'docs/03-UI规范.md');
 const THEME_HTML_FILE = path.join(PROJECT_ROOT, 'ui/index.html');

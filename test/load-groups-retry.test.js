@@ -14,7 +14,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const STORE_GROUPS_SOURCE = await fs.readFile(new URL('../ui/js/store-groups.js', import.meta.url), 'utf8');
+const STORE_GROUPS_SOURCE = await fs.readFile(new URL('../ui/js/store/groups.js', import.meta.url), 'utf8');
 
 // 最小依赖桩：state/broadcast/reportError/api 都可控
 function createHarness({ api }) {

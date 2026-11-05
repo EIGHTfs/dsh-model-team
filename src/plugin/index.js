@@ -7,14 +7,14 @@
 // ⚠️ cordis 读的是**模块导出面**：`inject` 漏了就会在真机抛
 //    cannot get property "llm" without inject（单测用假 ctx 永远测不出来）。
 
-import { API_PREFIX } from '../gateway/constants.js';
-import { getDataRoot } from '../gateway/paths.js';
-import { readConfig } from '../gateway/config.js';
+import { API_PREFIX } from '../gateway/config/constants.js';
+import { getDataRoot } from '../gateway/config/paths.js';
+import { readConfig } from '../gateway/config/config.js';
 import { defaultLogger, describeFailure } from '../gateway/logger.js';
-import { DEFAULT_PROVIDER_ID, createModelTimAdapter } from './adapter.js';
-import { startContextWindowProbe } from './context-window.js';
+import { DEFAULT_PROVIDER_ID, createModelTimAdapter } from './adapter/adapter.js';
+import { startContextWindowProbe } from './context/window.js';
 import { TEAM_ROUTE_PREFIX, disposeGatewayRoutes, registerGatewayRoutes } from './web-routes.js';
-import { createHostSessionLookup, createHostSessionSource } from '../gateway/session-current.js';
+import { createHostSessionLookup, createHostSessionSource } from '../gateway/session/current.js';
 
 // 插件模块名（cordis 用它做诊断标签；与 package.json 的 name 保持一致）
 export const name = 'dsh-model-team';

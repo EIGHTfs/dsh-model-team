@@ -6,9 +6,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { resolveGatewayDeps } from '../src/gateway/gateway-deps.js';
-import { createGatewayServer, handleGatewayRequest } from '../src/gateway/http-server.js';
+import { createGatewayServer, handleGatewayRequest } from '../src/gateway/transport/http-server.js';
 import { registerGatewayRoutes } from '../src/plugin/web-routes.js';
-import { writeConfig } from '../src/gateway/config.js';
+import { writeConfig } from '../src/gateway/config/config.js';
 import { createRecordingLogger, createTempDirectory, setEnvironmentVariableForTest } from './helpers/test-environment.js';
 
 const ISO_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;

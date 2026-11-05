@@ -10,7 +10,7 @@ import {
   dispatchWithRotation,
   resetMemberCooldowns,
   resolveModelPlatform,
-} from '../src/gateway/dispatcher.js';
+} from '../src/gateway/transport/dispatcher.js';
 import { GatewayError } from '../src/gateway/errors.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 

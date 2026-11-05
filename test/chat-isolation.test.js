@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { startGatewayHarness } from './helpers/gateway-harness.js';
-import { appendRequestRow, buildRequestRow } from '../src/gateway/stats.js';
+import { appendRequestRow, buildRequestRow } from '../src/gateway/stats/index.js';
 
 const SESSION_ID = 'sess-isolation';
 const STARTED_AT_MS = Date.parse('2026-11-02T10:00:00.000Z');

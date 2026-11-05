@@ -2,7 +2,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_HTTP_PORT, DEFAULT_MAX_BODY_BYTES, resolveHttpConfig } from '../src/gateway/config.js';
+import { DEFAULT_HTTP_PORT, DEFAULT_MAX_BODY_BYTES, resolveHttpConfig } from '../src/gateway/config/config.js';
 import { chatAs, startGatewayHarness } from './helpers/gateway-harness.js';
 
 test('resolveHttpConfig：缺省值按 §11（外部入口关闭、CORS 空、8MB）', () => {

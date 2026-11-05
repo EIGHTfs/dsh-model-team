@@ -3,11 +3,11 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildOpenAiRequestBody, createModelTimAdapter, toOpenAiMessages } from '../src/plugin/adapter.js';
+import { buildOpenAiRequestBody, createModelTimAdapter, toOpenAiMessages } from '../src/plugin/adapter/adapter.js';
 import { createFixedClock } from '../src/gateway/clock.js';
-import { writeConfig } from '../src/gateway/config.js';
-import { readRequestRows } from '../src/gateway/stats.js';
-import { writeSessionMapping } from '../src/gateway/session-store.js';
+import { writeConfig } from '../src/gateway/config/config.js';
+import { readRequestRows } from '../src/gateway/stats/index.js';
+import { writeSessionMapping } from '../src/gateway/session/store.js';
 import { createRecordingLogger, createTempDirectory, setEnvironmentVariableForTest } from './helpers/test-environment.js';
 import { startStubUpstream, writeJson } from './helpers/stub-upstream.js';
 

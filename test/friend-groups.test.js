@@ -13,9 +13,9 @@ import {
   readGroupCursor,
   saveFriendGroup,
   writeGroupCursor,
-} from '../src/gateway/friend-groups.js';
-import { writeConfig, readConfig } from '../src/gateway/config.js';
-import { writeSessionTarget } from '../src/gateway/session-store.js';
+} from '../src/gateway/group/friend-groups.js';
+import { writeConfig, readConfig } from '../src/gateway/config/config.js';
+import { writeSessionTarget } from '../src/gateway/session/store.js';
 import { GatewayError } from '../src/gateway/errors.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 

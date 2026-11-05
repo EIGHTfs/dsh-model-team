@@ -10,7 +10,7 @@ import {
   CREDENTIAL_FAILURE_CODES,
   resolveApiKeyRef,
   resolveGroupCredentials,
-} from '../src/gateway/credentials.js';
+} from '../src/gateway/config/credentials.js';
 import { createTempDirectory } from './helpers/test-environment.js';
 
 // 假凭证：只用于断言解析结果，不具备任何真实访问能力

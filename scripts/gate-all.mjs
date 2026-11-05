@@ -73,6 +73,7 @@ async function collectGates(args) {
       args: ['scripts/check-deploy-parity.mjs', ...(args.allowNoDeploy ? ['--allow-no-deploy'] : [])],
     },
     { name: 'css', command: process.execPath, args: ['scripts/check-css.mjs'] },
+    { name: 'layout', command: process.execPath, args: ['scripts/check-layout.mjs'] },
     {
       name: 'code-lines',
       command: process.execPath,

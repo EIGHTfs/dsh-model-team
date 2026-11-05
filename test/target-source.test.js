@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
-const SOURCE = await fs.readFile(new URL('../ui/js/target-source.js', import.meta.url), 'utf8');
+const SOURCE = await fs.readFile(new URL('../ui/js/float/target-source.js', import.meta.url), 'utf8');
 
 // 每次加载重置垫片：warnOnce 的"只告警一次"是模块级状态，用例之间不能互相影响
 function loadFragment() {

@@ -13,7 +13,7 @@ import {
   renderSummaryTemplate,
   validateAuth,
 } from '../src/gateway/drivers/openai-compatible.js';
-import { resolveDefaultUserAgent } from '../src/gateway/constants.js';
+import { resolveDefaultUserAgent } from '../src/gateway/config/constants.js';
 import { createRecordingLogger } from './helpers/test-environment.js';
 import { startStubUpstream, writeJson } from './helpers/stub-upstream.js';
 

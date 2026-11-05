@@ -5,10 +5,10 @@
 //      chatCompletions 不抛异常，统一返回 { ok, status, response, usage, error }，网关据此写请求行而不中断服务；
 //      fetchModels 按契约返回数组，失败时抛带 code/status 的错误，由调用方捕获（网关集中记失败）。
 
-import { DEFAULT_USER_AGENT } from '../constants.js';
+import { DEFAULT_USER_AGENT } from '../config/constants.js';
 import { defaultLogger, describeFailure } from '../logger.js';
-import { normalizeContextLength, normalizeMaxOutputTokens } from '../model-capacity.js';
-import { CREDENTIALS_API_KEY_FIELD } from '../credentials.js';
+import { normalizeContextLength, normalizeMaxOutputTokens } from '../model/capacity.js';
+import { CREDENTIALS_API_KEY_FIELD } from '../config/credentials.js';
 
 // 字段映射与 usage 解析拆到 mapping.js：配置型驱动与统计层共用同一份实现
 import {
@@ -24,7 +24,7 @@ import {
 export { DEFAULT_MODEL_FIELD_PATH, DEFAULT_USAGE_PATH, extractUsage, readFieldByPath, renderSummaryTemplate };
 
 // SSE 解析复用网关同一份实现：流式与非流式只差"要不要等整段"
-import { SSE_DONE_MARKER, parseSseEvents } from '../sse.js';
+import { SSE_DONE_MARKER, parseSseEvents } from '../transport/sse.js';
 
 // 上游无视 stream 参数、直接回整段 JSON 时，包成一个事件，避免客户端空等
 async function* toSingleSseEvent(rawBodyText) {

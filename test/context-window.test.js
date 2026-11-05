@@ -11,16 +11,16 @@ import {
   collectConfiguredContextWindows,
   normalizeContextLength,
   pickDeclaredContextWindow,
-} from '../src/gateway/model-capacity.js';
-import { peekDeclaredContextWindow, resolveDeclaredContextWindow, resetContextWindowCache } from '../src/plugin/context-window.js';
+} from '../src/gateway/model/capacity.js';
+import { peekDeclaredContextWindow, resolveDeclaredContextWindow, resetContextWindowCache } from '../src/plugin/context/window.js';
 import {
   buildContextOverflowMessage,
   estimateMessagesTokens,
   evaluateContextGuard,
   isContextGuardEnabled,
-} from '../src/plugin/context-guard.js';
-import { createModelTimAdapter } from '../src/plugin/adapter.js';
-import { writeConfig } from '../src/gateway/config.js';
+} from '../src/plugin/context/guard.js';
+import { createModelTimAdapter } from '../src/plugin/adapter/adapter.js';
+import { writeConfig } from '../src/gateway/config/config.js';
 import { createFixedClock } from '../src/gateway/clock.js';
 import { createRecordingLogger, createTempDirectory, setEnvironmentVariableForTest } from './helpers/test-environment.js';
 
