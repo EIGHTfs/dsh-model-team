@@ -9,6 +9,7 @@ import { resolveSessionTargetWithFallback } from '../session/fallback.js';
 import { DEFAULT_MAX_REQUEST_ROWS, appendRequestRow, buildRequestRow } from '../stats/index.js';
 import { dispatchWithRotation } from './dispatcher.js';
 import { resolveAttemptContext } from './attempt-context.js';
+import { GATEWAY_UPSTREAM_FAILURE_STATUS } from '../config/constants.js';
 import { readFieldByPath } from '../mapping.js';
 import { defaultLogger, describeFailure } from '../logger.js';
 import { ERROR_CODES, GatewayError } from '../errors.js';
@@ -31,7 +32,6 @@ function resolveSessionServiceSafely(getSessionService, logger) {
 }
 
 // 网关自身产生的失败统一回 502（上游问题），504 只留给超时
-const GATEWAY_UPSTREAM_FAILURE_STATUS = 502;
 const UPSTREAM_TIMEOUT_STATUS = 504;
 
 // 会话未映射时的固定文案（docs/09 §3 要求 statusText 为"无模型映射"）

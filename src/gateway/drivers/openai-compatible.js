@@ -5,7 +5,7 @@
 //      chatCompletions 不抛异常，统一返回 { ok, status, response, usage, error }，网关据此写请求行而不中断服务；
 //      fetchModels 按契约返回数组，失败时抛带 code/status 的错误，由调用方捕获（网关集中记失败）。
 
-import { DEFAULT_USER_AGENT } from '../config/constants.js';
+import { DEFAULT_MODELS_ENDPOINT_PATH, DEFAULT_USER_AGENT } from '../config/constants.js';
 import { defaultLogger, describeFailure } from '../logger.js';
 import { normalizeContextLength, normalizeMaxOutputTokens } from '../model/capacity.js';
 import { CREDENTIALS_API_KEY_FIELD } from '../config/credentials.js';
@@ -51,7 +51,6 @@ export const DEFAULT_AUTH_HEADER_NAME = 'Authorization';
 export const DEFAULT_AUTH_QUERY_PARAMETER = 'api_key';
 
 // 端点缺省值：配置里的 models.endpoint / 无配置时用这两个
-export const DEFAULT_MODELS_ENDPOINT_PATH = '/models';
 export const DEFAULT_CHAT_COMPLETIONS_ENDPOINT_PATH = '/chat/completions';
 
 // 上游超时：长回答常见 30s 起步，给一倍余量；不同平台可在 group.request.timeoutMs 覆盖

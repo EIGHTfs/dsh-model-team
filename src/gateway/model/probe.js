@@ -4,6 +4,7 @@
 // 错误归一：401/403 → probe-unauthorized、404 → probe-not-found、超时 → probe-timeout、其它 → probe-failed；
 //          只给安全文案，不回传上游原始响应体（可能含敏感信息）。
 
+import { DEFAULT_MODELS_ENDPOINT_PATH } from '../config/constants.js';
 import { getDriver } from '../drivers/index.js';
 import { safeFetchModels } from '../group/models.js';
 import { normalizeModelList } from './catalog.js';
@@ -13,7 +14,6 @@ import { ERROR_CODES, GatewayError } from '../errors.js';
 
 // 缺省驱动与模型列表路径：与配置型驱动的默认值保持一致
 const DEFAULT_PROBE_DRIVER_ID = 'openai-compatible';
-const DEFAULT_MODELS_ENDPOINT_PATH = '/models';
 // 临时群 id：只用于内存里跑一次 fetchModels，永远不会被写入配置
 const PROBE_GROUP_ID = '__model_probe__';
 const UNAUTHORIZED_STATUS_CODES = Object.freeze([401, 403]);

@@ -37,8 +37,6 @@ import {
   removeGroup,
   verifyGroup,
 } from '../group/groups.js';
-import { ERROR_CODES, GatewayError } from '../errors.js';
-import { resolveHttpConfig } from '../config/config.js';
 import { handleStreamingChatCompletions } from '../transport/streaming.js';
 import { formatIsoWithOffset } from '../clock.js';
 import { describeFailure } from '../logger.js';
@@ -46,16 +44,6 @@ import { describeFailure } from '../logger.js';
 // 成功状态码
 const HTTP_OK = 200;
 const HTTP_CREATED = 201;
-
-// /v1/chat/completions 是否对外开放（docs/09 §11：默认关闭；dsh 自身走 LlmAdapter，不经 HTTP）
-function assertExternalOpenAiCompatEnabled(config) {
-  if (resolveHttpConfig(config).externalOpenAiCompat) {
-    return;
-  }
-  throw new GatewayError(ERROR_CODES.NOT_FOUND, '未开放外部 OpenAI 兼容入口', {
-    hint: '在 config.json 里设置 http.externalOpenAiCompat: true 后再试',
-  });
-}
 
 // ---------- 统计 ----------
 

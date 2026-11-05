@@ -4,6 +4,7 @@
 //      → 边收边写并解析 usage/id → 结束时落一条请求行。上游事件原样转发，不在网关里重排 SSE 结构。
 
 import { ERROR_CODES, GatewayError } from '../errors.js';
+import { GATEWAY_UPSTREAM_FAILURE_STATUS } from '../config/constants.js';
 import { extractCredit, recordRequestRow, resolveChatTarget, resolveRequestId } from './router.js';
 import { dispatchWithRotation } from './dispatcher.js';
 import { resolveAttemptContext } from './attempt-context.js';
@@ -25,7 +26,6 @@ export const CLIENT_ABORTED_STATUS_TEXT = '客户端中断';
 
 // 状态码常量
 const HTTP_OK = 200;
-const GATEWAY_UPSTREAM_FAILURE_STATUS = 502;
 const UPSTREAM_TIMEOUT_STATUS = 504;
 
 // 把一条上游事件按 SSE 规范写回（保留原始 data 内容，不改写字段）

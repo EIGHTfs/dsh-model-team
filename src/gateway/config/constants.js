@@ -38,6 +38,12 @@ export const HTTP_STATUS = Object.freeze({
   UPSTREAM_TIMEOUT: 504,
 });
 
+// 上游没有给出状态码时，网关对外报的失败状态（router 与 streaming 两条转发路径必须同一个值）
+export const GATEWAY_UPSTREAM_FAILURE_STATUS = 502;
+
+// 群没有显式配置 models.endpoint 时，模型列表的默认路径（驱动与探测共用）
+export const DEFAULT_MODELS_ENDPOINT_PATH = '/models';
+
 // 原子写的临时文件后缀（配置/游标/请求行共用同一约定）
 export const TEMPORARY_FILE_SUFFIX = '.tmp';
 
