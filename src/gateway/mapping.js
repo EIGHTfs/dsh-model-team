@@ -68,25 +68,47 @@ function toTokenCount(tokenCandidate) {
   return tokenValue;
 }
 
-// usage 归一化：蛇形字段 → 契约驼峰字段；上游没给 total_tokens 时用两项相加兜底
+// 输入/输出 token：两种命名都认（蛇形是上游原始，驼峰是我们自己的旧行）
+function pickPromptTokens(rawUsage) {
+  return toTokenCount(rawUsage.prompt_tokens ?? rawUsage.promptTokens);
+}
+
+function pickCompletionTokens(rawUsage) {
+  return toTokenCount(rawUsage.completion_tokens ?? rawUsage.completionTokens);
+}
+
+// 总 token：上游给了就用，没给才用两项相加兜底（不要反过来——上游的 total 可能含缓存口径差异）
+function pickTotalTokens(rawUsage, promptTokens, completionTokens) {
+  const explicitTotalTokens = toTokenCount(rawUsage.total_tokens ?? rawUsage.totalTokens);
+  if (explicitTotalTokens !== null) return explicitTotalTokens;
+  return promptTokens !== null && completionTokens !== null ? promptTokens + completionTokens : null;
+}
+
+// 命中缓存的 token：三种来源按优先级取（嵌套路径 → 蛇形 → 别名）
+function pickCachedTokens(rawUsage) {
+  return toTokenCount(
+    readFieldByPath(rawUsage, 'prompt_tokens_details.cached_tokens')
+      ?? rawUsage.cache_read_input_tokens
+      ?? rawUsage.cache_hit,
+  );
+}
+
+// usage 归一化：蛇形字段 → 契约驼峰字段；上游没给 total_tokens 时用两项相加兜底。
+// 只有真拿到缓存数才写 cacheHit —— 缺失写成 0 会让"没有数据"看起来像"命中率 0%"
 export function extractUsage(responseBody, usagePath = DEFAULT_USAGE_PATH) {
   const rawUsage = readFieldByPath(responseBody, usagePath);
   if (rawUsage === null || rawUsage === undefined || typeof rawUsage !== 'object') {
     return null;
   }
 
-  const promptTokens = toTokenCount(rawUsage.prompt_tokens ?? rawUsage.promptTokens);
-  const completionTokens = toTokenCount(rawUsage.completion_tokens ?? rawUsage.completionTokens);
-  const explicitTotalTokens = toTokenCount(rawUsage.total_tokens ?? rawUsage.totalTokens);
-  const totalTokens = explicitTotalTokens
-    ?? (promptTokens !== null && completionTokens !== null ? promptTokens + completionTokens : null);
-  const cachedTokens = toTokenCount(
-    readFieldByPath(rawUsage, 'prompt_tokens_details.cached_tokens')
-      ?? rawUsage.cache_read_input_tokens
-      ?? rawUsage.cache_hit,
-  );
-
-  const usage = { promptTokens, completionTokens, totalTokens };
+  const promptTokens = pickPromptTokens(rawUsage);
+  const completionTokens = pickCompletionTokens(rawUsage);
+  const usage = {
+    promptTokens,
+    completionTokens,
+    totalTokens: pickTotalTokens(rawUsage, promptTokens, completionTokens),
+  };
+  const cachedTokens = pickCachedTokens(rawUsage);
   if (cachedTokens !== null) {
     usage.cacheHit = cachedTokens;
   }

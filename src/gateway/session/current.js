@@ -11,31 +11,52 @@ import { resolveSessionTitle, sessionEventList } from './title.js';
 // 常见"活跃"判据：状态名或布尔标记
 const ACTIVE_STATUS_VALUES = Object.freeze(['running', 'active', 'streaming']);
 
-// 把宿主返回的会话对象归一成我们对外用的最小形状
+// 会话 id：宿主不同版本分别叫 sessionId / id / key；拿不到非空字符串就当"这不是一个会话"
+function pickSessionId(rawSession) {
+  const sessionId = rawSession.sessionId ?? rawSession.id ?? rawSession.key;
+  return typeof sessionId === 'string' && sessionId.length > 0 ? sessionId : null;
+}
+
+// 标题：只认非空字符串。空串当"没有标题"，否则界面会出现一行空白标题
+function pickSessionTitle(rawSession) {
+  return typeof rawSession.title === 'string' && rawSession.title.length > 0 ? rawSession.title : undefined;
+}
+
+// 活跃时间：数字直接当毫秒；其它值交给 Date.parse。
+// 返回 { activeAtMs, rawValue }：解析失败时由调用方带着 sessionId 记日志（这里不知道 id，也不该猜）
+function pickActiveAtMs(rawSession) {
+  const rawValue = rawSession.updatedAt ?? rawSession.lastActiveAt ?? rawSession.activeAt ?? rawSession.mtime;
+  const parsed = typeof rawValue === 'number' ? rawValue : Date.parse(rawValue ?? '');
+  return { activeAtMs: Number.isFinite(parsed) ? parsed : null, rawValue, parsed };
+}
+
+// 活跃标记：布尔标记优先（宿主直接给 running/active），否则看状态名是否在已知活跃集合里
+function pickSessionActive(rawSession) {
+  return rawSession.running === true
+    || rawSession.active === true
+    || ACTIVE_STATUS_VALUES.includes(rawSession.status);
+}
+
+// 把宿主返回的会话对象归一成我们对外用的最小形状（只做组装，各字段的判定见上面四个纯函数）
 function toSessionSummary(rawSession, logger = defaultLogger) {
   if (!rawSession || typeof rawSession !== 'object') {
     return null;
   }
-  const sessionId = rawSession.sessionId ?? rawSession.id ?? rawSession.key;
-  if (typeof sessionId !== 'string' || sessionId.length === 0) {
+  const sessionId = pickSessionId(rawSession);
+  if (!sessionId) {
     return null;
   }
 
-  const title = typeof rawSession.title === 'string' && rawSession.title.length > 0 ? rawSession.title : undefined;
-  const rawActiveAt = rawSession.updatedAt ?? rawSession.lastActiveAt ?? rawSession.activeAt ?? rawSession.mtime;
-  const activeAtMs = typeof rawActiveAt === 'number' ? rawActiveAt : Date.parse(rawActiveAt ?? '');
-  if (Number.isNaN(activeAtMs) && rawActiveAt !== undefined) {
+  const { activeAtMs, rawValue, parsed } = pickActiveAtMs(rawSession);
+  if (Number.isNaN(parsed) && rawValue !== undefined) {
     logger.warn(`会话 ${sessionId} 的活跃时间无法解析，按未知处理`);
   }
-  const isActive = rawSession.running === true
-    || rawSession.active === true
-    || ACTIVE_STATUS_VALUES.includes(rawSession.status);
 
   return {
     sessionId,
-    title,
-    isActive,
-    activeAtMs: Number.isFinite(activeAtMs) ? activeAtMs : null,
+    title: pickSessionTitle(rawSession),
+    isActive: pickSessionActive(rawSession),
+    activeAtMs,
   };
 }
 

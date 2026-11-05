@@ -41,6 +41,33 @@ function writeSingleShotEvents(outgoingResponse, responseBody) {
   outgoingResponse.end();
 }
 
+// 一次成员调用：解析上下文 → 校验流式能力 → 调驱动流式接口（供调度引擎逐成员调用）。
+// 抽成工厂是为了让主流程只看到"怎么派发"，不用在 try 里再套四层回调。
+function buildStreamAttemptInvoker({ config, dataRoot, logger, fetchImpl, requestBody, abortController }) {
+  return async function invokeOnce(attempt) {
+    if (abortController.signal.aborted) {
+      return { ok: false, error: { code: 'CLIENT_ABORTED', message: '客户端已断开' } };
+    }
+    const attemptContext = await resolveAttemptContext({ attempt, config, dataRoot, logger });
+    if (!attemptContext.ok) {
+      return { ok: false, error: attemptContext.error };
+    }
+    const driverContext = {
+      group: attemptContext.group,
+      credentials: attemptContext.credentials,
+      logger,
+      fetchImpl,
+    };
+    const outboundBody = { ...(requestBody ?? {}), model: attempt.modelId };
+    // 驱动支持流式就走流式；否则退回非流式（结果由下面包成单块事件）
+    if (typeof attemptContext.driver.streamCompletions === 'function') {
+      return attemptContext.driver.streamCompletions(driverContext, outboundBody, { signal: abortController.signal });
+    }
+    const plainResult = await attemptContext.driver.chatCompletions(driverContext, outboundBody);
+    return { ...plainResult, events: null, plainResponse: plainResult.response };
+  };
+}
+
 // 流式 chat 处理：返回 { streamed: true } 表示响应已由本函数写完
 export async function handleStreamingChatCompletions({
   incomingRequest,
@@ -97,28 +124,7 @@ export async function handleStreamingChatCompletions({
       dataRoot,
       logger,
       now: () => clock.nowMs(),
-      invoke: async (attempt) => {
-        if (abortController.signal.aborted) {
-          return { ok: false, error: { code: 'CLIENT_ABORTED', message: '客户端已断开' } };
-        }
-        const attemptContext = await resolveAttemptContext({ attempt, config, dataRoot, logger });
-        if (!attemptContext.ok) {
-          return { ok: false, error: attemptContext.error };
-        }
-        const driverContext = {
-          group: attemptContext.group,
-          credentials: attemptContext.credentials,
-          logger,
-          fetchImpl,
-        };
-        const outboundBody = { ...(requestBody ?? {}), model: attempt.modelId };
-        // 驱动支持流式就走流式；否则退回非流式（结果由下面包成单块事件）
-        if (typeof attemptContext.driver.streamCompletions === 'function') {
-          return attemptContext.driver.streamCompletions(driverContext, outboundBody, { signal: abortController.signal });
-        }
-        const plainResult = await attemptContext.driver.chatCompletions(driverContext, outboundBody);
-        return { ...plainResult, events: null, plainResponse: plainResult.response };
-      },
+      invoke: buildStreamAttemptInvoker({ config, dataRoot, logger, fetchImpl, requestBody, abortController }),
     });
 
     const attempt = dispatchResult.attempt ?? null;

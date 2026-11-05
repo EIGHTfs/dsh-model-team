@@ -77,37 +77,40 @@ export function deriveGroupId(name) {
   return deriveGroupIdFromName(name) || `group-${Date.now().toString(36)}`;
 }
 
-export function validateGroupPayload(groupPayload) {
-  if (typeof groupPayload !== 'object' || groupPayload === null || Array.isArray(groupPayload)) {
-    throw new GatewayError(ERROR_CODES.INVALID_REQUEST, '群配置必须是对象');
-  }
-
-  rejectPlaintextCredentials(groupPayload);
-
-  // 契约 §4.1：id 可选，缺省由 name 生成（docs/02）。生成规则必须落在 GROUP_ID_PATTERN 内，
-  // 否则前端按契约提交（不带 id）会被误判成"缺 id"，加群恒 400 —— 契约与实现打架时以契约为准。
+// 群 id：显式给了就按原样校验（不静默改写），没给就由 name 派生（纯中文名派生不出合法 id 时用时间戳兜底）
+function resolveSubmittedGroupId(groupPayload) {
   const submittedGroupId = groupPayload.id;
   const hasSubmittedId = typeof submittedGroupId === 'string' && submittedGroupId.trim().length > 0;
-  // 纯中文名派生不出合法 id（GROUP_ID_PATTERN 只收 ASCII），用时间戳兜底，避免中文群名加不进来；
-  // 显式给了 id 时按原样校验，不做静默改写。
-  const trimmedGroupId = hasSubmittedId
-    ? submittedGroupId.trim()
-    : deriveGroupId(groupPayload.name);
+  // 契约 §4.1：id 可选，缺省由 name 生成（docs/02）。生成规则必须落在 GROUP_ID_PATTERN 内，
+  // 否则前端按契约提交（不带 id）会被误判成"缺 id"，加群恒 400 —— 契约与实现打架时以契约为准。
+  const trimmedGroupId = hasSubmittedId ? submittedGroupId.trim() : deriveGroupId(groupPayload.name);
   if (trimmedGroupId.length > MAX_GROUP_ID_LENGTH || !GROUP_ID_PATTERN.test(trimmedGroupId)) {
     throw new GatewayError(ERROR_CODES.INVALID_REQUEST, `群 id 不合法：${trimmedGroupId}`, {
       hint: '只允许字母、数字、点、下划线、连字符，且以字母或数字开头',
     });
   }
+  return trimmedGroupId;
+}
 
+// 名称：去空格后不能为空（落库前统一 trim）
+function resolveGroupName(groupPayload) {
   if (typeof groupPayload.name !== 'string' || groupPayload.name.trim().length === 0) {
     throw new GatewayError(ERROR_CODES.INVALID_REQUEST, '群配置缺少 name');
   }
+  return groupPayload.name.trim();
+}
 
+// 接入方式：缺省按 official（合法接入优先，docs/01 INV-03）
+function resolveAccessMode(groupPayload) {
   const accessMode = groupPayload.accessMode ?? ACCESS_MODES.OFFICIAL;
   if (!Object.values(ACCESS_MODES).includes(accessMode)) {
     throw new GatewayError(ERROR_CODES.INVALID_REQUEST, `accessMode 必须是 official 或 reverse，收到 ${accessMode}`);
   }
+  return accessMode;
+}
 
+// 驱动：必须已加载；配置型驱动还必须有 baseURL
+function resolveDriverId(groupPayload) {
   const driverId = groupPayload.driver;
   if (typeof driverId !== 'string' || driverId.trim().length === 0) {
     throw new GatewayError(ERROR_CODES.INVALID_REQUEST, '群配置缺少 driver');
@@ -117,15 +120,17 @@ export function validateGroupPayload(groupPayload) {
       hint: `先确认驱动文件已放进数据根 drivers/ 且加载成功（GET ${API_PREFIX}/drivers 可查）`,
     });
   }
-
   if (driverId === CONFIG_DRIVEN_DRIVER_ID && (typeof groupPayload.baseURL !== 'string' || groupPayload.baseURL.trim().length === 0)) {
     throw new GatewayError(ERROR_CODES.INVALID_REQUEST, '配置型驱动必须提供 baseURL', {
       hint: '例如 https://api.example.com/v1',
     });
   }
+  return driverId;
+}
 
-  // 模型列表必须可判定：要么给 endpoint 自动拉取，要么给非空 static
-  // static 允许字符串或 { id, name }：落盘统一成 { id, name }（docs/21）
+// 模型目录：必须可判定——要么 endpoint 自动拉取，要么非空 static；
+// static 允许字符串或 { id, name }，落盘统一成 { id, name }（docs/21）
+function resolveGroupModels(groupPayload) {
   const modelConfig = groupPayload.models
     ? { ...groupPayload.models, ...(Array.isArray(groupPayload.models.static) ? { static: normalizeModelList(groupPayload.models.static) } : {}) }
     : groupPayload.models;
@@ -136,18 +141,38 @@ export function validateGroupPayload(groupPayload) {
       hint: '自动拉取填 models: { endpoint: "/models" }；手动填 models: { static: ["my-model-a"] }',
     });
   }
+  return modelConfig;
+}
 
+// 凭据引用：只收 env:/file: 两种前缀，明文 Key 一律拒（本项目只存引用）
+function assertCredentialRef(groupPayload) {
   const apiKeyRef = groupPayload.auth?.apiKeyRef;
-  if (apiKeyRef !== undefined && apiKeyRef !== null) {
-    if (typeof apiKeyRef !== 'string' || !CREDENTIAL_REF_PREFIXES.some((prefix) => apiKeyRef.startsWith(prefix))) {
-      throw new GatewayError(ERROR_CODES.INVALID_REQUEST, 'apiKeyRef 必须是 env:<NAME> 或 file:<相对路径> 引用', {
-        hint: '本项目只存引用，不接收明文 Key',
-      });
-    }
+  if (apiKeyRef === undefined || apiKeyRef === null) return;
+  if (typeof apiKeyRef !== 'string' || !CREDENTIAL_REF_PREFIXES.some((prefix) => apiKeyRef.startsWith(prefix))) {
+    throw new GatewayError(ERROR_CODES.INVALID_REQUEST, 'apiKeyRef 必须是 env:<NAME> 或 file:<相对路径> 引用', {
+      hint: '本项目只存引用，不接收明文 Key',
+    });
+  }
+}
+
+// 加群/改群载荷校验：只做编排，每类字段的判定在上面的具名函数里（改一条规则不用重读整段）
+export function validateGroupPayload(groupPayload) {
+  if (typeof groupPayload !== 'object' || groupPayload === null || Array.isArray(groupPayload)) {
+    throw new GatewayError(ERROR_CODES.INVALID_REQUEST, '群配置必须是对象');
   }
 
-  return { ...groupPayload, id: trimmedGroupId, name: groupPayload.name.trim(), accessMode, driver: driverId, ...(modelConfig ? { models: modelConfig } : {}) };
+  rejectPlaintextCredentials(groupPayload);
+
+  const groupId = resolveSubmittedGroupId(groupPayload);
+  const name = resolveGroupName(groupPayload);
+  const accessMode = resolveAccessMode(groupPayload);
+  const driver = resolveDriverId(groupPayload);
+  const models = resolveGroupModels(groupPayload);
+  assertCredentialRef(groupPayload);
+
+  return { ...groupPayload, id: groupId, name, accessMode, driver, ...(models ? { models } : {}) };
 }
+
 
 // 递归查明文凭证字段：命中就整条拒绝（导入与加群共用）
 export function rejectPlaintextCredentials(value, pathLabel = 'group') {
