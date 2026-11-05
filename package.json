@@ -40,5 +40,11 @@
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": ">=0.2.0"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    }
+  },
+  "license": "MIT"
 }

@@ -13,7 +13,7 @@
 //   · 代码行门禁自己解析 scripts/code-lines.mjs 的输出并卡 400 行阈值
 //     （那个脚本只打印数字、不做判定，参数是文件清单）。
 
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,7 +62,26 @@ async function collectGates(args) {
   const testFiles = await listTestFiles();
   const sourceFiles = await listSourceFiles();
   const gates = [
-    { name: 'build', command: process.execPath, args: ['build.cjs'] },
+    {
+      name: "build",
+      command: process.execPath,
+      args: ["build.cjs"],
+      // 产物一致性：build 跑完如果 lib/client.js 变了，说明上一次提交「改了 ui/** 或 lib/client-parts/**
+      // 但忘了重建并提交产物」——宿主加载的是产物，不是源码，忘重建等于改动没生效。
+      // 真实事故：面板标签从「本会话速率」改成「当前速率」，源码提交了、产物没重建，界面上仍是旧文案。
+      validate: (result) => {
+        if (!result.ok) return { ok: false, output: result.output };
+        const status = execFileSync("git", ["status", "--porcelain", "--", "lib/client.js"], { cwd: REPO_ROOT, encoding: "utf8" });
+        if (status.trim()) {
+          return {
+            ok: false,
+            output: "lib/client.js 与提交不一致：源码改了但产物没重建/没提交。\n"
+              + "  修法：node build.cjs && git add lib/client.js，与源码同一次提交。",
+          };
+        }
+        return { ok: true };
+      },
+    },
     { name: 'test', command: process.execPath, args: ['--test', ...testFiles] },
     { name: 'contract', command: process.execPath, args: ['scripts/check-contract.mjs'] },
     { name: 'render', command: process.execPath, args: ['scripts/check-render.mjs'] },
