@@ -1,0 +1,15 @@
+# 审计细粒度豁免（语法：文件路径 : 规则名）
+#
+# 只豁免「文件 + 规则」这一对，**不整文件跳过**：lib/client.js 上其它规则照常报，
+# 这样真正只在产物里出现的问题（例如拼接导致的作用域错误）仍然可见。
+#
+# 为什么这些在产物上必然命中：
+#   lib/client.js 是 build.cjs 把 33 个源片段拼起来的产物 ——
+#   源码里的常量与函数在这里必然存在第二份，函数体也会被拼接放大，
+#   于是这几条结构性规则每次全量审计都会命中，把真问题淹掉。
+
+lib/client.js : maintainability/duplicate-constant-def
+lib/client.js : readability/max-function-length
+lib/client.js : security/no-repeated-hardcoded-literals
+lib/client.js : button/unbound
+lib/client.js : readability/vague-variable-name
