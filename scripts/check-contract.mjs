@@ -168,13 +168,45 @@ function checkUiHooks() {
   return false;
 }
 
+// INV-14 的代码级红线：显隐只能由判定结论驱动，不许在别处「强制显示」。
+// 历史事故：槽位注册失败时曾 applyDockVisibility(true)「降级为显示」，
+// 结果任何模型下都挂着一个球——与 INV-14「判不了就隐藏」直接冲突。
+function checkDockVisibilityRedLine() {
+  const clientPartsDir = path.join(PROJECT_ROOT, 'lib', 'client-parts');
+  const offenders = [];
+  const walk = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const fullPath = path.join(directory, entry.name);
+      if (entry.isDirectory()) { walk(fullPath); continue; }
+      if (!entry.name.endsWith('.js')) continue;
+      const source = fs.readFileSync(fullPath, 'utf8');
+      source.split('\n').forEach((line, index) => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('//')) return;          // 注释里提到不算违规
+        if (/applyDockVisibility\(\s*true\s*\)/.test(line)) {
+          offenders.push(`${path.relative(PROJECT_ROOT, fullPath)}:${index + 1}`);
+        }
+      });
+    }
+  };
+  walk(clientPartsDir);
+  if (!offenders.length) {
+    console.log('✅ INV-14 红线：客户端没有「绕过判定强制显示」的写死路径');
+    return true;
+  }
+  console.error('❌ INV-14 红线被越：以下位置强制显示悬浮球（只能由判定结论 ours 驱动）');
+  offenders.forEach((spot) => console.error(`   · ${spot}`));
+  return false;
+}
+
 function main() {
   // 解析类异常（契约/路由文件格式变了、ROUTES 少解析）单独收敛成一行错误：
   // 直接抛栈会淹没真正要看的那句「解析到 N 条 / 文件里有 M 条」。
   try {
     const endpointResult = checkEndpoints();
     const uiHookResult = checkUiHooks();
-    return endpointResult && uiHookResult ? EXIT_OK : EXIT_MISMATCH;
+    const dockRedLineOk = checkDockVisibilityRedLine();
+    return endpointResult && uiHookResult && dockRedLineOk ? EXIT_OK : EXIT_MISMATCH;
   } catch (parseError) {
     console.error(`❌ ${parseError?.message || parseError}`);
     return EXIT_MISMATCH;

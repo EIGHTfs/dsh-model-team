@@ -66,17 +66,18 @@ async function collectGates(args) {
       name: "build",
       command: process.execPath,
       args: ["build.cjs"],
-      // 产物一致性：build 跑完如果 lib/client.js 变了，说明上一次提交「改了 ui/** 或 lib/client-parts/**
-      // 但忘了重建并提交产物」——宿主加载的是产物，不是源码，忘重建等于改动没生效。
+      // 产物一致性：判据是「磁盘上的产物是否已经是当前源码的构建结果」。
+      // 做法：跑 build 之前先把产物读进内存，跑完再比——如果变了，说明跑之前它是陈旧的。
+      // 为什么不比 git status：那样在「改完还没提交」的正常迭代里也会红，
+      // 迫使人在每次小改后先提交一次，反而更容易漏提交产物。
       // 真实事故：面板标签从「本会话速率」改成「当前速率」，源码提交了、产物没重建，界面上仍是旧文案。
-      validate: (result) => {
+      validate: (result, snapshot) => {
         if (!result.ok) return { ok: false, output: result.output };
-        const status = execFileSync("git", ["status", "--porcelain", "--", "lib/client.js"], { cwd: REPO_ROOT, encoding: "utf8" });
-        if (status.trim()) {
+        if (snapshot !== result.artifactAfter) {
           return {
             ok: false,
-            output: "lib/client.js 与提交不一致：源码改了但产物没重建/没提交。\n"
-              + "  修法：node build.cjs && git add lib/client.js，与源码同一次提交。",
+            output: "lib/client.js 与源码不同步：跑 build 之前它是陈旧的（现在已重建）。\n"
+              + "  修法：把重建后的 lib/client.js 一并提交，别只提交源码。",
           };
         }
         return { ok: true };
@@ -131,9 +132,17 @@ async function main() {
 
   const startedAt = Date.now();
   const results = [];
+  const ARTIFACT_PATH = path.join(REPO_ROOT, "lib", "client.js");
+  const readArtifact = () => {
+    try { return fs.readFile(ARTIFACT_PATH, "utf8"); } catch { return null; }
+  };
+
   for (const gate of selected) {
+    // build 门禁要比对「跑之前」的产物：跑完再读一次即可判断它原本是否陈旧
+    const snapshot = gate.name === "build" ? await readArtifact() : undefined;
     const result = await run(gate.command, gate.args, REPO_ROOT);
-    const verdict = gate.validate ? gate.validate(result) : { ok: result.ok, output: result.output };
+    if (gate.name === "build") result.artifactAfter = await readArtifact();
+    const verdict = gate.validate ? gate.validate(result, snapshot) : { ok: result.ok, output: result.output };
     results.push({ ...gate, ...result, ...verdict });
     const seconds = (result.durationMs / 1000).toFixed(1);
     console.log(`${verdict.ok ? '✓' : '✗'} ${gate.name} ${seconds}s`);
