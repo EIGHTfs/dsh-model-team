@@ -186,6 +186,19 @@ export async function apply(ctx, options = {}) {
     deps: {
       dataRoot,
       logger,
+      // 本插件注册的路由名：适配器用它做 forward 的递归守卫
+      providerIds,
+      // forward 模式的真正出口：宿主 llm 服务的流式入口。
+      // 惰性取而不是启动时抓一次——apply 阶段 llm 服务可能还没就绪；取不到时抛出可识别的错误，
+      // 由 forward 的预检/降级逻辑处理（不会把插件激活打挂）。
+      llmStream: (streamOptions) => {
+        if (!ctx?.llm || typeof ctx.llm.stream !== 'function') {
+          const llmMissingError = new Error('ctx.llm.stream 不可用，forward 无法转发');
+          llmMissingError.code = 'LLM_STREAM_UNAVAILABLE';
+          throw llmMissingError;
+        }
+        return ctx.llm.stream(streamOptions);
+      },
       getSessionService: () => {
         try {
           return ctx.get('sessions');

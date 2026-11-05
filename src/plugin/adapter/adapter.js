@@ -21,6 +21,7 @@ import { peekDeclaredContextWindow, resolveModelContextWindow, startContextWindo
 import { buildContextOverflowMessage, estimateMessagesTokens, evaluateContextGuard, isContextGuardEnabled } from '../context/guard.js';
 import { messagesHaveImage, resolveImageUrls } from '../image/prefetch.js';
 import { assertImageInputAllowed } from '../image/gate.js';
+import { buildForwardRowInput, openForwardRequest } from './forward.js';
 
 // 缺省 provider 路由名与展示名
 export const DEFAULT_PROVIDER_ID = 'dsh-model-team';
@@ -71,6 +72,10 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
     clock: createClock(),
     logger: defaultLogger,
     fetchImpl: undefined,
+    // 本插件注册的 provider 路由名：forward 的递归守卫要拿它比对（目标是自己就绝不转发）
+    providerIds: [],
+    // 宿主 llm 服务的流式入口（rewrite 不用它）：forward 模式下由它真正发请求
+    llmStream: undefined,
     ...deps,
   };
   const adapterDataRoot = resolvedDeps.dataRoot ?? getDataRoot();
@@ -238,8 +243,37 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
       };
     }
 
-    // 转发点：sessionId 由 dsh 盖章 → 取会话目标 → 调度（单模型直连 / 分组轮换）→ 逐块 yield StreamChunk
+    // 入口分流（docs/15 §一）：能转发就转发；不能转发（或首块前抛 NO_ADAPTER）走 rewrite。
+    // rewrite 的实现原样保留在 streamRewrite 里，本函数只做"选哪条路"。
     async *stream(options) {
+      const startedAtMs = resolvedDeps.clock.nowMs();
+      const sessionId = normalizeSessionId(options?.sessionId);
+      const config = await resolvedDeps.readConfig({ dataRoot: adapterDataRoot, logger: resolvedDeps.logger });
+
+      // 转发预检 + 首块探测都在 openForwardRequest 里；它返回 null 表示"这次不转发"
+      const forwardRequest = await openForwardRequest({
+        options, config, sessionId, startedAtMs,
+        providerIds: resolvedDeps.providerIds,
+        logger: resolvedDeps.logger,
+        deps: resolvedDeps,
+        resolveTarget,
+        recordRow: (rowInput) => this.recordRow(rowInput),
+      }).catch((forwardError) => { throw toLlmError(forwardError, 'UPSTREAM_ERROR'); });
+
+      if (!forwardRequest) {
+        yield* this.streamRewrite(options);
+        return;
+      }
+      // 通道内部已记好请求行（含中途失败），这里只把错误翻译成 dsh 认的类型
+      try {
+        yield* forwardRequest.chunks;
+      } catch (forwardStreamError) {
+        throw toLlmError(forwardStreamError, 'UPSTREAM_ERROR');
+      }
+    }
+
+    // 转发点：sessionId 由 dsh 盖章 → 取会话目标 → 调度（单模型直连 / 分组轮换）→ 逐块 yield StreamChunk
+    async *streamRewrite(options) {
       const startedAtMs = resolvedDeps.clock.nowMs();
       const sessionId = normalizeSessionId(options?.sessionId);
       const config = await resolvedDeps.readConfig({ dataRoot: adapterDataRoot, logger: resolvedDeps.logger });
