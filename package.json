@@ -2,6 +2,23 @@
   "name": "dsh-model-team",
   "version": "0.2.1",
   "description": "会话级模型路由插件：dsh 里只注册一个虚拟模型，真实模型按会话映射转发（合法接入优先，配置型驱动）",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "llm",
+    "model-router",
+    "openai-compatible",
+    "deepseek"
+  ],
+  "homepage": "https://github.com/EIGHTfs/dsh-model-team#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EIGHTfs/dsh-model-team.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EIGHTfs/dsh-model-team/issues"
+  },
+  "author": "EIGHTfs",
   "type": "module",
   "main": "./src/plugin/index.js",
   "exports": {
@@ -38,7 +55,7 @@
     "test": "node --test test/*.test.js"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-llm": ">=0.2.0"
+    "@deepseek-ai/dsh-llm": ">=0.2.0 <0.3.0"
   },
   "dependencies": {},
   "peerDependenciesMeta": {
