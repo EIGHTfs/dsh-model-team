@@ -174,6 +174,55 @@ function findSuspiciousReferences(source, fileLabel) {
   return problems;
 }
 
+// ---------------------------------------------------------------- 预览页脚本清单
+
+// ui/index.html 是设计预览页（直接当网页打开可看界面），它的 <script> 清单必须与
+// build.cjs 的两份分片数组**完全一致**——顺序即依赖，漏一个分片或顺序错了，
+// 打开这页就是残缺界面，而且不会有任何报错提示（脚本不是模块，缺了只表现为函数未定义）。
+// 历史：0.2.0 拆分 store 后这页的清单没跟着改，9 个引用全是旧路径，页面一直是打不开的。
+function checkPreviewScriptList() {
+  const problems = [];
+  const buildSource = fs.readFileSync(path.join(PROJECT_ROOT, "build.cjs"), "utf8");
+  function readPartList(constantName) {
+    const start = buildSource.indexOf(`const ${constantName} = [`);
+    if (start < 0) return null;
+    const end = buildSource.indexOf("];", start);
+    return [...buildSource.slice(start, end).matchAll(/"([^"]+\.js)"/g)].map((match) => match[1]);
+  }
+  const clientParts = readPartList("CLIENT_PARTS");
+  const uiParts = readPartList("UI_PARTS");
+  if (!clientParts || !uiParts) {
+    problems.push("build.cjs 里找不到 CLIENT_PARTS / UI_PARTS（本门禁的比对基准丢了）");
+    return problems;
+  }
+  const htmlPath = path.join(PROJECT_ROOT, "ui", "index.html");
+  if (!fs.existsSync(htmlPath)) {
+    problems.push("缺少 ui/index.html（设计预览页，也是 docs/03 认定的主题模板）");
+    return problems;
+  }
+  const html = fs.readFileSync(htmlPath, "utf8");
+  const scriptSources = [...html.matchAll(/<script\s+src="([^"]+)"/g)].map((match) => match[1]);
+
+  const expected = [
+    ...clientParts.map((part) => `../lib/client-parts/${part}`),
+    ...uiParts,
+  ];
+  const missing = expected.filter((entry) => !scriptSources.includes(entry));
+  const extra = scriptSources.filter((entry) => !expected.includes(entry));
+  if (missing.length) problems.push(`ui/index.html 缺少分片（打开这页会缺函数）：${missing.join("、")}`);
+  if (extra.length) problems.push(`ui/index.html 引用了不在 build 清单里的脚本：${extra.join("、")}`);
+  if (!missing.length && !extra.length && scriptSources.join("|") !== expected.join("|")) {
+    problems.push("ui/index.html 的脚本顺序与 build.cjs 不一致（顺序即依赖）");
+  }
+  // 引用的路径必须真实存在（防止再出现「写了旧路径」）
+  for (const source of scriptSources) {
+    if (/^(https?:)?\/\//.test(source)) continue;
+    const resolved = path.resolve(path.dirname(htmlPath), source);
+    if (!fs.existsSync(resolved)) problems.push(`ui/index.html 引用了不存在的脚本：${source}`);
+  }
+  return problems;
+}
+
 // ---------------------------------------------------------------- 主流程
 
 function main() {
@@ -187,6 +236,7 @@ function main() {
   const documented = checkDocumentedPaths(docText);
   problems.push(...documented.problems);
   problems.push(...checkUndocumentedDirectories(docText));
+  problems.push(...checkPreviewScriptList());
 
   const sourceFiles = [
     ...listFilesRecursive(path.join(PROJECT_ROOT, 'src'), '.js'),

@@ -7,24 +7,36 @@
 // 这里把**后端真实返回**喂给**仓库里的渲染分片**，直接核对条数 / id 集合 / 驱动列。
 //
 // 用法：
-//   node scripts/check-render.mjs
-//   DMT_BACKEND=http://127.0.0.1:30800 node scripts/check-render.mjs
+//   node scripts/check-render.mjs                        # 自带 fixture（缺省，可重复跑）
+//   DMT_BACKEND=<后端地址> node scripts/check-render.mjs  # 对指定后端核对（集成检查，地址由调用方给）
 //
 // 退出码：0 = 渲染与返回一致；1 = 有差异或后端不可用。
+//
+// 后端从哪来（这条别改回「默认连部署」）：
+//   缺省**自带**一个进程内网关 + 临时数据根，监听系统分配的空闲端口，跑完即关——
+//   不依赖任何正在运行的宿主、不读真实配置，任何机器任何时刻都能跑。
+//   脚本里**不写任何具体地址或端口**：写过一次就变成「只对这台机器的部署有效」。
+//   历史教训：曾经默认连本机部署的固定端口，宿主正忙时这个门禁自己超时红掉，
+//   把「部署忙」误报成「渲染不一致」。
 
 import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+
+import { createGatewayServer } from '../src/gateway/transport/http-server.js';
+import { writeConfig } from '../src/gateway/config/config.js';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
 const RENDER_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/view/render.js');
 
-// 缺省打运行中的插件宿主；换了端口用 DMT_BACKEND 覆盖，不写死第二处地址
-const BACKEND_BASE = (process.env.DMT_BACKEND || 'http://127.0.0.1:30801').replace(/\/+$/, '');
-const GROUPS_ENDPOINT = `${BACKEND_BASE}/_team/groups`;
+// 只有显式给了 DMT_BACKEND 才连真实部署；否则用下面的进程内 fixture
+const EXPLICIT_BACKEND = (process.env.DMT_BACKEND || '').replace(/\/+$/, '');
 const REQUEST_TIMEOUT_MS = 8000;
+const FIXTURE_API_KEY_ENV = 'DMT_RENDER_FIXTURE_KEY';
 
 const EXIT_OK = 0;
 const EXIT_MISMATCH = 1;
@@ -109,30 +121,97 @@ function checkPanelRenderContract() {
   return problems;
 }
 
-/** 读后端真实群列表：任何失败都要给出可执行的提示，而不是静默空数组 */
-async function fetchGroups() {
+/**
+ * 自带后端：临时数据根 + fixture 配置 + 进程内网关（监听 0 端口）。
+ * 为什么不用真实部署：门禁要在任何机器、任何时刻可重复跑；连部署会让「宿主忙」变成「门禁红」。
+ */
+async function startFixtureBackend() {
+  // 凭证走环境变量引用：门禁自己给一个假值，绝不读机器上的真实凭据
+  process.env[FIXTURE_API_KEY_ENV] = 'render-gate-fixture-not-a-real-key';
+  const dataRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dmt-render-'));
+
+  // 上游也要自带：/_team/groups/:id/models 会真的去问上游（本仓库没有「静态模型」捷径），
+  // 所以给一个进程内 stub：路径 /v1/<群 id>/models 返回该群的固定模型清单。
+  // 每个群用不同路径，才能验证「群友数逐群不同」这件事——共用一份清单就测不出串组。
+  const modelsByGroupId = new Map();
+  const stubUpstream = http.createServer((request, response) => {
+    const matched = /^\/v1\/([^/]+)\/models$/.exec(request.url || '');
+    if (!matched) { response.writeHead(404); response.end(); return; }
+    const models = modelsByGroupId.get(decodeURIComponent(matched[1])) || [];
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ data: models.map((modelId) => ({ id: modelId, name: modelId })) }));
+  });
+  await new Promise((resolveListen) => stubUpstream.listen(0, '127.0.0.1', resolveListen));
+  const stubOrigin = `http://127.0.0.1:${stubUpstream.address().port}`;
+  const buildGroup = (id, name, models) => {
+    modelsByGroupId.set(id, models);
+    return {
+      id,
+      name,
+      accessMode: 'compatible',
+      driver: 'openai-compatible',
+      baseURL: `${stubOrigin}/v1/${encodeURIComponent(id)}`,
+      defaultModel: models[0],
+      auth: { type: 'bearer', header: 'Authorization', apiKeyRef: `env:${FIXTURE_API_KEY_ENV}` },
+      models: { static: models },
+      request: { modelField: 'model', extraHeaders: {} },
+      response: { usagePath: 'usage' },
+    };
+  };
+  await writeConfig({
+    groups: [
+      buildGroup('fixture-alpha', 'Alpha 平台', ['alpha-1', 'alpha-2']),
+      buildGroup('fixture-beta', 'Beta 平台', ['beta-1']),
+      buildGroup('fixture-gamma', 'Gamma 平台', ['gamma-1', 'gamma-2', 'gamma-3']),
+    ],
+    friendGroups: [],
+    virtualModel: 'dsh-model-team',
+    contextWindowFallback: 1048576,
+  }, { dataRoot });
+
+  const server = createGatewayServer({
+    dataRoot,
+    logger: { info() {}, warn() {}, error() {}, debug() {} },
+    fetchImpl: globalThis.fetch,
+  });
+  await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
+  const { port } = server.address();
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    close: async () => {
+      await new Promise((resolveClose) => server.close(resolveClose));
+      await new Promise((resolveClose) => stubUpstream.close(resolveClose));
+      await fs.promises.rm(dataRoot, { recursive: true, force: true });
+    },
+  };
+}
+
+/** 读后端群列表：任何失败都要给出可执行的提示，而不是静默空数组 */
+async function fetchGroups(baseUrl) {
+  const groupsEndpoint = `${baseUrl}/_team/groups`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   let response;
   try {
-    response = await fetch(GROUPS_ENDPOINT, { signal: controller.signal });
+    response = await fetch(groupsEndpoint, { signal: controller.signal });
   } catch (networkError) {
-    throw new Error(`连不上后端 ${GROUPS_ENDPOINT}（${networkError.message}）；先起插件宿主，或用 DMT_BACKEND 指定地址`);
+    throw new Error(`连不上后端 ${groupsEndpoint}（${networkError.message}）`);
   } finally {
     clearTimeout(timer);
   }
   if (!response.ok) {
-    throw new Error(`GET ${GROUPS_ENDPOINT} 返回 HTTP ${response.status}`);
+    const errorBody = await response.text().catch(() => '');
+    throw new Error(`GET ${groupsEndpoint} 返回 HTTP ${response.status}：${errorBody.slice(0, 200)}`);
   }
   let payload;
   try {
     payload = await response.json();
   } catch (parseError) {
-    throw new Error(`GET ${GROUPS_ENDPOINT} 返回的不是 JSON（${parseError.message}）`);
+    throw new Error(`GET ${groupsEndpoint} 返回的不是 JSON（${parseError.message}）`);
   }
   const groups = Array.isArray(payload) ? payload : payload && payload.groups;
   if (!Array.isArray(groups)) {
-    throw new Error(`GET ${GROUPS_ENDPOINT} 响应里没有 groups 数组`);
+    throw new Error(`GET ${groupsEndpoint} 响应里没有 groups 数组`);
   }
   return groups;
 }
@@ -172,11 +251,11 @@ function describeDifference({ renderedIds, apiIds, groups, html }) {
  * 为什么单独核这一项：models 缺省是 []，"还没拉到"与"确实 0 个"取值一样，
  * 历史事故就是界面上「群友恒为 0」——只有把接口长度和渲染值放在一起比才抓得住。
  */
-async function fetchGroupModelCount(groupId) {
+async function fetchGroupModelCount(baseUrl, groupId) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(`${BACKEND_BASE}/_team/groups/${encodeURIComponent(groupId)}/models`, { signal: controller.signal });
+    const response = await fetch(`${baseUrl}/_team/groups/${encodeURIComponent(groupId)}/models`, { signal: controller.signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const payload = await response.json();
     const models = Array.isArray(payload) ? payload : payload && payload.models;
@@ -187,10 +266,10 @@ async function fetchGroupModelCount(groupId) {
   }
 }
 
-async function checkGroupMemberCounts(groups, render) {
+async function checkGroupMemberCounts(baseUrl, groups, render) {
   const mismatches = [];
   for (const group of groups) {
-    const expectedCount = await fetchGroupModelCount(group.id);
+    const expectedCount = await fetchGroupModelCount(baseUrl, group.id);
     const models = new Array(expectedCount).fill(null).map((_, index) => ({ id: `m-${index}`, name: `m-${index}` }));
     const html = String(render.renderChat(group, models, [], null, 'loaded') || '');
     const expectedTag = `[群友: ${expectedCount}]`;
@@ -212,7 +291,23 @@ async function main() {
   }
   console.log('✅ 面板纯渲染断言通过：五字段非空且非加载中、空输入落占位符、层级 panel < app、骨架锚点齐全');
 
-  const groups = await fetchGroups();
+  // 后端来源：显式给了地址就连它（集成检查）；否则自起进程内 fixture（门禁缺省形态）
+  let backendBase = EXPLICIT_BACKEND;
+  let fixture = null;
+  if (!backendBase) {
+    fixture = await startFixtureBackend();
+    backendBase = fixture.baseUrl;
+    console.log(`🧪 自带 fixture 后端：${backendBase}（进程内，跑完即关）`);
+  }
+  try {
+    return await runComparison(backendBase);
+  } finally {
+    if (fixture) await fixture.close();
+  }
+}
+
+async function runComparison(backendBase) {
+  const groups = await fetchGroups(backendBase);
   const apiIds = groups.map((group) => String(group.id));
   const render = loadRenderLayer();
   const html = String(render.renderGroupList(groups, null, '') || '');
@@ -222,7 +317,7 @@ async function main() {
   const { missing, extra, missingDrivers } = describeDifference({ renderedIds, apiIds, groups, html });
   const countMismatched = renderedCount !== groups.length || renderedIds.length !== groups.length;
 
-  const memberMismatches = await checkGroupMemberCounts(groups, render);
+  const memberMismatches = await checkGroupMemberCounts(backendBase, groups, render);
 
   if (!countMismatched && missing.length === 0 && extra.length === 0 && missingDrivers.length === 0 && memberMismatches.length === 0) {
     console.log(`✅ 渲染一致：${groups.length} 个群（逐 id 对得上，驱动列都非空，群友数与接口一致）`);
