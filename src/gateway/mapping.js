@@ -93,6 +93,28 @@ export function extractUsage(responseBody, usagePath = DEFAULT_USAGE_PATH) {
   return usage;
 }
 
+// 首字判据（docs/02 §5.1）：一个流式分片里出现"真正的内容"才算首字时刻。
+// 只带 role 的开场分片、或 content 为空串的占位分片都不算 —— 把它们当成首字，
+// 会把首字等待（TTFT）算进解码段，速率被低估，与本次修正的目的正好相反。
+export const CONTENT_DELTA_FIELDS = Object.freeze(['content', 'reasoning_content', 'tool_calls']);
+
+export function carriesFirstToken(payload) {
+  const delta = payload?.choices?.[0]?.delta;
+  if (!delta || typeof delta !== 'object') {
+    return false;
+  }
+  for (const fieldName of CONTENT_DELTA_FIELDS) {
+    const fieldValue = delta[fieldName];
+    if (typeof fieldValue === 'string' && fieldValue.length > 0) {
+      return true;
+    }
+    if (Array.isArray(fieldValue) && fieldValue.length > 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // 摘要模板渲染：变量缺失降级为 —，空模板返回空串（INV-08）
 export function renderSummaryTemplate(template, variables = {}) {
   if (typeof template !== 'string' || template.length === 0) {

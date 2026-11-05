@@ -422,6 +422,21 @@ function formatSessionLabel(current) {
   return title ? title + '（' + shortId + '）' : shortId;
 }
 
+// ≈ 前缀是"下界"的唯一信号：光看数字看不出为什么偏低，补一条 title 说明分母口径。
+// 精确值不带 title —— 别让用户觉得"这个数也可能不准"。
+const RATE_APPROX_MARK = '≈';
+const RATE_APPROX_HINT = '≈ 为下界：这次没记录首字时刻，按整步平均算（含首字等待）';
+
+function applyRateHint(rateText) {
+  const rateNode = findElement('#fpRate');
+  if (!rateNode) return;
+  if (rateText && rateText.indexOf(RATE_APPROX_MARK) === 0) {
+    rateNode.setAttribute('title', RATE_APPROX_HINT);
+  } else {
+    rateNode.removeAttribute('title');
+  }
+}
+
 function renderFloat(current, activePlatform) {
   applyStoredAnchorOnce();
   if (!current) return;
@@ -456,5 +471,6 @@ function renderFloat(current, activePlatform) {
   setFloatText('#fpSession', panelFieldTexts.fpSession);
   setFloatTarget('#fpTarget', panelFieldTexts.fpTarget, targetSourceHint());
   setFloatText('#fpRate', panelFieldTexts.fpRate);
+  applyRateHint(panelFieldTexts.fpRate);
   setFloatText('#fpTotal', panelFieldTexts.fpTotal);
 }

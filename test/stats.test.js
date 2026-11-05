@@ -277,3 +277,51 @@ test('stats：历史行缺两个数值字段时，出参归一成 null（不是 
   assert.equal(serialized.completionTokens, null);
   assert.equal('latencySeconds' in serialized, true);
 });
+
+// ===== 速率分母（docs/02 §5.1）：首字时刻决定"精确值"能不能算 =====
+// 时间量全部由 FIXED_START_MS 推导，不另抄时间戳；两个时长刻意拉开比例，
+// 一旦实现把整步耗时当解码段用，断言值会明显不同，不会"恰好也对"。
+const FIRST_TOKEN_DELAY_MS = 900;
+const TOTAL_STEP_MS = 3200;
+const EXPECTED_DECODE_MS = TOTAL_STEP_MS - FIRST_TOKEN_DELAY_MS;
+
+test('stats：有首字时刻 → decodeMs 是「首字 → 结束」的差，不是整步耗时', () => {
+  const requestRow = buildRequestRow({
+    ...FULL_ROW_INPUT,
+    finishedAtMs: FIXED_START_MS + TOTAL_STEP_MS,
+    firstTokenAtMs: FIXED_START_MS + FIRST_TOKEN_DELAY_MS,
+  });
+
+  assert.equal(requestRow.decodeMs, EXPECTED_DECODE_MS);
+  assert.notEqual(requestRow.decodeMs, TOTAL_STEP_MS, 'decodeMs 不能等于整步耗时');
+  // 整步口径的原字段必须保留：别的消费方还在用，不能因为有了 decodeMs 就删
+  assert.equal(requestRow.latencySeconds, TOTAL_STEP_MS / 1000);
+});
+
+test('stats：没有首字时刻 → decodeMs 为 null；时钟回拨也不能产生负分母', () => {
+  const noFirstToken = buildRequestRow({ ...FULL_ROW_INPUT, finishedAtMs: FIXED_START_MS + TOTAL_STEP_MS });
+  assert.equal(noFirstToken.decodeMs, null);
+
+  const rolledBack = buildRequestRow({
+    ...FULL_ROW_INPUT,
+    finishedAtMs: FIXED_START_MS + TOTAL_STEP_MS,
+    // 首字时刻比结束还晚：真实时钟不会这样，但固定时钟/回拨会，必须夹成 0
+    firstTokenAtMs: FIXED_START_MS + TOTAL_STEP_MS + FIRST_TOKEN_DELAY_MS,
+  });
+  assert.equal(rolledBack.decodeMs, 0, '负差值夹成 0，前端据此跳过精确口径');
+});
+
+test('stats：出参给 decodeMs、裁掉内部时间戳 firstTokenAtMs', () => {
+  const requestRow = buildRequestRow({
+    ...FULL_ROW_INPUT,
+    finishedAtMs: FIXED_START_MS + TOTAL_STEP_MS,
+    firstTokenAtMs: FIXED_START_MS + FIRST_TOKEN_DELAY_MS,
+  });
+  const publicRow = toPublicRequestRow(requestRow);
+
+  assert.equal(publicRow.decodeMs, EXPECTED_DECODE_MS);
+  assert.equal('firstTokenAtMs' in publicRow, false, '内部时间戳不出网');
+  // 老行没有这个字段：出参必须是 null 而不是缺键（JSON 里缺键与 null 语义不同）
+  const legacyPublicRow = toPublicRequestRow({ completionTokens: 10, latencySeconds: 1 });
+  assert.equal(legacyPublicRow.decodeMs, null);
+});

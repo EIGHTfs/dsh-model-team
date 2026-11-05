@@ -8,7 +8,7 @@ import { extractCredit, recordRequestRow, resolveChatTarget, resolveRequestId } 
 import { dispatchWithRotation } from './dispatcher.js';
 import { resolveAttemptContext } from './attempt-context.js';
 import { parseSseJsonData } from './sse.js';
-import { extractUsage } from '../mapping.js';
+import { carriesFirstToken, extractUsage } from '../mapping.js';
 import { describeFailure } from '../logger.js';
 
 // 流式响应头：no-cache 让中间层不要缓存，x-accel-buffering 关掉 nginx 类反代的缓冲
@@ -82,6 +82,9 @@ export async function handleStreamingChatCompletions({
   let upstreamStatus = 0;
   let streamFailure = null;
   let abortedByClient = false;
+  // 首字时刻：整条请求只记第一次（后续分片再进来也不覆盖）。
+  // 它是速率精确值的唯一分母起点：没有它就只能退回整步耗时，算出来是下界（docs/02 §5.1）。
+  let firstTokenAtMs = null;
   let attemptGroup = null;
   let attemptedModelId = null;
   let attemptedGroupId = null;
@@ -155,6 +158,11 @@ export async function handleStreamingChatCompletions({
           const parsedEvent = parseSseJsonData(sseEvent);
           if (!parsedEvent.done && parsedEvent.payload) {
             lastPayload = parsedEvent.payload;
+            // 首字时刻只记第一次：解码段的起点就是"第一个带内容的增量"到达的那一刻。
+            // 记晚（比如等到结束）速率就退回整步平均，等于没修；记早（role 开场白）会把 TTFT 算进解码段。
+            if (firstTokenAtMs === null && carriesFirstToken(parsedEvent.payload)) {
+              firstTokenAtMs = clock.nowMs();
+            }
             const chunkUsage = extractUsage(parsedEvent.payload, usagePath);
             if (chunkUsage) {
               lastUsage = chunkUsage;
@@ -199,6 +207,8 @@ export async function handleStreamingChatCompletions({
     aborted: abortedByClient,
     model: attemptedModelId,
     finishedAtMs,
+    // 非流式兜底路径没有分片，这个值保持 null：前端按"只有整步耗时"处理，显示下界
+    firstTokenAtMs,
     usage: lastUsage,
     credit: extractCredit(lastPayload, attemptGroup),
     requestId: resolveRequestId({ id: lastResponseId }, clock),

@@ -132,6 +132,8 @@ export async function recordRequestRow({
   userAgent,
   startedAtMs,
   finishedAtMs,
+  // 首字时刻（毫秒）：只有流式路径能给；缺失时落 null，速率只能按整步耗时算下界
+  firstTokenAtMs,
   usage,
   credit,
   requestId,
@@ -150,6 +152,7 @@ export async function recordRequestRow({
     userAgent: userAgent ?? extractUserAgent(incomingRequest),
     startedAtMs,
     finishedAtMs,
+    firstTokenAtMs,
     usage,
     credit,
     requestId,

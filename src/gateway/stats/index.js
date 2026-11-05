@@ -137,6 +137,8 @@ export function buildRequestRow({
   userAgent,
   startedAtMs,
   finishedAtMs,
+  // 首字时刻（毫秒）：流式路径才有，非流式 / 上游没吐内容时是 null
+  firstTokenAtMs,
   usage,
   credit,
   requestId,
@@ -144,6 +146,12 @@ export function buildRequestRow({
   groupId,
   targetSource,
 }) {
+  // 解码段耗时（毫秒）：从首字到结束，速率的精确分母（不含首字等待）。
+  // 没有首字时刻只能是 null —— 不能拿整步耗时顶替，否则前端无从区分"精确值"与"下界"（docs/02 §5.1）。
+  // 用 Math.max 兜底：时钟被测试固定/回拨时也不能出现负的分母。
+  const decodeMs = typeof firstTokenAtMs === 'number' && Number.isFinite(firstTokenAtMs)
+    ? Math.max(0, finishedAtMs - firstTokenAtMs)
+    : null;
   const requestRow = {
     time: formatClockTime(startedAtMs),
     status: statusCode,
@@ -159,6 +167,8 @@ export function buildRequestRow({
     // 数值型耗时与输出 token：前端算“生成速度”（completionTokens / latencySeconds），
     // 不能用 tokens(含输入) / latency 算 —— 那是吞吐量，量级会差上百倍
     latencySeconds: toLatencySeconds(finishedAtMs - startedAtMs),
+    // 解码段（毫秒）：速率精确值的分母；null 表示没记到首字时刻，前端只能给下界（带 ≈）
+    decodeMs,
     completionTokens: typeof usage?.completionTokens === 'number' ? usage.completionTokens : null,
     tokens: formatTokens(usage),
     credit: formatCredit(credit),
@@ -168,6 +178,8 @@ export function buildRequestRow({
     // 以下为存储层附加字段：会话过滤与全局统计要用，前端不渲染
     sessionId: sessionId ?? null,
     startedAtMs,
+    // 首字时刻是内部时间戳（对外只给派生出来的 decodeMs），排查时用它对齐上游日志
+    firstTokenAtMs: typeof firstTokenAtMs === 'number' ? firstTokenAtMs : null,
     usage: usage ?? null,
   };
   requestRow.title = buildRequestTitle(requestRow);
@@ -266,8 +278,9 @@ export async function readRequestRows(
 }
 
 // 出参裁剪（docs/09 §10）：内部字段不出网
-// sessionId 必须保留——前端按会话过滤要用；startedAtMs 与 usage 是实现细节，暴露出去就等于把内部结构变成契约
-export const INTERNAL_REQUEST_ROW_FIELDS = Object.freeze(['startedAtMs', 'usage']);
+// sessionId 必须保留——前端按会话过滤要用；startedAtMs / firstTokenAtMs 与 usage 是实现细节，
+// 暴露出去就等于把内部结构变成契约（前端只需要派生好的 decodeMs）
+export const INTERNAL_REQUEST_ROW_FIELDS = Object.freeze(['startedAtMs', 'usage', 'firstTokenAtMs']);
 
 // 把存储行裁剪成对外 RequestRow
 export function toPublicRequestRow(requestRow) {
@@ -277,6 +290,8 @@ export function toPublicRequestRow(requestRow) {
     // JSON 序列化时 undefined 字段会直接消失，与"值为 null"语义不同，前端排查会踩坑
     completionTokens: requestRow.completionTokens ?? null,
     latencySeconds: requestRow.latencySeconds ?? null,
+    // 解码段也是"老行没有、新行才有"的字段：契约要求 null（JSON 里 undefined 会整字段消失）
+    decodeMs: requestRow.decodeMs ?? null,
   };
   for (const internalField of INTERNAL_REQUEST_ROW_FIELDS) {
     delete publicRequestRow[internalField];
