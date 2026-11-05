@@ -50,7 +50,7 @@
   "scripts": {
     "build": "node build.cjs",
     "build:client": "node build.cjs",
-    "mock:server": "python3 scripts/mock-team-server.py",
+    "mock:server": "node scripts/mock-team-server.mjs",
     "prepack": "node build.cjs",
     "test": "node --test test/*.test.js"
   },
