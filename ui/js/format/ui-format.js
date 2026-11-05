@@ -16,10 +16,19 @@ function renderFloatTargetMarkup(platform) {
 
 // 上下文窗口的展示口径：未知一律 —（契约 02 §3.7：缺失不填，不许编造）
 // 128000 → 128K、1048576 → 1M、0/负数/NaN/空 → —
+// 两个量级阈值提成常量：M/K 各自对应 1000000 / 1000，改口径时不用在表达式里找数字
+const CONTEXT_LENGTH_MILLION = 1000000;
+const CONTEXT_LENGTH_THOUSAND = 1000;
+
 function formatContextLength(contextLength) {
   const numericValue = typeof contextLength === 'number' ? contextLength : Number(contextLength);
   if (!Number.isFinite(numericValue) || numericValue <= 0) return '—';
-  if (numericValue >= 1000000) return (numericValue / 1000000).toFixed(numericValue % 1000000 === 0 ? 0 : 1) + 'M';
-  if (numericValue >= 1000) return Math.round(numericValue / 1000) + 'K';
+  if (numericValue >= CONTEXT_LENGTH_MILLION) {
+    const millionText = (numericValue / CONTEXT_LENGTH_MILLION).toFixed(
+      numericValue % CONTEXT_LENGTH_MILLION === 0 ? 0 : 1
+    );
+    return millionText + 'M';
+  }
+  if (numericValue >= CONTEXT_LENGTH_THOUSAND) return Math.round(numericValue / CONTEXT_LENGTH_THOUSAND) + 'K';
   return String(numericValue);
 }

@@ -15,6 +15,9 @@
 
 // 毫秒 → 秒：本文件里出现的 1000 只有这一个含义，集中成常量避免各处裸写
 var MS_PER_SECOND = 1000;
+// token 后缀换算（parseTokenCount 的 k / m 分支）：1000 = 千，1000000 = 百万
+var TOKENS_PER_THOUSAND = 1000;
+var TOKENS_PER_MILLION = 1000000;
 // 近似值前缀：一眼能看出"这个数字是下界"，不用点开 tooltip
 var RATE_APPROX_PREFIX = '≈';
 // 缺值占位：与全仓一致用破折号
@@ -28,8 +31,8 @@ function parseTokenCount(text) {
   var value = parseFloat(match[1]);
   if (!isFinite(value)) return null;
   var unit = match[2].toLowerCase();
-  if (unit === 'k') return value * 1000;
-  if (unit === 'm') return value * 1000000;
+  if (unit === 'k') return value * TOKENS_PER_THOUSAND;
+  if (unit === 'm') return value * TOKENS_PER_MILLION;
   return value;
 }
 

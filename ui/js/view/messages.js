@@ -3,12 +3,19 @@
 
 // 消息排序键：统一换算成"当天毫秒偏移"，两种来源才能比较——
 // at（ISO）取本地时分秒，time（HH:mm[:ss]）直接拆解；都没有的排最后，同键靠 tieBreak 稳定
+// 时间单位常量：名字带单位，避免读代码时把 3600000 当成"某个窗口阈值"
+const MS_PER_HOUR = 3600000;
+const MS_PER_MINUTE = 60000;
+const MILLISECONDS_PER_SECOND = 1000;
+
 function messageSortValue(source) {
   if (source && source.at) {
     const parsed = Date.parse(source.at);
     if (!isNaN(parsed)) {
       const when = new Date(parsed);
-      return when.getHours() * 3600000 + when.getMinutes() * 60000 + when.getSeconds() * 1000;
+      return when.getHours() * MS_PER_HOUR
+        + when.getMinutes() * MS_PER_MINUTE
+        + when.getSeconds() * MILLISECONDS_PER_SECOND;
     }
   }
   const clockMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(String((source && source.time) || ''));
