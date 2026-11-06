@@ -15,6 +15,7 @@ import { DEFAULT_PROVIDER_ID, createModelTimAdapter } from './adapter/adapter.js
 import { ensureHostExport } from './host-patch.js';
 import { startContextWindowProbe } from './context/window.js';
 import { TEAM_ROUTE_PREFIX, disposeGatewayRoutes, registerGatewayRoutes } from './web-routes.js';
+import { buildBaselinePayload, injectBaselineIntoHtml } from './index-injection.js';
 import { createHostSessionLookup, createHostSessionSource } from '../gateway/session/current.js';
 
 // 插件模块名（cordis 用它做诊断标签；与 package.json 的 name 保持一致）
@@ -100,6 +101,33 @@ async function registerPanelRoutes({ ctx, dataRoot, logger, options, providerIds
             return undefined;
           }
         };
+        // 静态基线注入：把平台预置 + 驱动元数据塞进 index.html，客户端据此在首次渲染就有下拉项。
+        // 走宿主 tapIndex（html→html 变换）而不是打进产物：清单是服务端数据，改文件刷新即生效。
+        // 旧宿主没有 tapIndex 时只 warn 一次、跳过——降级到"客户端走 HTTP"，绝不让插件加载失败。
+        if (typeof webServer.tapIndex === 'function') {
+          webContext.effect(() => {
+            const disposeIndexTap = webServer.tapIndex((html) => {
+              try {
+                // 每个 index 请求都重算：platforms.json 可能刚被改过（两次小文件读，可以接受）
+                return injectBaselineIntoHtml(html, buildBaselinePayload({ dataRoot, logger }));
+              } catch (injectionError) {
+                logger.warn(`静态基线注入失败，本次按原样返回 index：${describeFailure(injectionError)}`);
+                return html;
+              }
+            });
+            return () => {
+              try {
+                disposeIndexTap?.();
+              } catch (disposeError) {
+                logger.warn(`静态基线注入清理失败：${describeFailure(disposeError)}`);
+              }
+            };
+          });
+          logger.info('已挂载静态基线注入：index.html 将带 platforms/drivers 预置');
+        } else {
+          logger.warn('宿主 webServer 不支持 tapIndex：静态基线未注入（客户端仍会走 /_team 接口）');
+        }
+
         const sessionSource = createHostSessionSource({ getSessionService, getTitleService, logger });
         const sessionLookup = createHostSessionLookup({ getSessionService, getTitleService, logger });
         webContext.effect(() => {

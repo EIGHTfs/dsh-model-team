@@ -121,6 +121,27 @@ function broadcastGroupsUpdate(context, fetchResult) {
   context.broadcast('groups:updated', { groups: context.state.groups, failed: failed });
 }
 
+// 宿主在 index.html 里注入了静态基线（平台预置 + 驱动元数据）：见 src/plugin/index-injection.js。
+// 为什么需要它：加群弹窗的「选择平台」下拉以前要等 /_team/platforms 返回，网络慢或失败时就是空的。
+// 读取规则：形状不对一律当作"没有注入"（旧宿主 / 注入失败），退回原行为（等 HTTP）。
+function readInjectedBaseline() {
+  var scope = typeof globalThis === 'undefined' ? null : globalThis;
+  var baseline = scope && scope.__DMT_BASELINE__ ? scope.__DMT_BASELINE__ : null;
+  if (!baseline || typeof baseline !== 'object') return null;
+  var platforms = Array.isArray(baseline.platforms) ? baseline.platforms : [];
+  var drivers = Array.isArray(baseline.drivers) ? baseline.drivers : [];
+  if (platforms.length === 0 && drivers.length === 0) return null;
+  return { platforms: platforms, drivers: drivers };
+}
+
+// 预置初始 state：只在当前为空时填，绝不覆盖已有值（避免把先回来的网络结果顶掉）
+function seedStateFromInjectedBaseline(state) {
+  var baseline = readInjectedBaseline();
+  if (!baseline) return;
+  if (state.platforms.length === 0 && baseline.platforms.length > 0) state.platforms = baseline.platforms;
+  if (state.drivers.length === 0 && baseline.drivers.length > 0) state.drivers = baseline.drivers;
+}
+
 // 依赖与两张表（取数 / 落 state）在这里组装：工厂只持有 context，不自己攒一堆局部变量
 function createGroupLoadContext(deps) {
   var api = deps.api;
@@ -142,10 +163,11 @@ function createGroupLoadContext(deps) {
     ],
     appliers: [
       function (value) { state.groups = value || []; },
-      function (value) { state.drivers = value || []; },
+      // 空数组不覆盖：基线预置的值就是当前已知，接口返回空只说明"这次没拿到新数据"
+      function (value) { if (value && value.length) state.drivers = value; },
       // 好友分组接口返回的是 { groups }，取内层数组；形状不对时给空数组而不是 undefined
       function (value) { state.friendGroups = value && value.groups ? value.groups : []; },
-      function (value) { state.platforms = value || []; }
+      function (value) { if (value && value.length) state.platforms = value; }
     ]
   };
 }
@@ -185,7 +207,8 @@ function loadGroupsWith(context, options) {
 // 运行时可能被修改，因此每次进入「加群」视图都要重取，不能只在启动时拉一次。
 function loadPlatformsWith(context) {
   return context.api.getPlatforms().then(function (platforms) {
-    context.state.platforms = platforms || [];
+    // 平台清单为空时保留现有（可能是注入的基线）：空响应不等于"用户删光了平台"
+    if (platforms && platforms.length) context.state.platforms = platforms;
     context.broadcast('platforms:updated', { platforms: context.state.platforms });
     return context.state.platforms;
   });
@@ -193,6 +216,8 @@ function loadPlatformsWith(context) {
 
 function createGroupLoaders(deps) {
   var context = createGroupLoadContext(deps);
+  // 先预置基线：这样首次渲染（含立刻打开加群弹窗）就有下拉项，不必等网络
+  seedStateFromInjectedBaseline(context.state);
   return {
     describeLoadFailure: describeLoadFailure,
     loadGroups: function (options) { return loadGroupsWith(context, options); },
