@@ -381,3 +381,46 @@ test('T28 ⑥：适配器 resolveModel 也吃 override（生产路径与 peek �
   // 群里有 1000000 / 300000 两个窗口，override 必须压过最小值
   assert.equal(resolvedModel.context.contextWindow, 524288);
 });
+
+test('探测超时：超时发生在 I/O 边界（AbortSignal），缓存里不留假窗口值', async (t) => {
+  setEnvironmentVariableForTest(t, TEST_API_KEY_ENV, TEST_API_KEY);
+  const dataRoot = await createTempDirectory(t);
+  const logger = createRecordingLogger();
+  const config = { groups: [buildEndpointGroup({ id: 'agnes-hanging', baseURL: 'https://hanging.example.com/v1' })] };
+  await writeConfig(config, { dataRoot });
+  resetContextWindowCache();
+
+  // 上游永不回包：只有 signal abort 时才会结束——这样"超时"是唯一可能的失败路径
+  let fetchCallCount = 0;
+  const hangingFetch = (requestUrl, requestInit) => {
+    fetchCallCount += 1;
+    return new Promise((resolveFetch, rejectFetch) => {
+      requestInit?.signal?.addEventListener('abort', () => {
+        const timeoutError = new Error('The operation was aborted due to timeout');
+        timeoutError.name = 'TimeoutError';
+        rejectFetch(timeoutError);
+      });
+    });
+  };
+  const adapter = createAdapter({ dataRoot, logger, fetchImpl: hangingFetch });
+
+  const coldModel = await adapter.resolveModel('dsh-model-team', 'dsh-model-team');
+  assert.equal(coldModel.context.contextWindow, DEFAULT_CONTEXT_WINDOW_FALLBACK, '冷调用立即按兜底值申报');
+
+  // 等超时真的发生并被记为"空样本缓存"（不是等毫秒）
+  await waitFor(() => peekContextWindowProbeCache(config).hasCache, {
+    describe: '探测超时后已按空样本落缓存',
+    snapshot: () => ({ cache: peekContextWindowProbeCache(config), fetchCallCount }),
+  });
+
+  const cache = peekContextWindowProbeCache(config);
+  assert.deepEqual(cache.windows, [], '超时不许留下任何假窗口值');
+  assert.equal(cache.hasCache, true, 'hasCache=true 表示"探测已结束"，样本为空而不是"还没探"');
+  assert.equal(peekDeclaredContextWindow({ config }), DEFAULT_CONTEXT_WINDOW_FALLBACK, '解析路径仍按未知/默认申报');
+  assert.equal(
+    logger.lines.some((line) => line.level === 'warn' && line.message.includes('探测超时')),
+    true,
+    '日志里必须出现超时原因',
+  );
+  assert.equal(fetchCallCount, 1, '一次探测只发一次请求');
+});

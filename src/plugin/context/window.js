@@ -70,14 +70,31 @@ function readFreshProbeCache(config) {
   return Date.now() - probeCache.recordedAtMs < ttlMs ? probeCache : null;
 }
 
-/** 给一个 Promise 套超时：超时返回 fallback，不抛错（探测失败一律降级） */
-function withTimeout(promise, timeoutMs, fallback) {
-  let timer;
-  const timeoutPromise = new Promise((resolve) => {
-    timer = setTimeout(() => resolve(fallback), timeoutMs);
-    if (typeof timer.unref === 'function') timer.unref();
-  });
-  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timer));
+// 探测超时的失败原因（日志与排查都按这个字面值找）
+export const PROBE_TIMEOUT_REASON = '探测超时';
+
+/**
+ * 探测用的 fetch 包装：**超时下沉到 I/O 边界**（AbortSignal），不再在外面 race 一个 fallback。
+ * 为什么必须这样：race + fallback 会把"探测挂住"变成"悄悄用兜底值"，而兜底值直接决定申报给宿主的
+ * 上下文窗口（用户可见）；超时应当是一次**明确的失败结局**（结果为空的样本 + 带原因的日志），
+ * 而不是一次"看起来成功"的解析。驱动自己也带 signal（更长），用 AbortSignal.any 取交集，先到者生效。
+ */
+function createProbeFetch(fetchImpl, timeoutMs) {
+  const baseFetch = typeof fetchImpl === 'function' ? fetchImpl : globalThis.fetch;
+  return (requestUrl, requestInit = {}) => {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    const combinedSignal = requestInit.signal && typeof AbortSignal.any === 'function'
+      ? AbortSignal.any([requestInit.signal, timeoutSignal])
+      : timeoutSignal;
+    return baseFetch(requestUrl, { ...requestInit, signal: combinedSignal });
+  };
+}
+
+/** 失败原因归一：超时类错误统一说成「探测超时」，其它保留原始信息 */
+function describeProbeFailure(error) {
+  const errorName = error?.name;
+  if (errorName === 'TimeoutError' || errorName === 'AbortError') return PROBE_TIMEOUT_REASON;
+  return error?.message ?? String(error);
 }
 
 /** 探测单个群：返回 [{ id, contextLength }]；任何失败都返回空数组 */
@@ -92,7 +109,14 @@ async function probeSingleGroup(group, { dataRoot, logger, fetchImpl }) {
     context: { group, credentials, logger, fetchImpl },
     logger,
   });
-  if (!modelsResult.ok) return [];
+  if (!modelsResult.ok) {
+    // safeFetchModels 已把驱动异常收敛成结构化结果（不抛），所以"超时"要在这里归类并留日志：
+    // 日志里必须能一眼看出是超时，而不是一条含义模糊的"获取失败"
+    const failureText = String(modelsResult.error?.message ?? '');
+    const reason = /abort|timeout|超时/i.test(failureText) ? PROBE_TIMEOUT_REASON : failureText;
+    logger.warn(`上下文窗口探测失败（群 ${group?.id ?? ''}，原因：${reason}）；本轮按空样本处理`);
+    return [];
+  }
 
   const models = normalizeModelList(modelsResult.models, { logger });
   return models
@@ -105,6 +129,8 @@ async function probeAllGroups({ config, dataRoot, logger, fetchImpl }) {
   const groups = Array.isArray(config?.groups) ? config.groups : [];
   const windowsByGroup = {};
   const startedAtMs = Date.now();
+  // 每个探测请求自带超时：超时是"这次探测失败了"，会作为空样本落进缓存（不会留任何窗口值）
+  const probeFetch = createProbeFetch(fetchImpl, PROBE_TIMEOUT_MS);
 
   for (const group of groups) {
     if (Date.now() - startedAtMs > PROBE_TOTAL_BUDGET_MS) {
@@ -119,14 +145,11 @@ async function probeAllGroups({ config, dataRoot, logger, fetchImpl }) {
       windowsByGroup[groupId] = staticWindows;
       continue;
     }
-    const probedWindows = await withTimeout(
-      probeSingleGroup(group, { dataRoot, logger, fetchImpl }).catch((probeError) => {
-        logger.warn(`上下文窗口探测失败（群 ${groupId}）：${probeError?.message ?? probeError}`);
+    const probedWindows = await probeSingleGroup(group, { dataRoot, logger, fetchImpl: probeFetch })
+      .catch((probeError) => {
+        logger.warn(`上下文窗口探测失败（群 ${groupId}，原因：${describeProbeFailure(probeError)}）；本轮按空样本处理`);
         return [];
-      }),
-      PROBE_TIMEOUT_MS,
-      [],
-    );
+      });
     if (probedWindows.length > 0) {
       windowsByGroup[groupId] = probedWindows.map((modelEntry) => modelEntry.contextLength);
     }
