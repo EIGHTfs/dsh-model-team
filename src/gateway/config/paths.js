@@ -1,13 +1,25 @@
 // 数据根路径解析：config.json、drivers/ 等全部持久化文件挂在同一个数据根下。
 // 需求意图：同一份代码要能跑在多台机器与多个实例上，落盘位置不能写死，必须由部署侧决定。
-// 思路：优先读环境变量 DSH_MODEL_TEAM_HOME（测试与多实例隔离全靠它），缺省回落到用户主目录；
-//      解析时实时读环境，不做模块级常量缓存——否则测试注入环境变量后会一直拿到首次解析的旧值。
+// 思路（三档，逐级回落）：
+//   1) DSH_MODEL_TEAM_HOME —— 显式覆盖（测试 / 多实例隔离 / 迁移都走它）；
+//   2) DSH_HOME 非空     —— 挂到 <DSH_HOME>/dsh-model-team；DSH_HOME 由宿主/系统提供，
+//                          它带版本号这一层由系统负责，我们只负责「认它」；
+//   3) 家目录缺省         —— <home>/.dsh-model-team（没有宿主上下文的裸跑场景）。
+// 为什么第 2 档要认 DSH_HOME：HOME 在套件部署里也带版本号，升级换目录时按 homedir 推导会
+// 直接指向一个新空目录（真实事故：升级后 0 个群 + 凭据缺失）。
+// 解析时实时读环境，不做模块级常量缓存——否则测试注入环境变量后会一直拿到首次解析的旧值。
 
 import os from 'node:os';
 import path from 'node:path';
 
 // 部署侧覆盖数据根的变量名（多实例隔离、测试临时根、迁移都走它）
 export const DATA_ROOT_ENV_VAR = 'DSH_MODEL_TEAM_HOME';
+
+// 宿主数据根的变量名（系统提供、只读；我们只在它下面挂自己的目录）
+export const DSH_HOME_ENV_VAR = 'DSH_HOME';
+
+// 挂在 DSH_HOME 下的目录名（**与家目录缺省值区分开**：一个是 dsh-model-team，一个是 .dsh-model-team）
+export const DATA_DIRECTORY_NAME = 'dsh-model-team';
 
 // 缺省数据目录名：跟随 Node CLI 在家目录下放隐藏目录的惯例
 export const DEFAULT_DATA_DIRECTORY_NAME = '.dsh-model-team';
@@ -22,11 +34,23 @@ export const SESSION_EVENTS_EXTENSION = '.events.jsonl';
 export const REQUEST_ROWS_FILE_NAME = 'requests.jsonl';
 export const GROUP_STATE_FILE_NAME = 'groups-state.json';
 
-// 解析数据根：环境变量优先，缺省 ~/<DEFAULT_DATA_DIRECTORY_NAME>；空串与纯空白视为未设置
+// 读一个环境变量并归一：空串 / 纯空白视为未设置（与既有口径一致）
+function readEnvironmentText(environment, variableName) {
+  const rawValue = environment?.[variableName];
+  if (typeof rawValue !== 'string' || rawValue.trim().length === 0) return null;
+  return rawValue.trim();
+}
+
+// 解析数据根（三档优先级，见文件头）：空串与纯空白一律视为未设置
 export function getDataRoot(environment = process.env, homeDirectory = os.homedir()) {
-  const configuredRoot = environment[DATA_ROOT_ENV_VAR];
-  if (typeof configuredRoot === 'string' && configuredRoot.trim().length > 0) {
-    return path.resolve(configuredRoot.trim());
+  const configuredRoot = readEnvironmentText(environment, DATA_ROOT_ENV_VAR);
+  if (configuredRoot) {
+    return path.resolve(configuredRoot);
+  }
+  const dshHome = readEnvironmentText(environment, DSH_HOME_ENV_VAR);
+  if (dshHome) {
+    // path.join + path.resolve：尾斜杠不会产生 `//`，相对路径也会被归一成绝对路径
+    return path.resolve(path.join(dshHome, DATA_DIRECTORY_NAME));
   }
   return path.join(homeDirectory, DEFAULT_DATA_DIRECTORY_NAME);
 }
