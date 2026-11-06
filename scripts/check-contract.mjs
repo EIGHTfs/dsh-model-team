@@ -84,7 +84,7 @@ function readContractEndpoints() {
   }
   const section = source.slice(sectionStart, sectionEnd);
 
-  const rowPattern = /^\|\s*\d+\s*\|\s*(GET|POST|PUT|DELETE)\s*\|\s*`([^`]+)`/gm;
+  const rowPattern = /^\|\s*\d+\s*\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|\s*`([^`]+)`/gm;
   const entries = [];
   let matched;
   while ((matched = rowPattern.exec(section)) !== null) {

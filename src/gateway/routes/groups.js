@@ -37,6 +37,7 @@ import {
   removeGroup,
   verifyGroup,
 } from '../group/groups.js';
+import { updateGroup } from '../group/update.js';
 import { ERROR_CODES, GatewayError } from '../errors.js';
 import { handleStreamingChatCompletions } from '../transport/streaming.js';
 import { formatIsoWithOffset } from '../clock.js';
@@ -76,6 +77,15 @@ async function handleGroupDetailRoute(context) {
 async function handleGroupCreateRoute(context) {
   const createdGroup = await addGroup(context.body, { dataRoot: context.dataRoot, logger: context.logger });
   return { status: HTTP_CREATED, body: { group: createdGroup } };
+}
+
+// 部分更新：只改传入字段，回执与建群同形状（{ group }）+ 可选的 warnings
+async function handleGroupUpdateRoute(context) {
+  const updateResult = await updateGroup(context.params.id, context.body ?? {}, {
+    dataRoot: context.dataRoot,
+    logger: context.logger,
+  });
+  return { status: HTTP_OK, body: { group: updateResult.group, ...(updateResult.warnings.length > 0 ? { warnings: updateResult.warnings } : {}) } };
 }
 
 async function handleGroupRemoveRoute(context) {
@@ -141,4 +151,4 @@ async function handleFriendGroupRemoveRoute(context) {
   return { status: HTTP_OK, body: removeResult };
 }
 
-export { handleGroupListRoute, handleGroupDetailRoute, handleGroupCreateRoute, handleGroupRemoveRoute, handleGroupModelsRoute, handleGroupVerifyRoute, handleFriendGroupListRoute, handleFriendGroupSaveRoute, handleFriendGroupRemoveRoute };
+export { handleGroupListRoute, handleGroupDetailRoute, handleGroupCreateRoute, handleGroupUpdateRoute, handleGroupRemoveRoute, handleGroupModelsRoute, handleGroupVerifyRoute, handleFriendGroupListRoute, handleFriendGroupSaveRoute, handleFriendGroupRemoveRoute };

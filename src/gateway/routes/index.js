@@ -7,6 +7,7 @@ import { API_PREFIX } from '../config/constants.js';
 import {
   handleFriendGroupListRoute, handleFriendGroupRemoveRoute, handleFriendGroupSaveRoute,
   handleGroupCreateRoute, handleGroupDetailRoute, handleGroupListRoute,
+  handleGroupUpdateRoute,
   handleGroupModelsRoute, handleGroupRemoveRoute, handleGroupVerifyRoute,
 } from './groups.js';
 import {
@@ -30,6 +31,7 @@ export const ROUTES = Object.freeze([
   { method: 'GET', pattern: `${API_PREFIX}/sessions/:id`, handler: handleSessionDetailRoute },
   { method: 'GET', pattern: `${API_PREFIX}/groups`, handler: handleGroupListRoute },
   { method: 'POST', pattern: `${API_PREFIX}/groups`, handler: handleGroupCreateRoute },
+  { method: 'PATCH', pattern: `${API_PREFIX}/groups/:id`, handler: handleGroupUpdateRoute },
   { method: 'GET', pattern: `${API_PREFIX}/groups/:id`, handler: handleGroupDetailRoute },
   { method: 'DELETE', pattern: `${API_PREFIX}/groups/:id`, handler: handleGroupRemoveRoute },
   { method: 'GET', pattern: `${API_PREFIX}/friend-groups`, handler: handleFriendGroupListRoute },
