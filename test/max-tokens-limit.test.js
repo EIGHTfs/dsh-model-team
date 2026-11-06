@@ -53,28 +53,30 @@ test('解析：与上限无关的文案一律返回 null（据此不重试）', 
   assert.equal(parseMaxTokensLimit(undefined), null);
 });
 
-test('夹取优先级①：有群配置时**直接用它**，不再与学习值取最小', () => {
-  // 复验指出的反例：配置 2048、学习 1024，旧实现会给出 1024（把用户想抬高的意图吃掉了）
+test('夹取①：还没学到上限时，配置值原样发送（用来自证上游是否已放宽）', () => {
   assert.deepEqual(
-    capMaxTokens({ requested: 65536, configured: 2048, learned: 1024 }),
-    { maxTokens: 2048, source: 'configured' },
-  );
-  // 配置比学习值高也要按配置发（上游已放宽 / 学习值来自临时故障）
-  assert.deepEqual(
-    capMaxTokens({ requested: 65536, configured: 8192, learned: 1024 }),
+    capMaxTokens({ requested: 65536, configured: 8192 }),
     { maxTokens: 8192, source: 'configured' },
   );
-});
-
-test('夹取优先级②：无配置、有学习值 → min(原值, 学习值)', () => {
-  assert.deepEqual(capMaxTokens({ requested: 9000, learned: 2000 }), { maxTokens: 2000, source: 'learned' });
-  assert.deepEqual(capMaxTokens({ requested: 500, learned: 2000 }), { maxTokens: 500, source: 'learned' });
-  assert.deepEqual(capMaxTokens({ learned: 2000 }), { maxTokens: 2000, source: 'learned' });
-});
-
-test('夹取优先级③：都没有 → 原值；全空 → null', () => {
   assert.deepEqual(capMaxTokens({ requested: 9000 }), { maxTokens: 9000, source: 'requested' });
   assert.deepEqual(capMaxTokens({}), { maxTokens: null, source: 'none' });
+});
+
+test('夹取②：学到上限后，配置更高也要被学习值封顶', () => {
+  assert.deepEqual(
+    capMaxTokens({ requested: 65536, configured: 8192, learned: 1024 }),
+    { maxTokens: 1024, source: 'learned' },
+  );
+  // 没有配置时同样封顶宿主原值
+  assert.deepEqual(capMaxTokens({ requested: 9000, learned: 2000 }), { maxTokens: 2000, source: 'learned' });
+  assert.deepEqual(capMaxTokens({ requested: 500, learned: 2000 }), { maxTokens: 500, source: 'learned' });
+});
+
+test('夹取③：学到上限后，配置比学习值更小则按配置（source=configured）', () => {
+  assert.deepEqual(
+    capMaxTokens({ requested: 65536, configured: 512, learned: 1024 }),
+    { maxTokens: 512, source: 'configured' },
+  );
 });
 
 test('limits.json：学到的上限落盘、可读回；文件缺失/损坏都能容错', async (t) => {
@@ -212,7 +214,7 @@ test('重试：重发仍失败 → 返回失败结果（不无限重试）', asy
   assert.equal(stub.calls.length, 2, '最多两次（原始 + 一次重发）');
 });
 
-test('实际发送：configured 高于 learned 时，请求体里是 configured 的值', async (t) => {
+test('实际发送：configured 高于 learned 时，请求体里被学习值封顶', async (t) => {
   const dataRoot = await createTempDirectory(t);
   const limitsStore = createLimitsStore({ dataRoot, logger: createRecordingLogger() });
   await limitsStore.learnLimit('agnes', 'model-a', 1024);
@@ -226,7 +228,7 @@ test('实际发送：configured 高于 learned 时，请求体里是 configured 
     limitsStore,
   });
 
-  assert.equal(body.max_tokens, 4096, '人工配置必须压过学习值');
+  assert.equal(body.max_tokens, 1024, '学到上限后，配置值也被学习值封顶');
 });
 
 // ===== 端到端闭环：真适配器 + 真驱动 + 本地 stub 上游（首次 400，第二次成功）=====

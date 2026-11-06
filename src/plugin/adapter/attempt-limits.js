@@ -57,7 +57,8 @@ export async function retryIfMaxTokensExceeded({
   await limitsStore.learnLimit(group?.id, model, learnedLimit);
   warnOnce(
     `${group?.id ?? ''}::${model}`,
-    `上游 ${group?.id ?? ''}/${model} 的 max_tokens 上限为 ${learnedLimit}，已按学到的上限 ${cappedMaxTokens} 重发一次`,
+    `${group?.id ?? ''}/${model} 的 max_tokens 上限为 ${learnedLimit}（从上游 400 学到，已按 ${cappedMaxTokens} 重发）；`
+    + '若上游已放宽，删除 limits.json 中该条目以重新探测',
     logger,
   );
 

@@ -54,13 +54,14 @@ export function limitKeyFor(groupId, modelId) {
   return `${groupId ?? ''}::${modelId ?? ''}`;
 }
 
-// 夹取优先级（**不是三者取最小**）：
-//   1) 群配置 request.maxTokens 存在 → **直接用它**（人工指定就是权威，允许比学习值更高：
-//      上游放宽、或学习值来自一次临时故障时，用户要能改上去）
-//   2) 没有配置、有学习值 → min(原值, 学习值)
-//   3) 都没有 → 原值
-// 配置值仍然超限时，这一次会撞 400 → 学到新上限 → 同轮重发用新学到的值（见 attempt-limits.js）。
-// 返回 { maxTokens, source }，source 只用于日志（configured / learned / requested / none）
+// 夹取规则：
+//   1) 还没学到上限 → 发 configured ?? requested。人工写的高值有机会先试一次，
+//      这样才能测出"上游是不是已经放宽"。
+//   2) 已经学到上限 → 一律发 min(configured ?? requested, learned)。
+//      **学习值封顶配置值**：否则配置写得偏高时，每个请求都要先撞一次 400 再重发，
+//      代价是多一次往返、上游多记一次失败、日志里持续冒出 400 掩盖真问题。
+//   3) 想重新探测更高上限：删掉 limits.json 里对应条目（或整文件），回到规则 1。
+// 返回 { maxTokens, source }，source 只用于日志/排查（configured / learned / requested / none）
 export function capMaxTokens({ requested, configured, learned }) {
   const usableRequested = typeof requested === 'number' && Number.isFinite(requested) && requested > 0
     ? Math.trunc(requested)
@@ -72,13 +73,17 @@ export function capMaxTokens({ requested, configured, learned }) {
     ? Math.trunc(learned)
     : null;
 
-  if (usableConfigured !== null) {
-    return { maxTokens: usableConfigured, source: 'configured' };
-  }
+  // 学习值优先参与：学到之后它就是天花板
   if (usableLearned !== null) {
-    if (usableRequested === null) return { maxTokens: usableLearned, source: 'learned' };
-    return { maxTokens: Math.min(usableRequested, usableLearned), source: 'learned' };
+    const base = usableConfigured ?? usableRequested;
+    if (base === null) return { maxTokens: usableLearned, source: 'learned' };
+    const capped = Math.min(base, usableLearned);
+    // 只有"配置本来就比学到的更小"才标 configured——那说明这次生效的是人工值
+    const source = usableConfigured !== null && usableConfigured <= usableLearned ? 'configured' : 'learned';
+    return { maxTokens: capped, source };
   }
+  // 还没学到：配置优先，其次宿主原值
+  if (usableConfigured !== null) return { maxTokens: usableConfigured, source: 'configured' };
   return { maxTokens: usableRequested, source: usableRequested === null ? 'none' : 'requested' };
 }
 

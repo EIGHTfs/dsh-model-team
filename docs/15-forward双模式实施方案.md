@@ -81,7 +81,7 @@ forward 需要宿主包导出 `resolveProfiles`。宿主没导出时，插件在
 | 适配器构造失败 / `stream()` 在首块前抛错 | 同一次调用内改走 rewrite，warn 含原文 |
 | 首块之后抛错 | 原样抛出，**不重发**（会重复输出） |
 | 群缺 `baseURL` 或凭据 | 沿用现有配置校验错误（`INVALID_BASE_URL` / `MISSING_CREDENTIAL`），不进入 forward |
-| `max_tokens` 上限 | forward 走官方适配器时**在调用前夹**：`options.maxTokens` 取「群 `request.maxTokens` → `limits.json` 学到的上限 → 原值」的最小值再交给适配器（适配器层只认 options，改不了请求体） |
+| `max_tokens` 上限 | forward 走官方适配器时**在调用前夹**：未学到上限时用「群 `request.maxTokens` ?? 原值」；学到后一律 `min(配置 ?? 原值, 学到的上限)`（学习值封顶）。适配器层只认 options，改不了请求体，所以夹取必须在这里做 |
 | 目标形状 | 只支持**单模型**目标；分组轮换一律 rewrite |
 
 ## 四、配置
