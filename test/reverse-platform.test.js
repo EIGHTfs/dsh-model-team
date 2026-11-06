@@ -79,10 +79,14 @@ test('平台元数据自描述：端点/超时/能力都在 platform 对象里�
   assert.deepEqual([...qoderPlatform.capabilities.catalogKeys], ['qfmodel', 'dmodel']);
 
   const created = qoderPlatform.createPlatform({});
-  // M1：需要网络/加密的方法必须显式"未实现"，不能悄悄发请求
-  assert.throws(() => created.startDeviceLogin(), (error) => error.code === 'REVERSE_NOT_IMPLEMENTED');
+  // M2 起登录已实现：startDeviceLogin 只拼授权 URL、不发请求（返回 loginUrl）
+  const started = created.startDeviceLogin({ machineId: 'machine-fixed' });
+  assert.equal(started.loginUrl.startsWith('https://qoder.cn/device/selectAccounts?'), true);
+  assert.equal(typeof created.pollDeviceLogin, 'function');
+  // 仍未实现（M3/M4）：模型清单、加密请求体、续期
   assert.throws(() => created.listModels(), (error) => error.code === 'REVERSE_NOT_IMPLEMENTED');
   assert.throws(() => created.encodeRequestBody(), (error) => error.code === 'REVERSE_NOT_IMPLEMENTED');
+  assert.throws(() => created.refreshCredential(), (error) => error.code === 'REVERSE_NOT_IMPLEMENTED');
   // 纯函数已可用
   assert.equal(typeof created.decodeStreamChunk('data: [DONE]'), 'object');
 });

@@ -6,6 +6,7 @@
 
 import { buildCosyHeaders, REQUEST_KINDS } from './headers.js';
 import { unwrapEnvelope } from './envelope.js';
+import { pollDeviceLogin, startDeviceLogin } from './oauth.js';
 import { displayNameFor, isKnownCatalogKey, listCatalogKeys } from './catalog.js';
 
 // 未实现的网络方法统一抛这个错误：M1 不允许"悄悄发请求"
@@ -25,6 +26,9 @@ export const platform = {
   // 端点表：全部相对路径；base 只有国内版（国际版本机 SNI 不可达，试点不做）
   endpoints: Object.freeze({
     openApiBase: 'https://openapi.qoder.com.cn',
+    // 授权页挂在 authBase（≠ openApiBase）：写错 host 会让登录永远失败
+    authBase: 'https://qoder.cn',
+    deviceSelectPath: '/device/selectAccounts',
     inferBase: 'https://gateway.qoder.com.cn',
     inferPath: '/algo/api/v2/service/pro/sse/agent_chat_generation?Encode=1',
     publicChatPath: '/model/v1/chat/completions',
@@ -33,6 +37,14 @@ export const platform = {
     deviceTokenRefresh: '/api/v1/deviceToken/refresh',
     userInfo: '/api/v1/userinfo',
     usage: '/api/v1/usage',
+  }),
+
+  // 登录参数：clientId 取国内版 prod 值；machineType/machineToken 是设备身份（头族用）
+  login: Object.freeze({
+    clientId: '732aef47-9cf2-46a2-95fe-4cebb5d0d1fa',
+    machineType: 'mac-arm64',
+    pollIntervalMs: 1_000,
+    timeoutMs: 300_000,
   }),
 
   // 超时与轮询参数：与端点一样，只在这里出现
@@ -57,9 +69,19 @@ export const platform = {
     const dependencies = { http, crypto, now };
     return {
       dependencies,
-      // 登录与续期是 M2 的范围
-      startDeviceLogin() { throw notImplemented('startDeviceLogin'); },
-      pollDeviceLogin() { throw notImplemented('pollDeviceLogin'); },
+      // 登录：生成授权页 URL（不联网）与轮询（每次一个 HTTP），状态机在 reverse/login-session.js
+      startDeviceLogin({ machineId, machineToken } = {}) {
+        return startDeviceLogin({
+          endpoints: platform.endpoints,
+          login: platform.login,
+          machineId,
+          machineToken,
+        });
+      },
+      pollDeviceLogin({ pollContext, fetchImpl }) {
+        return pollDeviceLogin({ pollContext, fetchImpl });
+      },
+      // 续期是 M4 的范围
       refreshCredential() { throw notImplemented('refreshCredential'); },
       // 取模型清单需要网络（M2/M3）
       listModels() { throw notImplemented('listModels'); },
