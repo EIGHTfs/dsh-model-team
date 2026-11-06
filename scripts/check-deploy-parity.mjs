@@ -7,7 +7,9 @@
 //   （图被丢成占位文本，不报错），靠肉眼与单测都发现不了。
 //
 // 判据：两边都存在的文件，内容必须逐字节相同；只在仓库里新增的（尚未同步）算失败；
-//      只在部署副本里的（历史遗留）只警告，不失败——删不删由人决定。
+//      只在部署副本里的 `.js`/`.json`（旧布局残留）也算失败——它们会被宿主真的加载，
+//      重构后一直躺着会把「加载的是哪一版」这件事变成谜（真实事故：8 个 src/gateway/support/*
+//      跨过整次重构没人发现）。
 //
 // 换机器 / CI 没有部署副本时：显式 `--allow-no-deploy` 通过，并把结论写成「未核对」，
 // 不假装绿（假绿正是这个项目反复吃亏的地方）。
@@ -25,6 +27,13 @@ const PLUGIN_NAME = 'dsh-model-team';
 // 它们是构建期输入，运行时只加载拼好的 lib/client.js，部署副本里没有分片是正常的。
 const DEPLOYED_DIRECTORIES = ['src', 'config'];
 const DEPLOYED_FILES = ['lib/client.js', 'cordis.patch.yml', 'package.json', 'README.md'];
+
+// 反向检查（副本多出的文件）只看这两类扩展名：能被宿主加载、或能被当成配置读进去的
+const STALE_FILE_EXTENSIONS = Object.freeze(['.js', '.json']);
+// 豁免：依赖目录、隐藏文件（.DS_Store 等）、运行期产物（日志）
+const STALE_IGNORED_DIRECTORIES = Object.freeze(['node_modules']);
+const STALE_IGNORED_NAME_PREFIX = '.';
+const STALE_IGNORED_SUFFIXES = Object.freeze(['.log']);
 
 function parseArgs(argv) {
   const args = { allowNoDeploy: false, verbose: false };
@@ -95,6 +104,38 @@ async function listRepoFiles() {
   return files;
 }
 
+// 扫部署副本里"仓库没有、但副本有"的 js/json：递归、跳过豁免项
+async function collectStaleFiles({ deployRoot, repoFileSet }) {
+  const staleFiles = [];
+  for (const directory of DEPLOYED_DIRECTORIES) {
+    const walk = async (relativeDirectory) => {
+      let entries = [];
+      try {
+        entries = await fs.readdir(path.join(deployRoot, relativeDirectory), { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        // 隐藏文件（.DS_Store 之类）先豁免，避免把系统垃圾报成"旧布局残留"
+        if (entry.name.startsWith(STALE_IGNORED_NAME_PREFIX)) continue;
+        const relativePath = path.join(relativeDirectory, entry.name);
+        if (entry.isDirectory()) {
+          if (STALE_IGNORED_DIRECTORIES.includes(entry.name)) continue;
+          await walk(relativePath);
+          continue;
+        }
+        if (!entry.isFile()) continue;
+        if (STALE_IGNORED_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) continue;
+        if (!STALE_FILE_EXTENSIONS.includes(path.extname(entry.name))) continue;
+        if (repoFileSet.has(relativePath)) continue;
+        staleFiles.push(relativePath);
+      }
+    };
+    await walk(directory);
+  }
+  return staleFiles;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const deployCopies = await findDeployCopies();
@@ -110,8 +151,10 @@ async function main() {
   }
 
   const repoFiles = await listRepoFiles();
+  const repoFileSet = new Set(repoFiles);
   const problems = [];
   const warnings = [];
+  const staleFiles = new Set();
 
   for (const deployCopy of deployCopies) {
     const deployRoot = deployCopy.realPath;
@@ -131,18 +174,9 @@ async function main() {
         console.log(`  ✓ ${relativePath}`);
       }
     }
-    // 反向：部署副本独有的文件只警告（可能是历史遗留，删不删由人定）
-    for (const directory of DEPLOYED_DIRECTORIES) {
-      const deployDirectory = path.join(deployRoot, directory);
-      let entries = [];
-      try { entries = await fs.readdir(deployDirectory, { withFileTypes: true }); } catch { continue; }
-      for (const entry of entries) {
-        if (!entry.isFile()) continue;
-        const relativePath = path.join(directory, entry.name);
-        try { await fs.access(path.join(REPO_ROOT, relativePath)); } catch {
-          warnings.push(`${relativePath} 只在部署副本里存在（仓库已无）`);
-        }
-      }
+    // 反向：部署副本多出来的 js/json —— 宿主会真的加载它们，必须清掉（不是"只警告"）
+    for (const relativePath of await collectStaleFiles({ deployRoot, repoFileSet })) {
+      staleFiles.add(relativePath);
     }
   }
 
@@ -152,9 +186,15 @@ async function main() {
     console.error(`❌ 部署副本与仓库不一致：${problems.length} 处`);
     problems.forEach((problem) => console.error(`   · ${problem}`));
     console.error('\n   修法：node 环境下跑插件的 sync_plugin（或手工复制），然后重启宿主让新代码生效。');
-    return 1;
   }
-  console.log(`✅ 部署副本一致：${deployCopies.length} 个副本、${repoFiles.length} 个文件逐字节相同`);
+  if (staleFiles.size > 0) {
+    const sortedStaleFiles = [...staleFiles].sort();
+    console.error(`❌ 部署副本多出仓库没有的文件：${sortedStaleFiles.length} 处`);
+    sortedStaleFiles.forEach((relativePath) => console.error(`   · ${relativePath}（旧布局残留？）`));
+    console.error('\n   修法：确认后从副本删除（或移入回收站），并检查是否重构时漏删。');
+  }
+  if (problems.length || staleFiles.size > 0) return 1;
+  console.log(`✅ 部署副本一致：${deployCopies.length} 个副本、${repoFiles.length} 个文件逐字节相同、无残留文件`);
   return 0;
 }
 
