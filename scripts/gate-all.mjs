@@ -83,7 +83,8 @@ async function collectGates(args) {
         return { ok: true };
       },
     },
-    { name: 'test', command: process.execPath, args: ['--test', ...testFiles] },
+    // test 道走 test-all.mjs：全量红时先单跑失败文件，单跑绿判为抖动并留痕（docs/05）
+    { name: 'test', command: process.execPath, args: ['scripts/test-all.mjs'] },
     { name: 'contract', command: process.execPath, args: ['scripts/check-contract.mjs'] },
     { name: 'render', command: process.execPath, args: ['scripts/check-render.mjs'] },
     {
