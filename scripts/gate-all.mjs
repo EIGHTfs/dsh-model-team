@@ -151,6 +151,13 @@ async function main() {
       // 失败时把原文打出来（截断到 4000 字，避免把整个测试报告糊满屏）
       const detail = String(verdict.output || result.output || '').slice(0, 4000);
       if (detail) console.log(detail.split('\n').map((line) => `    ${line}`).join('\n'));
+    } else if (gate.name === 'test') {
+      // test-all 判定"抖动"时 exit 0，但会打印一行 ⚠；只写进留痕文件、控制台看不到，等于没留。
+      // 成功也把这行原样带出来（不加感叹、不改判：它仍是通过）
+      const flakyLines = String(result.output ?? '')
+        .split('\n')
+        .filter((line) => line.includes('⚠ 抖动'));
+      for (const flakyLine of flakyLines) console.log(`  ${flakyLine.trim()}`);
     }
   }
 

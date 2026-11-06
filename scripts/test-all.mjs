@@ -27,6 +27,8 @@ const TEST_FILE_SUFFIX = '.test.js';
 const FLAKY_LOG_PATH = path.join(REPO_ROOT, 'artifacts', 'flaky.jsonl');
 // 留痕里只保留失败断言附近的行，避免把整份 TAP 塞进去（几十 KB）
 const FAILURE_TAIL_LINES = 40;
+// 留痕只保留最近 200 条：这是"抖动证据"，不是审计日志；无限增长会让人不再打开它
+const MAX_FLAKY_RECORDS = 200;
 
 function parseArgs(argv) {
   const options = { json: false, retry: true, files: [] };
@@ -134,6 +136,22 @@ export function extractFailureTail(output) {
 async function appendFlakyRecord(record) {
   await fs.mkdir(path.dirname(FLAKY_LOG_PATH), { recursive: true });
   await fs.appendFile(FLAKY_LOG_PATH, `${JSON.stringify(record)}\n`, 'utf8');
+  await rotateFlakyLog();
+}
+
+// 超过上限就截断为末尾 200 行；临时文件 + rename，避免写一半被读到
+async function rotateFlakyLog() {
+  try {
+    const rawText = await fs.readFile(FLAKY_LOG_PATH, 'utf8');
+    const records = rawText.split('\n').filter((line) => line.trim().length > 0);
+    if (records.length <= MAX_FLAKY_RECORDS) return;
+    const temporaryPath = `${FLAKY_LOG_PATH}.${process.pid}.tmp`;
+    await fs.writeFile(temporaryPath, `${records.slice(-MAX_FLAKY_RECORDS).join('\n')}\n`, 'utf8');
+    await fs.rename(temporaryPath, FLAKY_LOG_PATH);
+  } catch (rotationError) {
+    // 轮转失败只是"日志变长"，不能影响本次测试结论
+    console.warn(`[test-all] 抖动留痕轮转失败（不影响结果）：${rotationError?.message ?? rotationError}`);
+  }
 }
 
 function formatSeconds(durationMs) {
