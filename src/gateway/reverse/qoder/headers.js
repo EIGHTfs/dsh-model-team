@@ -5,6 +5,13 @@
 // 所以这里的原则是：**缺字段就抛错，绝不静默发一个缺头的请求**——静默失败比报错难查一百倍。
 //
 // 本文件只放"头"相关的东西；端点与超时都在 qoder/index.js（铁律 17：同一条事实只写一处）。
+//
+// ⚠️ `machine_token` 与 `machine_id` 是**两个不同的字段**，不得互相顶替：
+//   · `Cosy-MachineToken` 要的是 `machine_token`（设备令牌）；参考实现的消融实验里它与
+//     `Cosy-MachineType` 是**成对**下发能力的两件头，拿错值服务端不会报错，只会静默不下发能力
+//     （表现为「今日已领取」但实际没领）；
+//   · `machine_id` 只随凭据持久化、并进续期载荷（`{refresh_token, machine_id}`），**不用于请求头**。
+// 所以这里宁可抛错也不回落：静默错值比缺头更难查。
 
 // 头名集中成常量：调用方、测试与文档都引用同一份
 export const COSY_HEADERS = Object.freeze({
@@ -41,11 +48,12 @@ function readFirstText(candidates) {
   return null;
 }
 
-// 凭据字段两种命名都认（落盘用蛇形；内部对象可能是驼峰）
+// 凭据字段两种命名都认（落盘用蛇形、内部对象可能是驼峰）——但**只认同一个逻辑字段的两种写法**：
+// machine_token 绝不从 machine_id 回落（见文件头注释）。
 function pickCredentialFields(credential) {
   return {
     accessToken: readFirstText([credential?.access_token, credential?.accessToken]),
-    machineToken: readFirstText([credential?.machine_token, credential?.machineToken, credential?.machine_id, credential?.machineId]),
+    machineToken: readFirstText([credential?.machine_token, credential?.machineToken]),
     machineType: readFirstText([credential?.machine_type, credential?.machineType]),
   };
 }
@@ -55,7 +63,7 @@ export function buildCosyHeaders({ credential, requestKind = REQUEST_KINDS.chat 
   const { accessToken, machineToken, machineType } = pickCredentialFields(credential);
   const missingFields = [];
   if (!accessToken) missingFields.push('access_token');
-  if (!machineToken) missingFields.push('machine_id');
+  if (!machineToken) missingFields.push('machine_token');
   if (!machineType) missingFields.push('machine_type');
   if (missingFields.length > 0) {
     throw new MissingMachineIdentityError(

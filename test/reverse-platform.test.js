@@ -33,8 +33,17 @@ test('缺 driverId → 报"缺 driverId"', () => {
   assert.throws(() => assertPlatformShape(buildValidPlatform({ driverId: undefined })), /缺 driverId|缺字段/);
 });
 
-test('driverId 不以 reverse- 开头 → 报命名空间错误', () => {
-  assert.throws(() => assertPlatformShape(buildValidPlatform({ driverId: 'demo' })), /必须以 reverse- 开头/);
+test('driverId 不带前缀（其余字段齐全）→ 只报命名空间错误，不被"缺字段"盖住', () => {
+  // 完整但裸 id：这是根因级错误，报错第一眼就该是指向前缀，而不是"缺 endpoints"之类
+  let thrownMessage = '';
+  try {
+    assertPlatformShape(buildValidPlatform({ driverId: 'demo' }));
+  } catch (error) {
+    thrownMessage = error.message;
+  }
+  assert.equal(thrownMessage.includes('必须以 reverse- 开头'), true);
+  assert.equal(thrownMessage.includes('缺字段'), false, '完整夹具不应先报缺字段');
+  assert.equal(thrownMessage.includes('缺 driverId'), false);
 });
 
 test('driverId 与 id 不匹配 → 报不匹配', () => {

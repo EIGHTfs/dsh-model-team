@@ -33,15 +33,12 @@ function fail(message) {
   throw new TypeError(message);
 }
 
-// 形状校验：一次只报第一个问题，但每个问题都有独立文案（便于单测逐条钉）
+// 形状校验：一次只报第一个问题，但每个问题都有独立文案（便于单测逐条钉）。
+// 校验顺序刻意"根因优先"：先 id / driverId 前缀（裸 id 撞名是最难查的一类错），
+// 再报其它字段缺失——否则一个裸 id 的夹具会先报"缺 endpoints"，把真正的病因盖住。
 export function assertPlatformShape(platform) {
   if (typeof platform !== 'object' || platform === null || Array.isArray(platform)) {
     fail('平台注册项必须是对象');
-  }
-  for (const fieldName of requiredPlatformFields) {
-    if (platform[fieldName] === undefined || platform[fieldName] === null) {
-      fail(`平台缺字段：${fieldName}`);
-    }
   }
   if (typeof platform.id !== 'string' || platform.id.length === 0) {
     fail('平台的 id 必须是非空字符串');
@@ -63,6 +60,12 @@ export function assertPlatformShape(platform) {
   }
   if (typeof platform.capabilities !== 'object' || platform.capabilities === null) {
     fail(`平台 ${platform.id} 的 capabilities 必须是对象`);
+  }
+  // 其余必填字段（endpoints/capabilities/createPlatform 已单独校验，这里只补漏）
+  for (const fieldName of requiredPlatformFields) {
+    if (platform[fieldName] === undefined || platform[fieldName] === null) {
+      fail(`平台 ${platform.id} 缺字段：${fieldName}`);
+    }
   }
   return platform;
 }
