@@ -12,7 +12,13 @@ import {
   normalizeContextLength,
   pickDeclaredContextWindow,
 } from '../src/gateway/model/capacity.js';
-import { peekDeclaredContextWindow, resolveDeclaredContextWindow, resetContextWindowCache } from '../src/plugin/context/window.js';
+import {
+  peekContextWindowProbeCache,
+  peekDeclaredContextWindow,
+  resolveDeclaredContextWindow,
+  resetContextWindowCache,
+} from '../src/plugin/context/window.js';
+import { waitFor } from './helpers/wait-for.mjs';
 import {
   buildContextOverflowMessage,
   estimateMessagesTokens,
@@ -32,8 +38,6 @@ const TEST_API_KEY_ENV = 'DSH_MODEL_TEAM_TEST_API_KEY';
 const TEST_API_KEY = 'test-key-not-real';
 // 冷调用预算：真实探测是 1000ms 量级（单群超时 1200ms），50ms 差两个数量级，卡住必红
 const COLD_RESOLVE_BUDGET_MS = 50;
-// 后台链路结算窗口：假 fetch 立即返回，凭证解析 + 响应解析都是微任务，50ms 足够
-const PROBE_SETTLE_MS = 50;
 
 // endpoint 型群（没有静态窗口 → 只能探测）；id/baseURL 可覆盖，方便用例之间不共享缓存签名
 function buildEndpointGroup(overrides = {}) {
@@ -64,10 +68,6 @@ function createAdapter({ dataRoot, logger, fetchImpl }) {
     deps: { dataRoot, logger, clock: createFixedClock(), fetchImpl },
   });
   return new ModelTimAdapter();
-}
-
-function sleep(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 // 时限断言：超时直接抛错（比"等它自然失败"更容易读懂；被测 promise 先完成时清掉定时器，不留悬挂拒绝）
@@ -231,7 +231,11 @@ test('resolveModel 后台探测：上游报容量后，下一次解析用上新�
   const coldModel = await adapter.resolveModel('dsh-model-team', 'dsh-model-team');
   assert.equal(coldModel.context.contextWindow, DEFAULT_CONTEXT_WINDOW_FALLBACK, '缓存未命中时先申报兜底');
 
-  await sleep(PROBE_SETTLE_MS);
+  // 等"探测结果已写入缓存"这个事实（不是等一个毫秒数）：快照读不到窗口就继续等，超时即失败
+  await waitFor(() => peekContextWindowProbeCache(config).windows.includes(60000), {
+    describe: '后台探测结果已写入缓存（窗口 60000）',
+    snapshot: () => ({ cache: peekContextWindowProbeCache(config), fetchCallCount }),
+  });
 
   const warmModel = await adapter.resolveModel('dsh-model-team', 'dsh-model-team');
   assert.equal(warmModel.context.contextWindow, 60000, '后台探测写入缓存后应取最小窗口');
@@ -264,7 +268,11 @@ test('resolveModel 空样本缓存：上游 0 条带容量时，连续解析只�
   for (let attemptIndex = 0; attemptIndex < 5; attemptIndex += 1) {
     const resolvedModel = await adapter.resolveModel('dsh-model-team', 'dsh-model-team');
     declaredWindows.push(resolvedModel.context.contextWindow);
-    await sleep(PROBE_SETTLE_MS);
+    // 每轮等"空样本探测已落定并缓存"，再进入下一次解析（等状态，不等毫秒）
+    await waitFor(() => peekContextWindowProbeCache(config).hasCache, {
+      describe: '空样本探测已写入缓存',
+      snapshot: () => ({ cache: peekContextWindowProbeCache(config), fetchCallCount, declaredWindows }),
+    });
   }
 
   assert.deepEqual([...new Set(declaredWindows)], [DEFAULT_CONTEXT_WINDOW_FALLBACK], '空样本期间一律申报兜底值');

@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildDefaultUpstreamRoutes, chatAs, selectModelRequest, startGatewayHarness } from './helpers/gateway-harness.js';
+import { waitFor } from './helpers/wait-for.mjs';
 
 // 造一条慢速 SSE 上游：每 40ms 一块，便于观察"边收边写"
 function buildSlowSseRoutes({ chunkCount = 3, delayMs = 40 } = {}) {
@@ -106,8 +107,15 @@ test('流式：客户端断开 → 上游请求被真正中止，请求行标为
 
   abortController.abort();
   await bodyReader.cancel().catch(() => {});
-  // 给中止链路（客户端 close → AbortController → fetch abort → 上游 close）留出收敛时间
-  await new Promise((resolveWait) => setTimeout(resolveWait, 400));
+  // 等具体事实：客户端 close → AbortController → fetch abort → 上游 close 这一串真的走完（等状态，不等毫秒）
+  await waitFor(() => upstreamClosedAtAll === true, {
+    describe: '客户端断开后上游连接已关闭',
+    snapshot: () => ({ upstreamClosedAtAll }),
+  });
+  await waitFor(async () => (await harness.request('/_team/stats/session/sess-abort')).body.rows.length === 1, {
+    describe: '中断请求行已落库',
+    snapshot: async () => ({ rows: (await harness.request('/_team/stats/session/sess-abort')).body.rows.map((row) => row.statusText) }),
+  });
 
   assert.equal(upstreamClosedAtAll, true, '客户端断开必须真的中止上游请求');
 
@@ -126,9 +134,11 @@ test('流式：客户端断开 → 上游请求被真正中止，请求行标为
 
 test('流式：客户端在首块之前断开（上游还没回响应头）→ 记中断而不是 502', async (t) => {
   let upstreamClosedAtAll = false;
+  let upstreamRequestStarted = false;
   const holdingRoutes = {
     // 故意不回任何字节：模拟"上游还在思考"，此时客户端先断开
     'POST /v1/chat/completions': ({ outgoingResponse }) => {
+      upstreamRequestStarted = true;
       outgoingResponse.on('close', () => {
         upstreamClosedAtAll = true;
       });
@@ -145,11 +155,21 @@ test('流式：客户端在首块之前断开（上游还没回响应头）→ �
     body: JSON.stringify({ model: 'dsh-model-team', stream: true, messages: [{ role: 'user', content: 'hi' }] }),
     signal: abortController.signal,
   }).catch(() => null);
-  // 让请求真正打到上游后再断开（此刻上游一个 data 都还没发）
-  await new Promise((resolveWait) => setTimeout(resolveWait, 150));
+  // 等"请求真的到达上游"这个事实再断开（此刻上游一个 data 都还没发）
+  await waitFor(() => upstreamRequestStarted === true, {
+    describe: '请求已到达上游（尚未回响应头）',
+    snapshot: () => ({ upstreamRequestStarted }),
+  });
   abortController.abort();
   await pendingFetch;
-  await new Promise((resolveWait) => setTimeout(resolveWait, 400));
+  await waitFor(() => upstreamClosedAtAll === true, {
+    describe: '客户端断开后上游连接已关闭',
+    snapshot: () => ({ upstreamClosedAtAll }),
+  });
+  await waitFor(async () => (await harness.request('/_team/stats/session/sess-abort-early')).body.rows.length === 1, {
+    describe: '中断请求行已落库',
+    snapshot: async () => ({ rows: (await harness.request('/_team/stats/session/sess-abort-early')).body.rows.map((row) => row.statusText) }),
+  });
 
   assert.equal(upstreamClosedAtAll, true, '客户端断开必须掐断上游');
 

@@ -186,6 +186,18 @@ export function peekDeclaredContextWindow({ config, logger = defaultLogger } = {
 }
 
 /**
+ * 诊断/测试用：读一份探测缓存快照（**只读，绝不触发探测**）。
+ * 为什么需要它：后台探测是异步的，"探测结果已经落定"这个事实只存在于缓存里；
+ * 用例据此等具体状态，而不是等一个"大概够了"的毫秒数。
+ * @returns {{hasCache: boolean, windows: number[], recordedAtMs: number|null}}
+ */
+export function peekContextWindowProbeCache(config) {
+  const freshCache = readFreshProbeCache(config);
+  if (!freshCache) return { hasCache: false, windows: [], recordedAtMs: null };
+  return { hasCache: true, windows: [...freshCache.allWindows], recordedAtMs: freshCache.recordedAtMs };
+}
+
+/**
  * 后台预热探测：调用方**不要 await**（返回值只给测试/诊断，业务路径一律丢弃）。
  * 缓存新鲜时立刻返回，所以解析路径可以无条件调用——空样本缓存不会被误判成"没探过"而反复重探。
  * 异常全部吞掉只 warn：探测失败永远只该退兜底，不能影响调用方。
