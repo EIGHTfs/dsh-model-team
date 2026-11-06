@@ -3,6 +3,8 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { buildGroup, startGatewayHarness } from './helpers/gateway-harness.js';
 
 // 加群请求体：默认指向 stub 上游
@@ -166,8 +168,18 @@ test('导出与导入：合并 upsert / 明文凭证被拒 / replace 需确认',
 
   const exportResponse = await harness.request('/_team/export');
   assert.equal(exportResponse.status, 200);
-  assert.equal(exportResponse.body.version, 1);
+  // 契约升级：导出体版本 1 → 2（v2 新增 credentialFiles / unresolvedRefs）。
+  // 同一批新增了这些字段的断言与 v1 兼容、v2 还原用例，见本用例后半段与 test/backup-export-import.test.js。
+  assert.equal(exportResponse.body.version, 2);
   assert.equal(exportResponse.body.groups.length, 1);
+  assert.equal(typeof exportResponse.body.exportedAt, 'string');
+  assert.equal(typeof exportResponse.body.credentialFiles, 'object');
+  assert.equal(Array.isArray(exportResponse.body.unresolvedRefs), true);
+  // 默认群用 env: 引用：无法随备份导出，必须出现在 unresolvedRefs 里并带原因
+  const envRefEntry = exportResponse.body.unresolvedRefs.find((item) => item.apiKeyRef.startsWith('env:'));
+  assert.notEqual(envRefEntry, undefined, 'env: 引用要进 unresolvedRefs');
+  assert.equal(typeof envRefEntry.reason, 'string');
+  assert.equal(envRefEntry.reason.length > 0, true);
 
   const importResponse = await harness.request('/_team/import', {
     method: 'POST',
@@ -185,6 +197,9 @@ test('导出与导入：合并 upsert / 明文凭证被拒 / replace 需确认',
   assert.equal(importResponse.body.rejected.length, 1);
   assert.equal(importResponse.body.rejected[0].index, 2);
   assert.equal(importResponse.body.rejected[0].reason.includes('明文凭证'), true);
+  // v1 兼容：payload 没有 credentialFiles 时照常导入，且不产生"还原了凭据"的假回执
+  assert.deepEqual(importResponse.body.restoredCredentialFiles, []);
+  assert.deepEqual(importResponse.body.skippedRefs, []);
 
   const updatedDetail = await harness.request('/_team/groups/agnes');
   assert.equal(updatedDetail.body.group.name, '改过名的群');
@@ -203,6 +218,33 @@ test('导出与导入：合并 upsert / 明文凭证被拒 / replace 需确认',
   assert.equal(replaceWithConfirm.status, 200);
   const groupsAfterReplace = await harness.request('/_team/groups');
   assert.deepEqual(groupsAfterReplace.body.groups.map((group) => group.id), ['only-group']);
+
+  // v2 还原：凭据本体按"相对 dataRoot 的路径"写盘，权限 0600；已存在的同名文件先备份
+  const credentialRelativePath = 'credentials/only-group.key';
+  const credentialAbsolutePath = path.join(harness.dataRoot, credentialRelativePath);
+  await fs.mkdir(path.dirname(credentialAbsolutePath), { recursive: true });
+  await fs.writeFile(credentialAbsolutePath, 'old-key', 'utf8');
+
+  const restoreResponse = await harness.request('/_team/import', {
+    method: 'POST',
+    body: {
+      version: 2,
+      groups: [{
+        ...buildGroupPayload(harness.stubUpstream.baseURL, { id: 'with-credential' }),
+        auth: { type: 'bearer', header: 'Authorization', apiKeyRef: `file:${credentialRelativePath}` },
+      }],
+      credentialFiles: {
+        [credentialRelativePath]: { path: credentialRelativePath, content: 'new-key-from-backup', bytes: 19, mode: 384 },
+      },
+    },
+  });
+  assert.equal(restoreResponse.status, 200);
+  assert.deepEqual(restoreResponse.body.restoredCredentialFiles.map((item) => item.path), [credentialRelativePath]);
+  assert.equal(await fs.readFile(credentialAbsolutePath, 'utf8'), 'new-key-from-backup');
+  const restoredStats = await fs.stat(credentialAbsolutePath);
+  assert.equal(restoredStats.mode & 0o777, 0o600, '凭据文件权限必须是 0600');
+  const backupFiles = (await fs.readdir(path.dirname(credentialAbsolutePath))).filter((name) => name.includes('.bak-'));
+  assert.equal(backupFiles.length, 1, '同名文件要先备份成 .bak-<时间戳>');
 });
 
 test('错误矩阵：404 未知端点、405 方法不符、400 非法 JSON，形状统一', async (t) => {

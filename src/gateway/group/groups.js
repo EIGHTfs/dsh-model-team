@@ -375,12 +375,15 @@ export async function importGroups(
   const mergedGroups = mode === 'replace' ? [] : [...(config.groups ?? [])];
   const groupIndexById = new Map(mergedGroups.map((group, index) => [group.id, index]));
   const rejectedEntries = [];
+  // 通过校验的群原样回传：界面用它渲染"可导入"预览表，没有它前端只能显示空表
+  const acceptedGroups = [];
   let importedCount = 0;
   let updatedCount = 0;
 
   for (const [incomingIndex, incomingGroup] of incomingGroups.entries()) {
     try {
       const normalizedGroup = validateGroupPayload(incomingGroup);
+      acceptedGroups.push(normalizedGroup);
       const existingIndex = groupIndexById.get(normalizedGroup.id);
       if (existingIndex === undefined) {
         groupIndexById.set(normalizedGroup.id, mergedGroups.length);
@@ -400,7 +403,7 @@ export async function importGroups(
 
   await writeConfig({ ...config, groups: mergedGroups }, { dataRoot, logger });
   logger.info(`导入完成：新增 ${importedCount}，更新 ${updatedCount}，拒绝 ${rejectedEntries.length}`);
-  return { imported: importedCount, updated: updatedCount, rejected: rejectedEntries };
+  return { imported: importedCount, updated: updatedCount, rejected: rejectedEntries, accepted: acceptedGroups };
 }
 
 // 测试连接：调驱动 validateAuth，只返回布尔与原因，不改任何状态

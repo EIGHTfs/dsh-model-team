@@ -30,7 +30,6 @@ import { probeModels } from '../model/probe.js';
 import { resolveSessionTargetWithFallback } from '../session/fallback.js';
 import {
   addGroup,
-  exportGroups,
   findGroup,
   importGroups,
   listGroupsWithSummary,
@@ -40,6 +39,7 @@ import {
 import { handleStreamingChatCompletions } from '../transport/streaming.js';
 import { formatIsoWithOffset } from '../clock.js';
 import { describeFailure } from '../logger.js';
+import { exportBackup, restoreCredentialFiles } from '../config/backup.js';
 
 // 成功状态码
 const HTTP_OK = 200;
@@ -52,18 +52,31 @@ async function handlePlatformListRoute(context) {
   return { status: HTTP_OK, body: { platforms } };
 }
 
-function handleExportRoute(context) {
-  return { status: HTTP_OK, body: exportGroups(context.config) };
+// 导出：完整备份（配置 + 凭据本体）。收集规则与护栏都在 config/backup.js
+async function handleExportRoute(context) {
+  const backup = await exportBackup({
+    config: context.config,
+    dataRoot: context.dataRoot,
+    logger: context.logger,
+  });
+  return { status: HTTP_OK, body: backup };
 }
 
+// 导入：先还原凭据文件，再合并群配置。
+// 顺序有讲究——群配置里的 apiKeyRef 指向这些文件，先落文件才不会出现"群已导入但凭证还缺"的中间态
 async function handleImportRoute(context) {
+  const { restoredCredentialFiles, skippedRefs } = await restoreCredentialFiles({
+    credentialFiles: context.body?.credentialFiles,
+    dataRoot: context.dataRoot,
+    logger: context.logger,
+  });
   const importResult = await importGroups(context.body, {
     dataRoot: context.dataRoot,
     logger: context.logger,
     mode: context.body?.mode ?? 'merge',
     confirm: context.body?.confirm === true,
   });
-  return { status: HTTP_OK, body: importResult };
+  return { status: HTTP_OK, body: { ...importResult, restoredCredentialFiles, skippedRefs } };
 }
 
 // ---------- 路由表 ----------
