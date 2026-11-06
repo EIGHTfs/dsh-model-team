@@ -47,6 +47,7 @@ export function registerGatewayRoutes({
   sessionLookup,
   getSessionService,
   providerIds,
+  credentials,
 } = {}) {
   if (!webServer || typeof webServer.register !== 'function') {
     throw new TypeError('webServer.register 不可用：宿主版本不匹配或 webServer 服务未加载');
@@ -54,7 +55,7 @@ export function registerGatewayRoutes({
 
   const httpConfig = resolveHttpConfig(config);
   // 依赖缺省值在这里解析一次：插件入口与独立服务的 handler 行为因此一致
-  const deps = resolveGatewayDeps({ dataRoot, logger, clock, fetchImpl, jsonlResolver, sessionSource, sessionLookup, getSessionService, providerIds });
+  const deps = resolveGatewayDeps({ dataRoot, logger, clock, fetchImpl, jsonlResolver, sessionSource, sessionLookup, getSessionService, providerIds, credentials });
   const disposers = [
     registerPrefixRoute({ webServer, path: TEAM_ROUTE_PREFIX, deps }),
   ];

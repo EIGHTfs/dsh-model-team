@@ -29,6 +29,11 @@ const CREDENTIAL_FIELDS = Object.freeze([
   'machineType',
   'machineToken',
   'domain',
+  // 来源与可续期标记：导入来的账号标 origin=import:<sourceId>、refreshable=false
+  // （M4 的续期调度必须跳过 refreshable=false 的账号；导入不接管续期）
+  'origin',
+  'originRef',
+  'refreshable',
 ]);
 
 export function accountDirectoryFor({ dataRoot, platformId }) {
@@ -48,6 +53,8 @@ function normalizeCredential(credential, nowIso) {
       normalized[fieldName] = fieldValue;
     } else if (typeof fieldValue === 'number' && Number.isFinite(fieldValue)) {
       // expiresAt 允许是毫秒时间戳；读不到就不写（铁律 9：未知不编造）
+      normalized[fieldName] = fieldValue;
+    } else if (typeof fieldValue === 'boolean') {
       normalized[fieldName] = fieldValue;
     }
   }
@@ -112,7 +119,8 @@ export function createAccountStore({ dataRoot, logger = defaultLogger, now = () 
     listAccounts,
 
     // 唯一入库入口：按 userId 判重（同一账号二次登录 = 更新，不新增）
-    async upsertByUserId(platformId, credential) {
+    // options.skipRefreshable：导入场景用——已存在自己登录的账号（refreshable !== false）时不覆盖
+    async upsertByUserId(platformId, credential, options = {}) {
       const normalized = normalizeCredential(credential, new Date(now()).toISOString());
       const userId = normalized.userId;
 
@@ -128,7 +136,24 @@ export function createAccountStore({ dataRoot, logger = defaultLogger, now = () 
       }
 
       const existingAccounts = await listAccounts(platformId);
-      const matchedAccount = existingAccounts.find((account) => account.credential?.userId === userId) ?? null;
+      const originRef = typeof normalized.originRef === 'string' && normalized.originRef.length > 0 ? normalized.originRef : null;
+      const matchedAccount = existingAccounts.find((account) => {
+        if (account.credential?.userId === userId) return true;
+        // 同平台同 ref 也算同一个来源（还没拿到 userId 的导入可以据此更新）
+        return originRef !== null && account.credential?.originRef === originRef;
+      }) ?? null;
+
+      if (matchedAccount && options.skipRefreshable === true && matchedAccount.credential?.refreshable !== false) {
+        return {
+          accountId: matchedAccount.accountId,
+          filePath: matchedAccount.filePath,
+          created: false,
+          merged: false,
+          skipped: true,
+          reason: '已存在自己登录的账号（refreshable=true），导入不覆盖它',
+          credential: matchedAccount.credential,
+        };
+      }
       // 已有账号沿用原 accountId（它是文件名的锚点，外部引用不该因为重新登录而变）
       const accountId = matchedAccount?.accountId ?? `account-${randomUUID()}`;
       const filePath = await writeAccountFile({ platformId, accountId, credential: normalized });
@@ -137,6 +162,7 @@ export function createAccountStore({ dataRoot, logger = defaultLogger, now = () 
         filePath,
         created: matchedAccount === null,
         merged: matchedAccount !== null,
+        skipped: false,
         credential: normalized,
       };
     },

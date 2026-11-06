@@ -128,6 +128,14 @@ async function registerPanelRoutes({ ctx, dataRoot, logger, options, providerIds
           logger.warn('宿主 webServer 不支持 tapIndex：静态基线未注入（客户端仍会走 /_team 接口）');
         }
 
+        // 宿主凭据服务（导入源 host-credentials 用）：没有就不传，导入源据此标记不可用，插件照常加载
+        const readCredentialsService = () => {
+          try {
+            return webContext.get('credentials') ?? null;
+          } catch {
+            return null;
+          }
+        };
         const sessionSource = createHostSessionSource({ getSessionService, getTitleService, logger });
         const sessionLookup = createHostSessionLookup({ getSessionService, getTitleService, logger });
         webContext.effect(() => {
@@ -142,6 +150,7 @@ async function registerPanelRoutes({ ctx, dataRoot, logger, options, providerIds
             sessionSource,
             sessionLookup,
             getSessionService,
+            credentials: readCredentialsService(),
             // GET /_team/meta 要报"注册时实际收到的路由名"：同一个数组往下传，网关不再自己算
             providerIds,
           });

@@ -108,7 +108,7 @@ function writeErrorResponse({ error, outgoingResponse, logger, requestPath }) {
 export async function handleGatewayRequest(requestOptions) {
   // 依赖缺省值只在这一处解析：独立服务与插件内路由两条入口因此完全等价
   const { incomingRequest, outgoingResponse } = requestOptions;
-  const { dataRoot, logger, clock, fetchImpl, jsonlResolver, sessionSource, sessionLookup, getSessionService, providerIds } = resolveGatewayDeps(requestOptions);
+  const { dataRoot, logger, clock, fetchImpl, jsonlResolver, sessionSource, sessionLookup, getSessionService, providerIds, credentials } = resolveGatewayDeps(requestOptions);
   const requestPath = incomingRequest.url ?? '/';
   try {
     const config = await readConfig({ dataRoot, logger });
@@ -150,6 +150,7 @@ export async function handleGatewayRequest(requestOptions) {
       sessionLookup,
       getSessionService,
       providerIds,
+      credentials,
     });
     // 流式处理器自己写完响应，这里只认标记、不再写第二遍
     if (handlerResult?.streamed === true) {
