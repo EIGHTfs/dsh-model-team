@@ -1,0 +1,123 @@
+{
+  "generatedBy": "scripts/reverse-cosy-vectors.mjs",
+  "reference": "qoder2api-hub/qoder_sign.py（MIT）",
+  "note": "只存哈希与 Bearer 前缀；全部输入为假凭据，不含真实 token",
+  "vectors": [
+    {
+      "name": "plain-text",
+      "model": "qfmodel",
+      "requestId": "00000001-1111-4222-8333-444444444444",
+      "nowMs": 1793983148000,
+      "tempKeyHex": "0123456789abcdef",
+      "rsaPaddingHex": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "inferBase": "https://gateway.qoder.com.cn",
+      "credential": {
+        "accessToken": "fake-access-token-for-vectors",
+        "refreshToken": "fake-refresh-token-for-vectors",
+        "userId": "user-vector-0001",
+        "nickname": "向量账号",
+        "machineId": "11111111-2222-4333-8444-555555555555",
+        "machineToken": "fake-machine-token",
+        "machineType": "x86_64_linux"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "你好，帮我把这句话翻译成英文。"
+        }
+      ],
+      "tools": [],
+      "bodySha256": "41a5e8fa76570f5a5f8cab9163b8b8884e6e7a453bc94451f8819e5425293977",
+      "bodyEncodedSha256": "aff29415506a2ed9fdd1fc272dee8de55a0611a356f0301034146b01dc584b92",
+      "payloadSha256": "d7fd97708e1807b9772cb115ad43d03d6177e32dac64b57929b9d42f01744e72",
+      "cosyKeySha256": "a227d275f979aeee9d8746dc152134f66c9df2faa411cf90d7f173714517ed99",
+      "bearerSha256": "f7da17c08bf084f8537f033930dd95330009279fb3055c776c7cc0ded7574db9",
+      "bearerPrefix": "Bearer COSY.eyJjb3N5VmVyc2lvbiI6IjEuMS43",
+      "date": "1793983148"
+    },
+    {
+      "name": "with-tools",
+      "model": "qfmodel",
+      "requestId": "00000002-1111-4222-8333-444444444444",
+      "nowMs": 1793983148000,
+      "tempKeyHex": "0123456789abcdef",
+      "rsaPaddingHex": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "inferBase": "https://gateway.qoder.com.cn",
+      "credential": {
+        "accessToken": "fake-access-token-for-vectors",
+        "refreshToken": "fake-refresh-token-for-vectors",
+        "userId": "user-vector-0001",
+        "nickname": "向量账号",
+        "machineId": "11111111-2222-4333-8444-555555555555",
+        "machineToken": "fake-machine-token",
+        "machineType": "x86_64_linux"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "查一下北京天气"
+        }
+      ],
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "description": "查天气",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "bodySha256": "d5e4dcffb697f4a147b771b513833dbb408fb9e0ee46fc9ee8c21a7e0eff7a3f",
+      "bodyEncodedSha256": "949cc8b9ce3ef96b365a97f048486c7077f9e440cfb09779fc613276b8545f6c",
+      "payloadSha256": "7407c2e0f9417b4e03df63637e7889cac599287aa91d8687e5c42857b97f10a9",
+      "cosyKeySha256": "a227d275f979aeee9d8746dc152134f66c9df2faa411cf90d7f173714517ed99",
+      "bearerSha256": "f095401fe99b7bb37e6579f7c2868272a571383e3b6f92a15b6e770888d08e48",
+      "bearerPrefix": "Bearer COSY.eyJjb3N5VmVyc2lvbiI6IjEuMS43",
+      "date": "1793983148"
+    },
+    {
+      "name": "with-system",
+      "model": "dmodel",
+      "requestId": "00000003-1111-4222-8333-444444444444",
+      "nowMs": 1793983148000,
+      "tempKeyHex": "0123456789abcdef",
+      "rsaPaddingHex": "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "inferBase": "https://gateway.qoder.com.cn",
+      "credential": {
+        "accessToken": "fake-access-token-for-vectors",
+        "refreshToken": "fake-refresh-token-for-vectors",
+        "userId": "user-vector-0001",
+        "nickname": "向量账号",
+        "machineId": "11111111-2222-4333-8444-555555555555",
+        "machineToken": "fake-machine-token",
+        "machineType": "x86_64_linux"
+      },
+      "messages": [
+        {
+          "role": "system",
+          "content": "你是一个严谨的助手。"
+        },
+        {
+          "role": "user",
+          "content": "用一句话解释 COSY 签名。"
+        }
+      ],
+      "tools": [],
+      "bodySha256": "5c4f38e1ce91c2a9d15fa3ea4bb692642ae42195e6d76ebfb254a67e9fda1d0d",
+      "bodyEncodedSha256": "9359bde594b5a28fe9f1ff4089323e836aa9f3fb11b3d1cedbee98cb9315729d",
+      "payloadSha256": "f8343b3b4f81122149d28bcc275073e346ae93b3237b5666187ae49f98f63f90",
+      "cosyKeySha256": "a227d275f979aeee9d8746dc152134f66c9df2faa411cf90d7f173714517ed99",
+      "bearerSha256": "bda315ad8e369eed50f9349c48352e70df983ceebab9f314bcc24b9722eba92e",
+      "bearerPrefix": "Bearer COSY.eyJjb3N5VmVyc2lvbiI6IjEuMS43",
+      "date": "1793983148"
+    }
+  ]
+}
