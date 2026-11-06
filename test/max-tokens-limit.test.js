@@ -11,7 +11,7 @@ import {
   createLimitsStore,
   parseMaxTokensLimit,
 } from '../src/gateway/config/limits.js';
-import { createLimitWarningTracker, retryIfMaxTokensExceeded } from '../src/plugin/adapter/attempt-limits.js';
+import { buildCappedRequestBody, createLimitWarningTracker, retryIfMaxTokensExceeded } from '../src/plugin/adapter/attempt-limits.js';
 import { createModelTimAdapter } from '../src/plugin/adapter/adapter.js';
 import { createFixedClock } from '../src/gateway/clock.js';
 import { writeConfig } from '../src/gateway/config/config.js';
@@ -27,10 +27,23 @@ test('解析：中文「max_tokens 不能超过 N」', () => {
   assert.equal(parseMaxTokensLimit('400 {"message":"max_tokens 不能超过 65536","code":"invalid_request"}'), 65536);
 });
 
-test('解析：英文 exceed / at most 两种写法', () => {
+test('解析：英文 exceed / at most / greater than 三种写法', () => {
   assert.equal(parseMaxTokensLimit('max_tokens must not exceed 4096'), 4096);
   assert.equal(parseMaxTokensLimit('max_tokens should be at most 2048 tokens'), 2048);
   assert.equal(parseMaxTokensLimit('Max Tokens greater than 8192'), 8192);
+});
+
+test('解析：maximum 在前与 limit/cap 在后的写法（复验发现的漏网）', () => {
+  assert.equal(parseMaxTokensLimit('maximum max tokens is 4096'), 4096);
+  assert.equal(parseMaxTokensLimit('the maximum number of tokens allowed is 2048'), 2048);
+  assert.equal(parseMaxTokensLimit('max output tokens limit: 8192'), 8192);
+  assert.equal(parseMaxTokensLimit('tokens cap 4096'), 4096);
+});
+
+test('解析：误判护栏——不含 token 短语的 400 一律 null；过小的数字也不认', () => {
+  assert.equal(parseMaxTokensLimit('rate limit exceeded'), null, '不能因为出现 limit 就认');
+  assert.equal(parseMaxTokensLimit('invalid api key'), null);
+  assert.equal(parseMaxTokensLimit('max tokens 3 retries'), null, '低于合理性下限的数字不当作上限');
 });
 
 test('解析：与上限无关的文案一律返回 null（据此不重试）', () => {
@@ -40,16 +53,27 @@ test('解析：与上限无关的文案一律返回 null（据此不重试）', 
   assert.equal(parseMaxTokensLimit(undefined), null);
 });
 
-test('夹取：配置值 > 学习值 > 原值，取最小；没有上限时保持原值', () => {
-  // 配置与学习值都有：取更保守的
-  assert.deepEqual(capMaxTokens({ requested: 9000, configMax: 1000, learned: 2000 }), { maxTokens: 1000, source: 'config' });
-  // 只有学习值
+test('夹取优先级①：有群配置时**直接用它**，不再与学习值取最小', () => {
+  // 复验指出的反例：配置 2048、学习 1024，旧实现会给出 1024（把用户想抬高的意图吃掉了）
+  assert.deepEqual(
+    capMaxTokens({ requested: 65536, configured: 2048, learned: 1024 }),
+    { maxTokens: 2048, source: 'configured' },
+  );
+  // 配置比学习值高也要按配置发（上游已放宽 / 学习值来自临时故障）
+  assert.deepEqual(
+    capMaxTokens({ requested: 65536, configured: 8192, learned: 1024 }),
+    { maxTokens: 8192, source: 'configured' },
+  );
+});
+
+test('夹取优先级②：无配置、有学习值 → min(原值, 学习值)', () => {
   assert.deepEqual(capMaxTokens({ requested: 9000, learned: 2000 }), { maxTokens: 2000, source: 'learned' });
-  // 原值比上限小：不抬高
   assert.deepEqual(capMaxTokens({ requested: 500, learned: 2000 }), { maxTokens: 500, source: 'learned' });
-  // 什么上限都没有
+  assert.deepEqual(capMaxTokens({ learned: 2000 }), { maxTokens: 2000, source: 'learned' });
+});
+
+test('夹取优先级③：都没有 → 原值；全空 → null', () => {
   assert.deepEqual(capMaxTokens({ requested: 9000 }), { maxTokens: 9000, source: 'requested' });
-  // 全空
   assert.deepEqual(capMaxTokens({}), { maxTokens: null, source: 'none' });
 });
 
@@ -186,6 +210,23 @@ test('重试：重发仍失败 → 返回失败结果（不无限重试）', asy
 
   assert.equal(finalResult.ok, false);
   assert.equal(stub.calls.length, 2, '最多两次（原始 + 一次重发）');
+});
+
+test('实际发送：configured 高于 learned 时，请求体里是 configured 的值', async (t) => {
+  const dataRoot = await createTempDirectory(t);
+  const limitsStore = createLimitsStore({ dataRoot, logger: createRecordingLogger() });
+  await limitsStore.learnLimit('agnes', 'model-a', 1024);
+
+  const { body } = await buildCappedRequestBody({
+    options: { maxTokens: 65536, messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] },
+    modelId: 'model-a',
+    imageUrls: undefined,
+    group: { id: 'agnes', request: { maxTokens: 4096 } },
+    model: 'model-a',
+    limitsStore,
+  });
+
+  assert.equal(body.max_tokens, 4096, '人工配置必须压过学习值');
 });
 
 // ===== 端到端闭环：真适配器 + 真驱动 + 本地 stub 上游（首次 400，第二次成功）=====

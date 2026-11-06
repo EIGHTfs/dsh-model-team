@@ -21,7 +21,7 @@ export async function buildCappedRequestBody({ options, modelId, imageUrls, grou
   const learnedLimit = await limitsStore.getLimit(group?.id, model);
   const capped = capMaxTokens({
     requested: options?.maxTokens,
-    configMax: group?.request?.maxTokens,
+    configured: group?.request?.maxTokens,
     learned: learnedLimit,
   });
   return {

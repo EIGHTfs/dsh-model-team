@@ -18,19 +18,35 @@ import { defaultLogger, describeFailure } from '../logger.js';
 export const LIMITS_FILE_NAME = 'limits.json';
 export const LIMITS_VERSION = 1;
 
-// 中文文案：`max_tokens 不能超过 65536`（agnes 实测）
-const MAX_TOKENS_LIMIT_PATTERN_ZH = /max[_\s]*tokens?\s*不能超过\s*(\d+)/i;
-// 英文文案兜底：max_tokens ... exceed / greater than / at most ... N
-const MAX_TOKENS_LIMIT_PATTERN_EN = /max[_\s]*tokens?[^0-9]{0,64}?(?:exceed|greater\s+than|at\s+most|maximum)[^0-9]{0,64}?(\d+)/i;
+// 目前能识别的文案（都能实测对上；认不出的一律返回 null → 不重试，宁可少认不可误判）：
+//   · 中文：`max_tokens 不能超过 65536`
+//   · 英文（token 短语在前）：`max_tokens must not exceed 4096` / `max tokens at most 2048`
+//   · 英文（maximum 在前）：`maximum max tokens is 4096` / `the maximum number of tokens allowed is 2048`
+//   · 英文（limit/cap 在后）：`max output tokens limit: 8192` / `tokens cap 4096`
+const MAX_TOKENS_LIMIT_PATTERNS = Object.freeze([
+  // token 短语 + 限定义关键词 + 数字
+  /max[_\s]*tokens?[^0-9]{0,64}?(?:不能超过|exceed|greater\s+than|at\s+most|maximum)[^0-9]{0,64}?(\d+)/i,
+  // maximum / max 在前，token 短语在后：`maximum max tokens is 4096`
+  /(?:maximum|max)[^0-9]{0,32}?(?:max[_\s]*)?tokens?[^0-9]{0,32}?(\d+)/i,
+  // token 短语 + limit/cap + 数字：`tokens limit 8192`
+  /(?:max[_\s]*)?tokens?[^0-9]{0,32}?(?:limit|cap)[^0-9]{0,32}?(\d+)/i,
+]);
+
+// 合理性下限：真实上限基本都在 256 以上；低于它的数字更可能是别的参数（重试次数、页码），
+// 拿它去夹 max_tokens 会把正常请求压成几 token，比不学更糟
+const MIN_PLAUSIBLE_MAX_TOKENS = 256;
 
 // 解析上游错误文案里的 max_tokens 上限；解析不出返回 null（调用方据此决定"不重试"）
 export function parseMaxTokensLimit(errorText) {
   if (typeof errorText !== 'string' || errorText.length === 0) return null;
-  const matched = MAX_TOKENS_LIMIT_PATTERN_ZH.exec(errorText) ?? MAX_TOKENS_LIMIT_PATTERN_EN.exec(errorText);
-  if (!matched) return null;
-  const limitValue = Number(matched[1]);
-  if (!Number.isFinite(limitValue) || limitValue <= 0) return null;
-  return Math.trunc(limitValue);
+  for (const pattern of MAX_TOKENS_LIMIT_PATTERNS) {
+    const matched = pattern.exec(errorText);
+    if (!matched) continue;
+    const limitValue = Number(matched[1]);
+    if (!Number.isFinite(limitValue) || limitValue < MIN_PLAUSIBLE_MAX_TOKENS) continue;
+    return Math.trunc(limitValue);
+  }
+  return null;
 }
 
 // (群, 模型) → 上限：模块内统一 key 形状，避免各处拼接出现 `a::b` 与 `a/b` 两种写法
@@ -38,28 +54,32 @@ export function limitKeyFor(groupId, modelId) {
   return `${groupId ?? ''}::${modelId ?? ''}`;
 }
 
-// 夹取：显式配置 > 学习值 > 原值；结果永远是"不超过上游已知上限"的最小值。
-// 返回 { maxTokens, source }，source 只用于日志（config / learned / requested）
-export function capMaxTokens({ requested, configMax, learned }) {
+// 夹取优先级（**不是三者取最小**）：
+//   1) 群配置 request.maxTokens 存在 → **直接用它**（人工指定就是权威，允许比学习值更高：
+//      上游放宽、或学习值来自一次临时故障时，用户要能改上去）
+//   2) 没有配置、有学习值 → min(原值, 学习值)
+//   3) 都没有 → 原值
+// 配置值仍然超限时，这一次会撞 400 → 学到新上限 → 同轮重发用新学到的值（见 attempt-limits.js）。
+// 返回 { maxTokens, source }，source 只用于日志（configured / learned / requested / none）
+export function capMaxTokens({ requested, configured, learned }) {
   const usableRequested = typeof requested === 'number' && Number.isFinite(requested) && requested > 0
     ? Math.trunc(requested)
     : null;
-  const usableConfig = typeof configMax === 'number' && Number.isFinite(configMax) && configMax > 0
-    ? Math.trunc(configMax)
+  const usableConfigured = typeof configured === 'number' && Number.isFinite(configured) && configured > 0
+    ? Math.trunc(configured)
     : null;
   const usableLearned = typeof learned === 'number' && Number.isFinite(learned) && learned > 0
     ? Math.trunc(learned)
     : null;
 
-  // 上限候选：配置值（人工指定）与学习值都算"上限"；两者都有时取更保守的那个
-  const ceilings = [usableConfig, usableLearned].filter((value) => value !== null);
-  const ceiling = ceilings.length > 0 ? Math.min(...ceilings) : null;
-  if (ceiling === null) {
-    return { maxTokens: usableRequested, source: usableRequested === null ? 'none' : 'requested' };
+  if (usableConfigured !== null) {
+    return { maxTokens: usableConfigured, source: 'configured' };
   }
-  const source = usableConfig !== null && ceiling === usableConfig ? 'config' : 'learned';
-  if (usableRequested === null) return { maxTokens: ceiling, source };
-  return { maxTokens: Math.min(usableRequested, ceiling), source };
+  if (usableLearned !== null) {
+    if (usableRequested === null) return { maxTokens: usableLearned, source: 'learned' };
+    return { maxTokens: Math.min(usableRequested, usableLearned), source: 'learned' };
+  }
+  return { maxTokens: usableRequested, source: usableRequested === null ? 'none' : 'requested' };
 }
 
 // 读盘：缺失/损坏都当"还没学到"，绝不让一个坏文件挡住请求

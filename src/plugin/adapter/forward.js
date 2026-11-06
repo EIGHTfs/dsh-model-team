@@ -222,7 +222,7 @@ export async function openForwardRequest({
   const learnedLimit = limitsStore ? await limitsStore.getLimit(group.id, target.id) : null;
   const capped = capMaxTokens({
     requested: options?.maxTokens,
-    configMax: group.request?.maxTokens,
+    configured: group.request?.maxTokens,
     learned: learnedLimit,
   });
 
