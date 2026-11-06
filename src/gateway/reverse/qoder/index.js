@@ -7,6 +7,7 @@
 import { buildCosyHeaders, REQUEST_KINDS } from './headers.js';
 import { unwrapEnvelope } from './envelope.js';
 import { pollDeviceLogin, startDeviceLogin } from './oauth.js';
+import { isQoderWasmAvailable } from './wasm-path.js';
 import { displayNameFor, isKnownCatalogKey, listCatalogKeys } from './catalog.js';
 
 // 未实现的网络方法统一抛这个错误：M1 不允许"悄悄发请求"
@@ -21,6 +22,8 @@ function notImplemented(methodName) {
 export const platform = {
   // 内部 id 与对外驱动 id 是两个空间；换算在 reverse/index.js（此处只声明结果）
   id: 'qoder',
+  // 驱动展示名（drivers 列表里给用户看的）
+  name: 'Qoder（反代）',
   driverId: 'reverse-qoder',
 
   // 端点表：全部相对路径；base 只有国内版（国际版本机 SNI 不可达，试点不做）
@@ -59,8 +62,10 @@ export const platform = {
     tools: true,
     images: false,
     reasoning: false,
-    // 加密推理通道（WASM）尚未接入；M3 打通后才置 true
-    encryptedInference: false,
+    // 加密推理通道：native 后端（纯 Node）始终可用，所以这里恒为 true；
+    // wasm 是可选后端，缺失只影响 wasmBackend 位，不影响该平台能不能跑
+    encryptedInference: true,
+    wasmBackend: isQoderWasmAvailable(),
     catalogKeys: Object.freeze(['qfmodel', 'dmodel']),
   }),
 

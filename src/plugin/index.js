@@ -16,6 +16,8 @@ import { ensureHostExport } from './host-patch.js';
 import { startContextWindowProbe } from './context/window.js';
 import { TEAM_ROUTE_PREFIX, disposeGatewayRoutes, registerGatewayRoutes } from './web-routes.js';
 import { buildBaselinePayload, injectBaselineIntoHtml } from './index-injection.js';
+import { registerReverseDrivers } from '../gateway/drivers/index.js';
+import { listPlatforms } from '../gateway/reverse/index.js';
 import { createHostSessionLookup, createHostSessionSource } from '../gateway/session/current.js';
 
 // 插件模块名（cordis 用它做诊断标签；与 package.json 的 name 保持一致）
@@ -78,6 +80,13 @@ async function registerPanelRoutes({ ctx, dataRoot, logger, options, providerIds
     }
     // /v1 是否挂载在注册时决定，所以配置在这里先读一次
     const pluginConfig = await readConfig({ dataRoot, logger });
+    // 反代驱动：按 reverse 平台注册表登记（缺 wasm 只影响 wasm 后端；缺账号由驱动在请求时报未登录）
+    try {
+      const registeredDriverIds = registerReverseDrivers({ platforms: listPlatforms(), logger });
+      if (registeredDriverIds.length > 0) logger.info(`已登记反代驱动：${registeredDriverIds.join('、')}`);
+    } catch (driverError) {
+      logger.warn(`反代驱动登记失败（其它驱动不受影响）：${describeFailure(driverError)}`);
+    }
     ctx.inject(['webServer'], (webContext) => {
       try {
         const webServer = webContext?.get?.('webServer');

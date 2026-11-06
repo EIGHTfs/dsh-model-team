@@ -11,6 +11,7 @@ import { pathToFileURL } from 'node:url';
 import { getDriversDirectory } from '../config/paths.js';
 import { defaultLogger, describeFailure } from '../logger.js';
 import { openAiCompatibleDriver } from './openai-compatible.js';
+import { listReverseDrivers } from './reverse-driver.js';
 
 // 只扫 .js：数据根里其它文件（说明文档、备份）一律忽略
 export const DRIVER_FILE_EXTENSION = '.js';
@@ -43,6 +44,23 @@ const ACCESS_MODE_SORT_WEIGHT = Object.freeze({
 
 // 内置驱动（随包分发，不走数据根扫描）
 const BUILT_IN_DRIVERS = Object.freeze([openAiCompatibleDriver]);
+
+// 反代驱动按平台注册表登记（一个平台一个驱动）。**由插件 apply 调用**而不是模块加载时自动登记：
+//   · 独立网关/单测没有插件上下文时，驱动表保持"只有官方驱动"，不改变既有行为；
+//   · 登记本身不含平台名——平台列表来自 reverse 注册表。
+// 返回已登记的 id，重复登记只 warn 不抛（插件重载时可能调两次）。
+export function registerReverseDrivers({ platforms, logger = defaultLogger } = {}) {
+  const registeredIds = [];
+  for (const driver of listReverseDrivers({ platforms, logger })) {
+    try {
+      registerDriver(driver, { originLabel: `反代平台 ${driver.id}` });
+      registeredIds.push(driver.id);
+    } catch (registerError) {
+      logger.warn(`反代驱动未登记：${describeFailure(registerError)}`);
+    }
+  }
+  return registeredIds;
+}
 
 // 可用驱动：driverId -> 驱动实现
 const availableDrivers = new Map();
