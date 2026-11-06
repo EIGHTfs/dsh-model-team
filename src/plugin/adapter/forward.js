@@ -11,6 +11,7 @@
 //   3) usage 只旁路观测：读 chunk 里的 usage 供请求行落库，不重算 token
 
 import { describeFailure } from '../../gateway/logger.js';
+import { capMaxTokens } from '../../gateway/config/limits.js';
 import { MODE_FORWARD, resolveMode } from './mode.js';
 
 // 官方包的两个 specifier：一个是 dsh 适配器实现，一个是它底下的 pi-ai 核心（凭据存储从这里取）
@@ -172,6 +173,7 @@ export async function openForwardRequest({
   resolveTarget,
   resolveCredential,
   runtime,
+  limitsStore,
   recordRow,
 }) {
   let resolution;
@@ -215,8 +217,17 @@ export async function openForwardRequest({
     return null;
   }
 
+  // 官方适配器层夹不到 max_tokens（它只认 options），所以在这里发请求前就夹一次：
+  // 群配置 request.maxTokens > 学到的上限 > 宿主给的原值
+  const learnedLimit = limitsStore ? await limitsStore.getLimit(group.id, target.id) : null;
+  const capped = capMaxTokens({
+    requested: options?.maxTokens,
+    configMax: group.request?.maxTokens,
+    learned: learnedLimit,
+  });
+
   const observation = createForwardObservation();
-  const iterator = adapter.stream({ ...options, provider: group.id, model: target.id })[Symbol.asyncIterator]();
+  const iterator = adapter.stream({ ...options, maxTokens: capped.maxTokens, provider: group.id, model: target.id })[Symbol.asyncIterator]();
   let firstResult;
   try {
     firstResult = await iterator.next();

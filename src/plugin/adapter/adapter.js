@@ -10,7 +10,7 @@ import { readSessionTarget } from '../../gateway/session/store.js';
 import { dispatchWithRotation } from '../../gateway/transport/dispatcher.js';
 import { resolveSessionTargetWithFallback } from '../../gateway/session/fallback.js';
 import { resolveAttemptContext } from '../../gateway/transport/attempt-context.js';
-import { DEFAULT_MAX_REQUEST_ROWS, appendRequestRow, buildRequestRow, readRequestRows } from '../../gateway/stats/index.js';
+import { DEFAULT_MAX_REQUEST_ROWS, appendRequestRow, buildRequestRow } from '../../gateway/stats/index.js';
 import { createClock } from '../../gateway/clock.js';
 import { DEFAULT_USAGE_PATH, extractUsage } from '../../gateway/mapping.js';
 import { resolveGroupCredentials } from '../../gateway/config/credentials.js';
@@ -18,11 +18,14 @@ import { parseSseJsonData } from '../../gateway/transport/sse.js';
 import { defaultLogger, describeFailure } from '../../gateway/logger.js';
 import { ERROR_CODES, GatewayError } from '../../gateway/errors.js';
 import { classifyUpstreamFailure, createStreamChunkBuilder } from './llm-protocol.js';
-import { peekDeclaredContextWindow, resolveModelContextWindow, startContextWindowProbe } from '../context/window.js';
-import { buildContextOverflowMessage, estimateMessagesTokens, evaluateContextGuard, isContextGuardEnabled } from '../context/guard.js';
+import { peekDeclaredContextWindow, startContextWindowProbe } from '../context/window.js';
+import { assertContextWithinWindow } from '../context/precheck.js';
+import { isContextGuardEnabled } from '../context/guard.js';
 import { messagesHaveImage, resolveImageUrls } from '../image/prefetch.js';
 import { assertImageInputAllowed } from '../image/gate.js';
 import { buildForwardRowInput, openForwardRequest } from './forward.js';
+import { createLimitsStore } from '../../gateway/config/limits.js';
+import { buildCappedRequestBody, createLimitWarningTracker, retryIfMaxTokensExceeded } from './attempt-limits.js';
 
 // 缺省 provider 路由名与展示名
 export const DEFAULT_PROVIDER_ID = 'dsh-model-team';
@@ -47,7 +50,6 @@ const LLM_ERROR_CODE_BY_GATEWAY_CODE = Object.freeze({
 });
 
 import {
-  buildOpenAiRequestBody,
   buildRowContext,
   collectStreamState,
   createStreamState,
@@ -78,6 +80,10 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
     ...deps,
   };
   const adapterDataRoot = resolvedDeps.dataRoot ?? getDataRoot();
+  // 上游 max_tokens 上限的学习存储：进程内复用一份，跨进程靠 <dataRoot>/limits.json
+  const limitsStore = resolvedDeps.limitsStore ?? createLimitsStore({ dataRoot: adapterDataRoot, logger: resolvedDeps.logger });
+  // 每个 (群, 模型) 只告警一次，避免撞限后每次都刷屏
+  const warnLimitOnce = createLimitWarningTracker();
 
   // 附件服务：宿主通过 ctx.get('attachments') 提供（与 getSessionService 同一套注入方式）。
   // 取不到就不声明图片能力——声明了却送不出图，用户只会以为图坏了。
@@ -148,16 +154,35 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
         error: { code: ERROR_CODES.DRIVER_FAILED, message: `驱动不支持流式：${attemptContext.group.driver}` },
       };
     }
-    return attemptContext.driver.streamCompletions(
-      {
-        group: attemptContext.group,
-        credentials: attemptContext.credentials,
-        logger: resolvedDeps.logger,
-        fetchImpl: resolvedDeps.fetchImpl,
-      },
-      buildOpenAiRequestBody(options, attempt.modelId, imageUrls),
-      { signal: options?.signal },
-    );
+    const driverContext = {
+      group: attemptContext.group,
+      credentials: attemptContext.credentials,
+      logger: resolvedDeps.logger,
+      fetchImpl: resolvedDeps.fetchImpl,
+    };
+    // 发之前就夹住：群配置 request.maxTokens > 学到的上限 > 宿主给的原值
+    const { body: requestBody } = await buildCappedRequestBody({
+      options,
+      modelId: attempt.modelId,
+      imageUrls,
+      group: attemptContext.group,
+      model: attempt.modelId,
+      limitsStore,
+    });
+    const result = await attemptContext.driver.streamCompletions(driverContext, requestBody, { signal: options?.signal });
+    // 只有"上限类 400"会在同一次调用内按学到值重发一次；其它失败原样返回
+    return retryIfMaxTokensExceeded({
+      driver: attemptContext.driver,
+      driverContext,
+      requestBody,
+      result,
+      group: attemptContext.group,
+      model: attempt.modelId,
+      limitsStore,
+      logger: resolvedDeps.logger,
+      warnOnce: warnLimitOnce,
+      signal: options?.signal,
+    });
   };
 
   // 上游事件 → StreamChunk：块逐条 yield，usage/id/完成原因收集到 streamState
@@ -350,58 +375,18 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
       yield* this.finishStream({ streamState, chunkBuilder });
     }
 
-    // 超限检查：估算 = max(本次消息估算, 上次成功请求的 prompt_tokens)，只在明确超过窗口时拒绝
+    // 超限检查与"上次真实占用"都搬到了 context/precheck.js；这里只做依赖注入的薄封装
     async assertContextWithinWindow({ config, target, options, sessionId }) {
-      const modelId = typeof target?.id === 'string' ? target.id : '';
-      const groupId = typeof target?.platformId === 'string' ? target.platformId : '';
-      if (modelId.length === 0 || groupId.length === 0) return;
-
-      let windowTokens = null;
-      try {
-        windowTokens = await resolveModelContextWindow({
-          config,
-          groupId,
-          modelId,
-          dataRoot: adapterDataRoot,
-          logger: resolvedDeps.logger,
-          fetchImpl: resolvedDeps.fetchImpl,
-        });
-      } catch (windowError) {
-        resolvedDeps.logger.warn(`目标模型窗口查询失败，本次跳过超限检查：${describeFailure(windowError)}`);
-        return;
-      }
-      if (windowTokens === null) return;   // 窗口未知：不拦
-
-      const lastPromptTokens = await this.readLastPromptTokens({ sessionId });
-      const outboundMessages = buildOpenAiRequestBody(options, modelId).messages;
-      const estimatedTokens = Math.max(estimateMessagesTokens(outboundMessages), lastPromptTokens ?? 0);
-      const verdict = evaluateContextGuard({ estimatedTokens, windowTokens });
-      if (verdict.blocked) {
-        throw new LlmErrorClass(
-          buildContextOverflowMessage({ estimatedTokens, lastPromptTokens, windowTokens, modelId }),
-          'CONTEXT_OVERFLOW',
-        );
-      }
-      // 接近上限时留一行日志：真超了以后能回看是不是估算偏差，而不是只有一个"上游 400"
-      if (estimatedTokens > windowTokens * 0.9) {
-        resolvedDeps.logger.info(`上下文接近目标窗口：估算 ${estimatedTokens} / 窗口 ${windowTokens}（${modelId}）`);
-      }
-    }
-
-    // 上次成功请求的 prompt_tokens：请求行里唯一可靠的"真实占用"参照（估算只作补充）
-    async readLastPromptTokens({ sessionId }) {
-      try {
-        const rows = await readRequestRows({ dataRoot: adapterDataRoot, logger: resolvedDeps.logger });
-        for (let index = rows.length - 1; index >= 0; index -= 1) {
-          const row = rows[index];
-          if (sessionId && row?.sessionId && row.sessionId !== sessionId) continue;
-          const promptTokens = row?.usage?.promptTokens;
-          if (typeof promptTokens === 'number' && promptTokens > 0) return promptTokens;
-        }
-      } catch (readError) {
-        resolvedDeps.logger.warn(`读取历史请求行失败，超限检查改用纯估算：${describeFailure(readError)}`);
-      }
-      return null;
+      return assertContextWithinWindow({
+        config,
+        target,
+        options,
+        sessionId,
+        dataRoot: adapterDataRoot,
+        logger: resolvedDeps.logger,
+        fetchImpl: resolvedDeps.fetchImpl,
+        LlmErrorClass,
+      });
     }
 
     // 收尾：调用方取消要抛 ABORTED，否则补齐 finish 块（拆出来让 stream 本体保持可读长度）

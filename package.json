@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-team",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "会话级模型路由插件：dsh 里只注册一个虚拟模型，真实模型按会话映射转发（合法接入优先，配置型驱动）",
   "keywords": [
     "dsh",

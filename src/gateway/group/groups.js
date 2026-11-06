@@ -144,6 +144,22 @@ function resolveGroupModels(groupPayload) {
   return modelConfig;
 }
 
+// 请求级覆盖：目前只认 request.maxTokens（正整数）。
+// 它是"人工明确指定"，优先级高于从 400 学到的上限；其余 request 字段不在这里校验，原样透传
+function assertGroupRequest(groupPayload) {
+  if (groupPayload.request === undefined) return;
+  if (typeof groupPayload.request !== 'object' || groupPayload.request === null || Array.isArray(groupPayload.request)) {
+    throw new GatewayError(ERROR_CODES.INVALID_REQUEST, '群配置 request 必须是对象');
+  }
+  const maxTokens = groupPayload.request.maxTokens;
+  if (maxTokens === undefined || maxTokens === null) return;
+  if (typeof maxTokens !== 'number' || !Number.isFinite(maxTokens) || maxTokens <= 0) {
+    throw new GatewayError(ERROR_CODES.INVALID_REQUEST, 'request.maxTokens 必须是正整数', {
+      hint: '例如 "request": { "maxTokens": 32768 }',
+    });
+  }
+}
+
 // 凭据引用：只收 env:/file: 两种前缀，明文 Key 一律拒（本项目只存引用）
 function assertCredentialRef(groupPayload) {
   const apiKeyRef = groupPayload.auth?.apiKeyRef;
@@ -169,6 +185,7 @@ export function validateGroupPayload(groupPayload) {
   const driver = resolveDriverId(groupPayload);
   const models = resolveGroupModels(groupPayload);
   assertCredentialRef(groupPayload);
+  assertGroupRequest(groupPayload);
 
   return { ...groupPayload, id: groupId, name, accessMode, driver, ...(models ? { models } : {}) };
 }
