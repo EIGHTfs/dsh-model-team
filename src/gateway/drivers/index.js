@@ -225,6 +225,13 @@ function toDriverMeta(driver) {
   if (typeof driver.avatar === 'string' && driver.avatar.length > 0) {
     driverMeta.avatar = driver.avatar;
   }
+  // 界面判别标记：只透传，网关不解释含义（反代账号选择器靠它们渲染）
+  if (typeof driver.authKind === 'string' && driver.authKind.length > 0) {
+    driverMeta.authKind = driver.authKind;
+  }
+  if (typeof driver.platformId === 'string' && driver.platformId.length > 0) {
+    driverMeta.platformId = driver.platformId;
+  }
   return driverMeta;
 }
 

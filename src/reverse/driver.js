@@ -55,8 +55,19 @@ export function createReverseDriver({ platform, logger = defaultLogger }) {
     id: platform.driverId,
     name: platform.name ?? platform.id,
     accessMode: REVERSE_ACCESS_MODE,
+    // 界面判别标记：有它就渲染"账号区"而不是 API Key 输入框
+    authKind: 'reverse-account',
+    platformId: platform.id,
     // 反代不吃群里的 apiKey 字段：凭据是 account 引用（由 account-store 管理）
-    authSchema: [],
+    // options 由 GET /_team/reverse/accounts 动态填充（optionsSource 告诉前端去哪儿取）
+    authSchema: [{
+      key: 'accountId',
+      label: '账号',
+      type: 'select',
+      required: true,
+      options: [],
+      optionsSource: 'reverse-accounts',
+    }],
     async validateAuth(context = {}) {
       const credential = await resolveGroupReverseCredential(context.group, { dataRoot: context.dataRoot, logger });
       return credential ? { ok: true } : { ok: false, message: '未登录：请先执行 node scripts/reverse-login.mjs --platform ' + platform.id };

@@ -405,7 +405,7 @@ function renderModelCatalog(catalog) {
 
 // 视图三：加群（选平台 → 按平台预置预填 → 按 driver.authSchema 填接入信息 → 模型目录）
 // 预填规则：用户没填过的字段用平台默认值（群名 / API 地址），填过的原样保留。
-function renderAddGroup(platforms, drivers, platformId, savedValues, savedName, catalog) {
+function renderAddGroup(platforms, drivers, platformId, savedValues, savedName, catalog, reversePanel) {
   const platformList = platforms || [];
   const driverList = drivers || [];
   const selection = resolvePlatformSelection(platformList, driverList, platformId);
@@ -441,13 +441,13 @@ function renderAddGroup(platforms, drivers, platformId, savedValues, savedName, 
           <label class="field-label">群名称 (自定义)</label>
           <input class="group-name-input" id="groupNameInput" type="text" placeholder="例如：我的账号" value="${escapeHtml(effectiveName)}">
         </div>
-        <div id="authFields">${renderAuthFields(currentDriver, prefilledValues)}</div>
+        <div id="authFields">${currentDriver && currentDriver.authKind === 'reverse-account' ? renderReverseAccountPanel(currentDriver, reversePanel) : renderAuthFields(currentDriver, prefilledValues)}</div>
       </div>
       ${renderModelCatalog(catalog)}
     </div>
     <div class="form-footer">
-      <button class="btn-primary" id="btnSubmitGroup" type="button">校验并添加群</button>
-      <div class="form-note">API Key 由服务端落盘保存，配置文件里只留引用。</div>
+      <button class="btn-primary" id="btnSubmitGroup" type="button"${reverseSubmitDisabledAttr(currentDriver, reversePanel)}>校验并添加群</button>
+      <div class="form-note" data-reverse-note>${currentDriver && currentDriver.authKind === 'reverse-account' ? renderReverseSubmitNote(currentDriver, reversePanel) : 'API Key 由服务端落盘保存，配置文件里只留引用。'}</div>
     </div>
   </form>`;
 }

@@ -166,9 +166,12 @@ function submitNewGroup() {
   const groupName = readGroupNameFromDom();
   if (!groupName) { toast('请填写群名称'); return; }
 
-  const authValues = readAuthValuesFromDom();
-  const missingLabels = findMissingRequiredLabels(selectedDriver, authValues);
-  if (missingLabels.length) { toast('请填写必填项：' + missingLabels.join('、')); return; }
+  const isReverseDriver = selectedDriver.authKind === 'reverse-account';
+  const authValues = isReverseDriver ? {} : readAuthValuesFromDom();
+  if (!isReverseDriver) {
+    const missingLabels = findMissingRequiredLabels(selectedDriver, authValues);
+    if (missingLabels.length) { toast('请填写必填项：' + missingLabels.join('、')); return; }
+  }
 
   const groupId = buildGroupId();
   const baseURL = readBaseURLFromDom(selectedPlatform);
@@ -194,6 +197,16 @@ function submitNewGroup() {
     newGroup: newGroup,
     summaryTemplate: summaryTemplate
   });
+
+  if (isReverseDriver) {
+    // 反代群：凭据是账号引用（account:<platform>/<accountId>），不带明文 Key
+    const accountSelectNode = document.querySelector('#reverseAccountSelect');
+    const accountId = accountSelectNode ? String(accountSelectNode.value || '') : '';
+    if (!accountId) { toast('尚未登录 ' + (selectedDriver.name || '该平台') + '，请先点「登录 ' + (selectedDriver.name || '该平台') + '」'); return; }
+    submitPayload.auth = { apiKeyRef: 'account:' + String(selectedDriver.platformId || '') + '/' + accountId };
+    submitPayload.accessMode = 'reverse';
+    submitPayload.driver = selectedDriver.id;
+  }
 
   viewState.addForm.submitting = true;
   const submitButton = document.querySelector('#btnSubmitGroup');

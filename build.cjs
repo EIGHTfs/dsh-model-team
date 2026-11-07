@@ -42,9 +42,9 @@ const UI_PARTS = [
   "js/store/groups.js", "js/store/chat.js", "js/store/stats.js",
   "js/store/session.js", "js/store/dispatch.js", "js/store/index.js",
   "js/view/model-catalog.js", "js/interaction/session-bridge.js",
-  "js/float/dock-state.js", "js/view/render.js",
+  "js/float/dock-state.js", "js/view/reverse-account.js", "js/view/render.js",
   "js/friend-group/form.js", "js/friend-group/view.js", "js/friend-group/modal.js",
-  "js/interaction/chat.js", "js/view/admin.js", "js/float/float.js", "js/app.js"
+  "js/interaction/chat.js", "js/view/admin.js", "js/interaction/reverse-login.js", "js/float/float.js", "js/app.js"
 ];
 
 // 收尾：DOM 骨架 + apply

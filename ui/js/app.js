@@ -190,15 +190,19 @@ function renderApp(nextState, options) {
     );
     viewName.textContent = '群聊';
   } else if (current.view === 'add') {
+    const addFormSnapshot = captureAddFormSnapshot();
     viewRoot.innerHTML = renderAddGroup(
       current.platforms,
       current.drivers,
       viewState.addForm.platformId,
       viewState.addForm.values,
       viewState.addForm.name,
-      viewState.modelCatalog
+      viewState.modelCatalog,
+      reversePanelState()
     );
+    restoreAddFormSnapshot(addFormSnapshot);
     viewName.textContent = '加群';
+    loadReverseAccountsForAddForm();
   } else if (current.view === 'contacts') {
     // 成员头像/来自谁只跟平台群有关（member.platformId 是群 id），不再传 drivers
     viewRoot.innerHTML = renderAddressBook(current.friendGroups, current.groups);
@@ -250,6 +254,7 @@ function renderTabs(current) {
 // ---------------------------------------------------------------- 视图动作（只发 dispatch）
 function switchView(nextView) {
   closeAtPop();
+  if (nextView !== 'add') stopReversePoll();
   store.dispatch({ type: 'open-view', view: nextView });
 }
 
@@ -354,6 +359,7 @@ function initViewEvents() {
     }
     else if (buttonId === 'btnSend') sendMessage();
     else if (buttonId === 'btnSubmitGroup') submitNewGroup();
+    else if (buttonId === 'btnReverseLogin') startReverseLogin();
     else if (buttonId === 'btnExport') exportDatabase();
     else if (buttonId === 'btnImport') importDatabase();
   });
@@ -386,9 +392,11 @@ function initViewEvents() {
   });
 
   viewRoot.addEventListener('change', function (event) {
+    if (event.target.id === 'reverseAccountSelect') { reversePanelState().selectedAccountId = event.target.value; return; }
     if (event.target.id === 'platformSelect') {
       // 切换平台：清掉上一平台填过的值，让 renderAddGroup 用新平台的默认值重新预填；
       // 模型目录也重置（模型属于平台，不能沿用上一个平台的目录）
+      stopReversePoll(); resetReversePanel();
       viewState.addForm.platformId = event.target.value;
       viewState.addForm.values = {};
       viewState.addForm.name = '';

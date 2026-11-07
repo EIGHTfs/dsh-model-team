@@ -23,7 +23,7 @@ export const platform = {
   // 内部 id 与对外驱动 id 是两个空间；换算在 reverse/index.js（此处只声明结果）
   id: 'qoder',
   // 驱动展示名（drivers 列表里给用户看的）
-  name: 'Qoder（反代）',
+  name: 'Qoder',
   driverId: 'reverse-qoder',
 
   // 端点表：全部相对路径；base 只有国内版（国际版本机 SNI 不可达，试点不做）
