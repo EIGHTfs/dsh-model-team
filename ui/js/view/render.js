@@ -418,11 +418,15 @@ function renderAddGroup(platforms, drivers, platformId, savedValues, savedName, 
   if (currentPlatform && !prefilledValues.baseURL && currentPlatform.baseURL) {
     prefilledValues.baseURL = currentPlatform.baseURL;
   }
-  const effectiveName = savedName || (currentPlatform ? currentPlatform.name : '');
+  // 默认群名：平台预置优先，其次驱动名（反代平台没有预置，就用 Qoder 这类显示名）；
+  // 用户手改过时由调用方把内容放进 savedName，这里只做兜底
+  // 反代平台没有平台预置：默认群名用驱动显示名（Qoder），别落回"第一个平台"的名字
+  const isReverseDriver = Boolean(currentDriver && currentDriver.authKind === 'reverse-account');
+  const effectiveName = savedName || (isReverseDriver ? currentDriver.name : (currentPlatform ? currentPlatform.name : (currentDriver ? currentDriver.name : '')));
   const driverHint = currentPlatform
     ? currentPlatform.name + ' · 驱动 ' + currentPlatform.driverId
       + (currentPlatform.summaryTemplate ? ' · ' + currentPlatform.summaryTemplate : '')
-    : '暂无可用平台';
+    : (currentDriver ? currentDriver.name + ' · 驱动 ' + currentDriver.id : '暂无可用平台');
 
   return `<form class="view view-add" id="addGroupForm" autocomplete="off">
     <header class="view-head">
@@ -434,6 +438,7 @@ function renderAddGroup(platforms, drivers, platformId, savedValues, savedName, 
         <div class="form-step-title"><span class="step-no">1</span>选择平台</div>
         <select class="driver-select" id="platformSelect">${renderPlatformOptions(platformList, driverList, selectedValue)}</select>
         <div class="driver-hint">${escapeHtml(driverHint)}</div>
+        ${isReverseDriver ? renderReverseAccountPanel(currentDriver, reversePanel) : ''}
       </div>
       <div class="form-step">
         <div class="form-step-title"><span class="step-no">2</span>接入信息（根据 authSchema 动态生成）</div>
@@ -441,7 +446,7 @@ function renderAddGroup(platforms, drivers, platformId, savedValues, savedName, 
           <label class="field-label">群名称 (自定义)</label>
           <input class="group-name-input" id="groupNameInput" type="text" placeholder="例如：我的账号" value="${escapeHtml(effectiveName)}">
         </div>
-        <div id="authFields">${currentDriver && currentDriver.authKind === 'reverse-account' ? renderReverseAccountPanel(currentDriver, reversePanel) : renderAuthFields(currentDriver, prefilledValues)}</div>
+        ${currentDriver && currentDriver.authKind === 'reverse-account' ? '' : renderAuthFields(currentDriver, prefilledValues)}
       </div>
       ${renderModelCatalog(catalog)}
     </div>

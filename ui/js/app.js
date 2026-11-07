@@ -190,7 +190,7 @@ function renderApp(nextState, options) {
     );
     viewName.textContent = '群聊';
   } else if (current.view === 'add') {
-    const addFormSnapshot = captureAddFormSnapshot();
+    const addFormSnapshot = viewState.addForm.skipRestoreOnce ? null : captureAddFormSnapshot();
     viewRoot.innerHTML = renderAddGroup(
       current.platforms,
       current.drivers,
@@ -201,6 +201,7 @@ function renderApp(nextState, options) {
       reversePanelState()
     );
     restoreAddFormSnapshot(addFormSnapshot);
+    viewState.addForm.skipRestoreOnce = false;
     viewName.textContent = '加群';
     loadReverseAccountsForAddForm();
   } else if (current.view === 'contacts') {
@@ -387,7 +388,7 @@ function initViewEvents() {
       viewState.groupFilter = target.value;
       rerender();
     }
-    else if (target.id === 'groupNameInput') viewState.addForm.name = target.value;
+    else if (target.id === 'groupNameInput') { viewState.addForm.name = target.value; viewState.addForm.nameEdited = true; }
     else if (target.dataset && target.dataset.authKey) viewState.addForm.values[target.dataset.authKey] = target.value;
   });
 
@@ -399,7 +400,8 @@ function initViewEvents() {
       stopReversePoll(); resetReversePanel();
       viewState.addForm.platformId = event.target.value;
       viewState.addForm.values = {};
-      viewState.addForm.name = '';
+      if (!viewState.addForm.nameEdited) viewState.addForm.name = '';   // 手改过的名字切平台时保留
+      viewState.addForm.skipRestoreOnce = true;                          // 切平台要按新平台重新预填
       viewState.modelCatalog = { mode: 'auto', models: [], probe: { loading: false, error: '' } };
       rerender();
       return;
