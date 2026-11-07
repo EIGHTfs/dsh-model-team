@@ -13,7 +13,7 @@ import {
   importCredential,
   listImportSources,
   registerImportSource,
-} from '../src/gateway/credential-import/index.js';
+} from '../src/reverse/core/import/index.js';
 import { createAccountStore } from '../src/reverse/core/account-store.js';
 import { createReverseImportSink, toPublicAccount } from '../src/reverse/core/import-sink.js';
 import { startGatewayHarness } from './helpers/gateway-harness.js';

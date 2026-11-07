@@ -10,7 +10,7 @@ import {
   handleGroupUpdateRoute,
   handleGroupModelsRoute, handleGroupRemoveRoute, handleGroupVerifyRoute,
 } from './groups.js';
-import { handleReverseImportRoute, handleReverseImportSourcesRoute } from './reverse-import.js';
+import { handleReverseImportRoute, handleReverseImportSourcesRoute } from '../../reverse/routes/import.js';
 import {
   handleChatCompletionsRoute, handleSessionEventsRoute, handleSessionModelReadRoute,
   handleSessionModelWriteRoute, handleSessionTargetReadRoute, handleSessionTargetWriteRoute,

@@ -3,9 +3,9 @@
 // 两个端点都走同一套"来源注册表 + account-store"：源可插拔，平台名只来自调用方参数，
 // 回执**永不包含 token**（account 视图由 import/index.js 的 toPublicAccount 统一脱敏）。
 
-import { describeImportSources, importCredential } from '../credential-import/index.js';
-import { createReverseImportSink } from '../../reverse/core/import-sink.js';
-import { ERROR_CODES, GatewayError } from '../errors.js';
+import { describeImportSources, importCredential } from '../core/import/index.js';
+import { createReverseImportSink } from '../core/import-sink.js';
+import { ERROR_CODES, GatewayError } from '../../gateway/errors.js';
 
 const HTTP_OK = 200;
 
