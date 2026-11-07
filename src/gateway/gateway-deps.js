@@ -30,7 +30,8 @@ export function resolveGatewayDeps(options = {}) {
     // 是 GET /_team/meta 的唯一来源（客户端据此判 INV-14，不能各算一份）。
     // 独立网关没有注册动作，回落成与注册缺省一致的单路由名。
     providerIds: options.providerIds ?? [DEFAULT_PROVIDER_ID],
-    // 宿主凭据服务（导入源 host-credentials 用）：没有就保持 null，导入源据此标记不可用
+    // 宿主凭据服务：可以是服务对象，也可以是 getter（推荐）——getter 让"后置就绪"能在下次请求生效。
+    // 没有就保持 null/返回 null 的 getter，导入源据此标记不可用（不影响插件加载）。
     credentials: options.credentials ?? null,
   };
 }

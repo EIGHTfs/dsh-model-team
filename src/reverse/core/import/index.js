@@ -41,6 +41,12 @@ export function getImportSource(sourceId) {
   return importSources.get(sourceId) ?? null;
 }
 
+// 源的可用性返回两种形态都接受：true/false，或 { available, reason }
+function isSourceAvailable(availability) {
+  if (availability && typeof availability === 'object') return availability.available === true;
+  return availability === true;
+}
+
 function importError(code, message, cause) {
   const error = new Error(message);
   error.code = code;
@@ -86,7 +92,7 @@ export async function importCredential({ platform, sourceId, ref, deps = {} } = 
   if (typeof platform !== 'string' || platform.length === 0) {
     throw importError(IMPORT_SOURCE_ERROR_CODES.INVALID_CREDENTIAL, '缺少 platform');
   }
-  if (typeof source.isAvailable === 'function' && (await source.isAvailable({ deps })) !== true) {
+  if (typeof source.isAvailable === 'function' && !isSourceAvailable(await source.isAvailable({ deps }))) {
     throw importError(IMPORT_SOURCE_ERROR_CODES.SOURCE_UNAVAILABLE, `导入源不可用：${source.name}`);
   }
   const sink = deps?.sink;

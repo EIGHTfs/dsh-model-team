@@ -15,6 +15,8 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
+import { resolveMachineId } from './machine-id.js';
+
 // PKCE 字符集：RFC 7636 的 unreserved（66 个字符），与参考实现一致
 const PKCE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
 const PKCE_MIN_LENGTH = 43;
@@ -48,16 +50,30 @@ export function createPkce() {
   return { verifier, challenge };
 }
 
-export function createDeviceSession({ machineId } = {}) {
+export const NONCE_STYLES = Object.freeze({ DASHED: 'dashed', HEX32: 'hex32' });
+
+// nonce 形态按 profile 走：CN 两家参考都用带横线 uuid；intl 用 32 位无横线 hex
+export function createNonce(nonceStyle = NONCE_STYLES.DASHED) {
+  const uuid = randomUUID();
+  return nonceStyle === NONCE_STYLES.HEX32 ? uuid.replace(/-/g, '') : uuid;
+}
+
+export function createDeviceSession({ machineId, nonceStyle = NONCE_STYLES.DASHED } = {}) {
   return {
     pkce: createPkce(),
-    nonce: randomUUID(),
+    nonce: createNonce(nonceStyle),
+    // machineId 现在由调用方（startDeviceLogin）解析成"本机稳定 id"；这里仍允许注入以便测试
     machineId: machineId ?? randomUUID(),
   };
 }
 
-// 授权页地址：参数形状照抄参考实现（challenge / challenge_method / nonce / machine_id / client_id）
-export function buildAuthUrl({ session, endpoints, clientId }) {
+// 授权页地址：五个基础参数 + **profile 决定的** redirect_uri（CN Python 参考要带，providers-hub/intl 不带）
+export function buildAuthUrl({ session, endpoints, profile } = {}) {
+  const loginProfile = profile ?? {};
+  const clientId = loginProfile.clientId;
+  if (typeof clientId !== 'string' || clientId.length === 0) {
+    throw new TypeError('buildAuthUrl 需要 profile.clientId');
+  }
   const query = new URLSearchParams({
     challenge: session.pkce.challenge,
     challenge_method: 'S256',
@@ -65,6 +81,9 @@ export function buildAuthUrl({ session, endpoints, clientId }) {
     machine_id: session.machineId,
     client_id: clientId,
   });
+  if (typeof loginProfile.redirectUri === 'string' && loginProfile.redirectUri.length > 0) {
+    query.set('redirect_uri', loginProfile.redirectUri);
+  }
   return `${endpoints.authBase}${endpoints.deviceSelectPath}?${query.toString()}`;
 }
 
@@ -118,10 +137,19 @@ async function fetchUserInfo({ accessToken, endpoints, fetchImpl }) {
   };
 }
 
-// 生成一次登录：只拼 URL，不发网络请求（CLI 立刻能打开浏览器）
-export function startDeviceLogin({ endpoints, login, machineId, machineToken, timeoutMs }) {
-  const session = createDeviceSession({ machineId });
-  const loginUrl = buildAuthUrl({ session, endpoints, clientId: login.clientId });
+// 生成一次登录：只拼 URL，不发网络请求（CLI 立刻能打开浏览器）。
+// machineId 不传时按"本机稳定标识"解析（见 machine-id.js）——绝不每次随机。
+export async function startDeviceLogin({ endpoints, login, profile, machineId, machineToken, timeoutMs, dataRoot, logger } = {}) {
+  const loginProfile = profile ?? login;
+  const resolvedMachine = machineId
+    ? { machineId, source: 'explicit' }
+    : await resolveMachineId({ dataRoot });
+  const session = createDeviceSession({
+    machineId: resolvedMachine.machineId,
+    nonceStyle: loginProfile.nonceStyle,
+  });
+  const loginUrl = buildAuthUrl({ session, endpoints, profile: loginProfile });
+  logger?.info?.(`登录 profile=${loginProfile.id ?? '(未命名)'}（client_id 尾 8 位 ${String(loginProfile.clientId).slice(-8)}，machine_id 来源 ${resolvedMachine.source}）`);
   return {
     loginUrl,
     pollContext: {
@@ -144,7 +172,8 @@ export async function pollDeviceLogin({ pollContext, fetchImpl }) {
     headers: { accept: 'application/json' },
   });
 
-  if (response.status === 404) return { status: 'pending' };
+  // 404 = 会话还没就绪；202 = 已接受但尚未完成授权（Python 参考 qoder_accounts.py:4497-4498 同口径）
+  if (response.status === 404 || response.status === 202) return { status: 'pending' };
   if (!response.ok) {
     throw loginError(LOGIN_ERROR_CODES.POLL_FAILED, `登录轮询返回 HTTP ${response.status}`);
   }

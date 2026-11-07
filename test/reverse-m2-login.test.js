@@ -207,7 +207,8 @@ test('login-session：取消 → cancelled；未知会话 → expired', async ()
 
 test('qoder oauth：授权 URL 带齐 challenge/nonce/machine_id/client_id（不需要用户输码）', () => {
   const session = createDeviceSession({ machineId: 'machine-fixed' });
-  const loginUrl = buildAuthUrl({ session, endpoints: { authBase: 'https://auth.example', deviceSelectPath: '/device/selectAccounts' }, clientId: STUB_CLIENT_ID });
+  // buildAuthUrl 现在是 profile 驱动（client_id/redirect_uri 都由 profile 给）；这里用只带 client_id 的最小 profile
+  const loginUrl = buildAuthUrl({ session, endpoints: { authBase: 'https://auth.example', deviceSelectPath: '/device/selectAccounts' }, profile: { clientId: STUB_CLIENT_ID } });
   const parsedUrl = new URL(loginUrl);
 
   assert.equal(parsedUrl.pathname, '/device/selectAccounts');
@@ -216,6 +217,7 @@ test('qoder oauth：授权 URL 带齐 challenge/nonce/machine_id/client_id（不
   assert.equal(parsedUrl.searchParams.get('nonce'), session.nonce);
   assert.equal(parsedUrl.searchParams.get('machine_id'), 'machine-fixed');
   assert.equal(parsedUrl.searchParams.get('client_id'), STUB_CLIENT_ID);
+  assert.equal(parsedUrl.searchParams.has('redirect_uri'), false, 'profile 没给 redirect_uri 就不带该参数');
   assert.equal(/[=]$/.test(session.pkce.challenge), false, 'challenge 不能带 base64 padding');
 });
 
@@ -235,7 +237,7 @@ test('qoder oauth：404 继续 pending，拿到 token 后补 userinfo 得到 use
   t.after(() => stub.close());
   const endpoints = stubEndpoints(stub.origin);
 
-  const started = startDeviceLogin({
+  const started = await startDeviceLogin({
     endpoints,
     login: { clientId: STUB_CLIENT_ID, machineType: 'mac-arm64', pollIntervalMs: 10, timeoutMs: 5000 },
   });
@@ -277,7 +279,7 @@ test('qoder oauth：userinfo 失败 → 明确错误码（不静默丢 userId）
   t.after(() => new Promise((resolve) => failingServer.close(resolve)));
 
   const endpoints = stubEndpoints(`http://127.0.0.1:${failingServer.address().port}`);
-  const started = startDeviceLogin({ endpoints, login: { clientId: STUB_CLIENT_ID, machineType: 'mac', pollIntervalMs: 10, timeoutMs: 5000 } });
+  const started = await startDeviceLogin({ endpoints, login: { clientId: STUB_CLIENT_ID, machineType: 'mac', pollIntervalMs: 10, timeoutMs: 5000 } });
 
   await assert.rejects(
     () => pollDeviceLogin({ pollContext: started.pollContext, fetchImpl: globalThis.fetch }),

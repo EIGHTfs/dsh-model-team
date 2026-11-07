@@ -3,6 +3,19 @@
 // 宿主没有该服务时标记不可用并给出原因——插件照常加载，只是这个来源灰掉。
 // 只取 ref 指向的那份值；**日志与回执永不打印值**（只打印 ref 与是否拿到）。
 
+// deps.credentials 可能是**服务对象**，也可能是**getter 函数**（推荐后者）：
+// 宿主服务可能比插件晚就绪，注册时取一次会把"暂时没有"固化成"永远不可用"。
+export function readCredentialService(credentials) {
+  if (typeof credentials === 'function') {
+    try {
+      return credentials() ?? null;
+    } catch {
+      return null;
+    }
+  }
+  return credentials ?? null;
+}
+
 export const source = {
   id: 'host-credentials',
   name: '宿主凭据服务',
@@ -10,13 +23,16 @@ export const source = {
   platforms: [],
 
   async isAvailable({ deps } = {}) {
-    const credentials = deps?.credentials;
-    return Boolean(credentials) && typeof credentials.resolve === 'function';
+    const credentials = readCredentialService(deps?.credentials);
+    if (!credentials || typeof credentials.resolve !== 'function') {
+      return { available: false, reason: '宿主未提供 credentials 服务或尚未就绪' };
+    }
+    return { available: true };
   },
 
   // 列出候选 ref（不含值）：宿主服务支持 list 才有
   async list({ deps } = {}) {
-    const credentials = deps?.credentials;
+    const credentials = readCredentialService(deps?.credentials);
     if (!credentials || typeof credentials.list !== 'function') return [];
     const entries = await credentials.list();
     return Array.isArray(entries) ? entries.map((entry) => ({ ref: String(entry?.ref ?? ''), label: String(entry?.label ?? '') })) : [];
@@ -24,9 +40,9 @@ export const source = {
 
   // 取一份凭据并归一化成本插件的账号字段
   async resolve({ deps, ref } = {}) {
-    const credentials = deps?.credentials;
+    const credentials = readCredentialService(deps?.credentials);
     if (!credentials || typeof credentials.resolve !== 'function') {
-      const unavailable = new Error('宿主凭据服务不可用');
+      const unavailable = new Error('宿主未提供 credentials 服务或尚未就绪');
       unavailable.code = 'reverse-import-source-unavailable';
       throw unavailable;
     }

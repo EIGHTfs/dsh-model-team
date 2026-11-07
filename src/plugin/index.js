@@ -79,29 +79,28 @@ async function registerPanelRoutes({ ctx, dataRoot, logger, options, providerIds
     }
     // /v1 是否挂载在注册时决定，所以配置在这里先读一次
     const pluginConfig = await readConfig({ dataRoot, logger });
-    // 反代域：唯一入口（清单式注册；内部每一步失败只 warn，不影响主流程）
-    let reverseDisposed = false;
-    const startReverseRegistration = () => {
-      void registerReverse({
-        ctx,
-        dataRoot,
-        logger,
-        credentials: (() => { try { return ctx.get?.('credentials') ?? null; } catch { return null; } })(),
-      })
-        .then((reverseRegistration) => {
-          logger.info(`反代已挂载：路由 ${reverseRegistration.routes} 条、驱动 ${reverseRegistration.drivers} 个、导入源 ${reverseRegistration.importSources} 个`);
-          if (reverseDisposed) reverseRegistration.dispose?.();
-        })
-        .catch((reverseError) => logger.warn(`反代挂载失败（主流程照常）：${describeFailure(reverseError)}`));
-    };
-    if (typeof ctx?.effect === 'function') {
-      ctx.effect(() => {
-        startReverseRegistration();
-        return () => { reverseDisposed = true; };
-      });
-    } else {
-      // 旧宿主没有 effect：仍然挂载，只是没有自动清理路径
-      startReverseRegistration();
+    // 反代域：唯一入口（清单式注册）。**在这里 await 完**：
+    //   · 注册是毫秒级（模块已缓存），不会拖慢启动；
+    //   · apply 返回前注册完成，避免"插件已就绪但域还没挂上"的竞态（测试清理目录时也会撞）。
+    //   失败只 warn，主流程照常。
+    // credentials 传 **getter**：宿主服务可能比插件晚就绪，注册时取一次会把"暂时没有"固化成"永远不可用"。
+    // 不写进 inject：本仓 cordis 的 inject 只支持名字数组（无 { required, optional } 形式），
+    // 写进去会让 credentials 变成必需依赖 → 缺服务时插件整体加载失败（绝不允许）。
+    const readCredentialService = () => { try { return ctx.get?.('credentials') ?? null; } catch { return null; } };
+    const reverseRegistration = await registerReverse({
+      ctx,
+      dataRoot,
+      logger,
+      credentials: readCredentialService,
+    }).catch((reverseError) => {
+      logger.warn(`反代挂载失败（主流程照常）：${describeFailure(reverseError)}`);
+      return null;
+    });
+    if (reverseRegistration) {
+      logger.info(`反代已挂载：路由 ${reverseRegistration.routes} 条、驱动 ${reverseRegistration.drivers} 个、导入源 ${reverseRegistration.importSources} 个`);
+      if (typeof ctx?.effect === 'function') {
+        ctx.effect(() => () => reverseRegistration.dispose?.());
+      }
     }
     ctx.inject(['webServer'], (webContext) => {
       try {

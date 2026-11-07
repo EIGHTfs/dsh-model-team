@@ -72,7 +72,7 @@ test('注册表：qoder 已注册，命名空间换算只有一处且可逆', ()
   assert.equal(fromDriverId('openai-compatible'), null);
 });
 
-test('平台元数据自描述：端点/超时/能力都在 platform 对象里，且不含网络实现', () => {
+test('平台元数据自描述：端点/超时/能力都在 platform 对象里，且不含网络实现', async () => {
   assert.equal(qoderPlatform.endpoints.openApiBase, 'https://openapi.qoder.com.cn');
   assert.equal(typeof qoderPlatform.timeouts.requestMs, 'number');
   assert.equal(qoderPlatform.capabilities.streaming, true);
@@ -80,7 +80,7 @@ test('平台元数据自描述：端点/超时/能力都在 platform 对象里�
 
   const created = qoderPlatform.createPlatform({});
   // M2 起登录已实现：startDeviceLogin 只拼授权 URL、不发请求（返回 loginUrl）
-  const started = created.startDeviceLogin({ machineId: 'machine-fixed' });
+  const started = await created.startDeviceLogin({ machineId: 'machine-fixed' });
   assert.equal(started.loginUrl.startsWith('https://qoder.cn/device/selectAccounts?'), true);
   assert.equal(typeof created.pollDeviceLogin, 'function');
   // 仍未实现（M3/M4）：模型清单、加密请求体、续期

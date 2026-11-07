@@ -42,12 +42,21 @@ export const platform = {
     usage: '/api/v1/usage',
   }),
 
-  // 登录参数：clientId 取国内版 prod 值；machineType/machineToken 是设备身份（头族用）
+  // 登录参数：client_id / redirect_uri / nonce 形态按 profile 走（两家参考实现不一致，做成可切换 + 日志可观测）
   login: Object.freeze({
-    clientId: '732aef47-9cf2-46a2-95fe-4cebb5d0d1fa',
     machineType: 'mac-arm64',
     pollIntervalMs: 1_000,
     timeoutMs: 300_000,
+    defaultProfile: 'cn-python',
+    profileEnvVar: 'DSH_MODEL_TEAM_QODER_LOGIN_PROFILE',
+    profiles: Object.freeze({
+      // 默认：CN Python 参考（qoder_accounts.py:255-266,4458-4462）——带 redirect_uri
+      'cn-python': Object.freeze({ id: 'cn-python', clientId: '1c5e33e1-364d-4ce6-b02c-acaa81274a5c', redirectUri: 'qoder-work-cn://', nonceStyle: 'dashed' }),
+      // 备选：providers-hub 的 CN prod 值（不带 redirect_uri）
+      'cn-providers': Object.freeze({ id: 'cn-providers', clientId: '732aef47-9cf2-46a2-95fe-4cebb5d0d1fa', nonceStyle: 'dashed' }),
+      // 国际版：client_id 不同 + nonce 为 32 位无横线 hex
+      intl: Object.freeze({ id: 'intl', clientId: 'e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb', nonceStyle: 'hex32' }),
+    }),
   }),
 
   // 超时与轮询参数：与端点一样，只在这里出现
@@ -74,13 +83,16 @@ export const platform = {
     const dependencies = { http, crypto, now };
     return {
       dependencies,
-      // 登录：生成授权页 URL（不联网）与轮询（每次一个 HTTP），状态机在 reverse/login-session.js
-      startDeviceLogin({ machineId, machineToken } = {}) {
+      // 登录：生成授权页 URL（不联网）与轮询（每次一个 HTTP），状态机在 core/login-session.js
+      startDeviceLogin({ machineId, machineToken, dataRoot, logger, profileName } = {}) {
         return startDeviceLogin({
           endpoints: platform.endpoints,
           login: platform.login,
+          profile: resolveLoginProfile({ platform, profileName, environment: process.env }),
           machineId,
           machineToken,
+          dataRoot,
+          logger,
         });
       },
       pollDeviceLogin({ pollContext, fetchImpl }) {
@@ -105,5 +117,16 @@ export const platform = {
     };
   },
 };
+
+// 解析本次登录用哪套 profile：显式参数 → 环境变量 → 默认（cn-python）；名字不认识就回落默认并提示
+export function resolveLoginProfile({ platform: platformEntry = platform, profileName, environment = process.env } = {}) {
+  const login = platformEntry.login ?? {};
+  const profiles = login.profiles ?? {};
+  const requested = typeof profileName === 'string' && profileName.length > 0
+    ? profileName
+    : (typeof environment?.[login.profileEnvVar] === 'string' ? environment[login.profileEnvVar].trim() : '');
+  if (requested && profiles[requested]) return profiles[requested];
+  return profiles[login.defaultProfile] ?? Object.values(profiles)[0];
+}
 
 export default platform;

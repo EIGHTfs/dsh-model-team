@@ -84,7 +84,7 @@ async function main() {
   const platformImpl = platform.createPlatform({});
 
   const sessionManager = createLoginSessionManager({
-    startLogin: () => platformImpl.startDeviceLogin({}),
+    startLogin: () => platformImpl.startDeviceLogin({ dataRoot, logger: console }),
     pollLogin: (pollContext) => platformImpl.pollDeviceLogin({ pollContext, fetchImpl: globalThis.fetch }),
     timeoutMs: platform.login.timeoutMs,
   });

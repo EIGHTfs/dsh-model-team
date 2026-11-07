@@ -39,7 +39,7 @@ function getLoginManager({ platform, dataRoot, logger, fetchImpl }) {
 
   const platformImpl = platform.createPlatform({});
   const manager = createLoginSessionManager({
-    startLogin: () => platformImpl.startDeviceLogin({}),
+    startLogin: () => platformImpl.startDeviceLogin({ dataRoot, logger }),
     pollLogin: (pollContext) => platformImpl.pollDeviceLogin({ pollContext, fetchImpl }),
     timeoutMs: platform.login?.timeoutMs,
     logger,
