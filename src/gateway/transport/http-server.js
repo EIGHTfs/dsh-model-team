@@ -141,6 +141,8 @@ export async function handleGatewayRequest(requestOptions) {
       incomingRequest,
       outgoingResponse,
       params: matchedRoute.params,
+      // 查询参数（只读端点用，如 ?platform=qoder）；写端点仍以 body 为准
+      query: Object.fromEntries(requestUrl.searchParams),
       body: requestBody,
       config,
       dataRoot,
