@@ -37,6 +37,10 @@
   font-size: 11px;
 }
 .field { margin-bottom: 12px; }
+/* 加群页更紧凑：选平台 / 起名 / 登录三件事要在首屏一屏内看到，不靠滚动 */
+.view-add .form-step { margin-bottom: 10px; padding: 10px 12px; }
+.view-add .field { margin-bottom: 8px; }
+.view-add .driver-hint { margin-top: 4px; font-size: 11px; }
 .field:last-child { margin-bottom: 0; }
 .field-label {
   display: block;
