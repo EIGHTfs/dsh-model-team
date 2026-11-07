@@ -14,10 +14,16 @@ import { ERROR_CODES, GatewayError } from '../../gateway/errors.js';
 
 const HTTP_OK = 200;
 
-// sessionId → { manager, platformId, dataRoot, logger, savedAccount }
+// sessionId → { manager, platformId, dataRoot, logger, savedAccount, expiresAtMs, state, createdAtMs }
 const loginSessions = new Map();
 // `${dataRoot}|${platformId}` → manager（同一进程里同平台复用一份状态机）
 const managersByPlatform = new Map();
+
+// 测试用：清空进程内会话表（用例之间互不污染）
+export function resetReverseLoginSessionsForTest() {
+  loginSessions.clear();
+  managersByPlatform.clear();
+}
 
 function requirePlatform(platformId) {
   const platform = getPlatform(platformId);
@@ -56,6 +62,22 @@ function requireSession(sessionId) {
   return session;
 }
 
+// 该平台当前"进行中且未过期"的会话（同平台复用：用户重复点登录不该丢掉上一次授权）
+function findReusableSession(platformId) {
+  const nowMs = Date.now();
+  for (const [sessionId, session] of loginSessions.entries()) {
+    if (session.platformId !== platformId) continue;
+    if (session.savedAccount) continue;
+    if (session.state !== LOGIN_STATUS.PENDING) continue;
+    if (session.expiresAtMs <= nowMs) {
+      session.state = LOGIN_STATUS.EXPIRED;   // 过期会话先清理，不参与复用
+      continue;
+    }
+    return { sessionId, session };
+  }
+  return null;
+}
+
 export async function handleReverseLoginStartRoute(context) {
   const platform = requirePlatform(String(context.body?.platform ?? '').trim());
   const manager = getLoginManager({
@@ -65,13 +87,33 @@ export async function handleReverseLoginStartRoute(context) {
     fetchImpl: context.fetchImpl,
   });
 
+  // 同平台已有进行中会话：直接复用（同一个授权页、同一个 sessionId）——重复点登录不该丢弃授权
+  const reusable = findReusableSession(platform.id);
+  if (reusable) {
+    context.logger?.info?.(`反代登录复用进行中会话：平台 ${platform.id}（不新建授权页）`);
+    return {
+      status: HTTP_OK,
+      body: {
+        sessionId: reusable.sessionId,
+        loginUrl: reusable.session.loginUrl,
+        expiresAtMs: reusable.session.expiresAtMs,
+        reused: true,
+      },
+    };
+  }
+
   const started = await manager.start();
+  const expiresAtMs = new Date(started.expiresAt).getTime();
   loginSessions.set(started.sessionId, {
     manager,
     platformId: platform.id,
     dataRoot: context.dataRoot,
     logger: context.logger,
     savedAccount: null,
+    loginUrl: started.loginUrl,
+    expiresAtMs,
+    state: LOGIN_STATUS.PENDING,
+    createdAtMs: Date.now(),
   });
   context.logger?.info?.(`反代登录已发起：平台 ${platform.id}（授权页已生成，等待用户在浏览器完成）`);
 
@@ -80,9 +122,61 @@ export async function handleReverseLoginStartRoute(context) {
     body: {
       sessionId: started.sessionId,
       loginUrl: started.loginUrl,
-      expiresAtMs: new Date(started.expiresAt).getTime(),
+      expiresAtMs,
+      reused: false,
     },
   };
+}
+
+// 把一次 granted 落库（同一会话只落一次；重复调用返回同一份脱敏账号）
+async function claimGrantedAccount(session, sessionId, credential) {
+  if (!session.savedAccount) {
+    const accountStore = createAccountStore({ dataRoot: session.dataRoot, logger: session.logger });
+    const saved = await accountStore.upsertByUserId(session.platformId, {
+      ...credential,
+      origin: 'login',
+      refreshable: true,
+    });
+    session.savedAccount = toPublicAccount(saved);
+    session.state = LOGIN_STATUS.GRANTED;
+    session.logger?.info?.(`反代登录成功：平台 ${session.platformId}（会话 ${sessionId} 已领取并落库）`);
+  }
+  return session.savedAccount;
+}
+
+// 按平台轮询：扫描该平台所有活跃会话，任一 granted 即返回——这样任何一次授权都不会被丢弃
+export async function handleReverseLoginPlatformStatusRoute(context) {
+  const platformId = String(context.query?.platform ?? '').trim();
+  requirePlatform(platformId);
+
+  const platformSessions = [...loginSessions.entries()]
+    .filter(([, session]) => session.platformId === platformId)
+    .sort((left, right) => left[1].createdAtMs - right[1].createdAtMs);
+
+  // 已经领取过的会话优先直接返回（幂等：不重复入库）
+  for (const [, session] of platformSessions) {
+    if (session.savedAccount) return { status: HTTP_OK, body: { status: LOGIN_STATUS.GRANTED, account: session.savedAccount } };
+  }
+
+  let pendingCount = 0;
+  const nowMs = Date.now();
+  for (const [sessionId, session] of platformSessions) {
+    if (session.state !== LOGIN_STATUS.PENDING) continue;
+    if (session.expiresAtMs <= nowMs) { session.state = LOGIN_STATUS.EXPIRED; continue; }
+
+    const pollResult = await session.manager.poll(sessionId);
+    if (pollResult.status === LOGIN_STATUS.GRANTED) {
+      const account = await claimGrantedAccount(session, sessionId, pollResult.credential);
+      return { status: HTTP_OK, body: { status: LOGIN_STATUS.GRANTED, account } };
+    }
+    if (pollResult.status === LOGIN_STATUS.PENDING) { pendingCount += 1; continue; }
+    session.state = pollResult.status;   // expired / cancelled
+  }
+
+  if (pendingCount > 0) {
+    return { status: HTTP_OK, body: { status: LOGIN_STATUS.PENDING, sessionCount: pendingCount } };
+  }
+  return { status: HTTP_OK, body: { status: LOGIN_STATUS.EXPIRED } };
 }
 
 export async function handleReverseLoginStatusRoute(context) {
@@ -94,17 +188,8 @@ export async function handleReverseLoginStatusRoute(context) {
     return { status: HTTP_OK, body: { status: pollResult.status } };
   }
 
-  // granted 只落盘一次：之后轮询直接回同一个脱敏账号
-  if (!session.savedAccount) {
-    const accountStore = createAccountStore({ dataRoot: session.dataRoot, logger: session.logger });
-    const saved = await accountStore.upsertByUserId(session.platformId, {
-      ...pollResult.credential,
-      origin: 'login',
-      refreshable: true,
-    });
-    session.savedAccount = toPublicAccount(saved);
-  }
-  return { status: HTTP_OK, body: { status: LOGIN_STATUS.GRANTED, account: session.savedAccount } };
+  const account = await claimGrantedAccount(session, sessionId, pollResult.credential);
+  return { status: HTTP_OK, body: { status: LOGIN_STATUS.GRANTED, account } };
 }
 
 export async function handleReverseLoginCancelRoute(context) {

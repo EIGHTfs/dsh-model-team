@@ -33,7 +33,9 @@ test('五态文案与按钮禁用规则（照 docs/17 §二/§五）', () => {
   assert.equal(starting.includes('正在打开授权页…'), true);
 
   const waiting = layer.renderReverseAccountsInner(DRIVER, { accounts: [], login: { state: 'waiting', loginUrl: 'https://example.com/a' } });
-  assert.match(waiting, /id="btnReverseLogin"[^>]*disabled/);
+  // 第 9 步起 waiting 不禁用：点它是"重新打开同一个授权页"（不新建会话）
+  assert.equal(/id="btnReverseLogin"[^>]*disabled/.test(waiting), false);
+  assert.equal(waiting.includes('重新打开 Qoder 授权页'), true);
   assert.equal(waiting.includes('等待授权…（浏览器里完成登录后会自动刷新）'), true);
 
   const granted = layer.renderReverseAccountsInner(DRIVER, { accounts: [{ accountId: 'a1', nickname: '账号一', origin: 'login' }], selectedAccountId: 'a1', login: { state: 'granted', accountLabel: '账号一' } });

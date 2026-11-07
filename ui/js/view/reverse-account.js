@@ -19,8 +19,11 @@ function renderReverseAccountsInner(driver, reversePanel) {
   }).join('');
   var optionsHtml = accountOptions || '<option value="">（尚无账号）</option>';
 
-  var isBusy = state === 'starting' || state === 'waiting';
-  var loginLabel = state === 'starting' ? '正在打开授权页…' : ('登录 ' + platformName);
+  // waiting 时按钮**不**禁用：点它是"重新打开授权页"（不新建会话、不停轮询，见第 9 步要求）
+  var isBusy = state === 'starting';
+  var loginLabel = state === 'starting' ? '正在打开授权页…'
+    : state === 'waiting' ? ('重新打开 ' + platformName + ' 授权页')
+    : ('登录 ' + platformName);
 
   // 兜底链接（小字）：只在等待时出现；被拦时换成规范里那一句
   var fallbackRow = '';

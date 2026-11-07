@@ -84,6 +84,15 @@ function scheduleReversePoll() {
   reversePollTimer = setTimeout(pollReverseLoginOnce, REVERSE_POLL_INTERVAL_MS);
 }
 
+// 把一次状态查询的返回翻译成"界面能说清楚的话"（docs/20 §九：错误与过期必须分离）
+function describeReverseStatusFailure(result) {
+  if (result && result.status === 404) return '登录会话已失效，请重新登录';
+  if (result && result.status >= 500) return '登录服务异常（HTTP ' + result.status + '）';
+  if (result && result.status === 0) return '登录服务异常（网络错误）';
+  if (result && result.ok) return '登录服务异常（回执缺少状态）';
+  return '登录服务异常（HTTP ' + (result && result.status ? result.status : '未知') + '）';
+}
+
 function pollReverseLoginOnce() {
   reversePollTimer = null;
   var panel = reversePanelState();
@@ -99,20 +108,24 @@ function pollReverseLoginOnce() {
     return;
   }
 
-  api.getReverseLogin(login.sessionId).then(function (result) {
-    var status = result && result.status ? result.status : 'expired';
-    if (status === 'pending') { scheduleReversePoll(); return; }
-    if (status === 'granted') {
+  // 按平台轮询：任何一次授权（哪怕用户点了两次、开了两个授权页）都会被这里捞到
+  api.getReverseLoginStatusRaw(login.platformId).then(function (result) {
+    var body = result && result.body ? result.body : null;
+    if (result && result.ok && body && body.status === 'pending') { scheduleReversePoll(); return; }
+    if (result && result.ok && body && body.status === 'granted') {
       stopReversePoll();   // 清理路径：成功
-      var savedAccount = result.account || {};
+      var savedAccount = body.account || {};
       login.state = 'granted';
       login.accountLabel = savedAccount.nickname || savedAccount.userId || '账号已保存';
       refreshReverseAccounts(login.platformId, { selectAccountId: savedAccount.accountId || '' }).then(updateReverseAccountsDom);
       return;
     }
-    failReverseLogin(status === 'cancelled' ? '已取消登录' : '授权已超时，请重新登录');
+    if (result && result.ok && body && body.status === 'expired') { failReverseLogin('授权已超时，请重新登录'); return; }
+    if (result && result.ok && body && body.status === 'cancelled') { failReverseLogin('已取消登录'); return; }
+    // 其它情况（404 / 5xx / 网络 / 回执没有 status）：是"服务或会话出问题"，不是"超时"
+    failReverseLogin(describeReverseStatusFailure(result));
   }, function () {
-    // 单次轮询失败不改状态，下一拍继续（终态由服务端给）
+    // axios 级异常（理论上 getReverseLoginStatusRaw 已 catch，这里兜底）：下一拍继续
     scheduleReversePoll();
   });
 }
@@ -121,7 +134,12 @@ function startReverseLogin() {
   var driver = currentReverseDriver();
   if (!driver || driver.authKind !== 'reverse-account') return;
   var panel = reversePanelState();
-  if (panel.login && (panel.login.state === 'starting' || panel.login.state === 'waiting')) return;   // 防连点
+  // 等待期间再点：**不新建会话、不停轮询**，只是把同一个授权页再打开一次（用户可能关掉了它）
+  if (panel.login && panel.login.state === 'waiting' && panel.login.loginUrl) {
+    try { window.open(panel.login.loginUrl, '_blank', 'width=800,height=620'); } catch (openError) { /* 打不开就保持原状 */ }
+    return;
+  }
+  if (panel.login && panel.login.state === 'starting') return;   // 防连点：请求在途
 
   stopReversePoll();
   // ① 同帧：按钮禁用 + 文案变化（不等网络）

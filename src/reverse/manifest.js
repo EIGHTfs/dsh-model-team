@@ -24,6 +24,8 @@ export const manifest = {
   // 路由：path 与实现分开写；handler 形如 '<相对路径>#<导出名>'
   routes: [
     { method: 'POST', path: '/_team/reverse/login/start', handler: './routes/login.js#handleReverseLoginStartRoute' },
+    // 必须排在 /login/:sessionId 之前：否则 "status" 会被当成 sessionId
+    { method: 'GET', path: '/_team/reverse/login/status', handler: './routes/login.js#handleReverseLoginPlatformStatusRoute' },
     { method: 'GET', path: '/_team/reverse/login/:sessionId', handler: './routes/login.js#handleReverseLoginStatusRoute' },
     { method: 'POST', path: '/_team/reverse/login/:sessionId/cancel', handler: './routes/login.js#handleReverseLoginCancelRoute' },
     { method: 'GET', path: '/_team/reverse/accounts', handler: './routes/accounts.js#handleReverseAccountsRoute' },
