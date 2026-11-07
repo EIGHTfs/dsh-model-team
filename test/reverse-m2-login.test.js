@@ -15,7 +15,7 @@ import {
   pollDeviceLogin,
   startDeviceLogin,
 } from '../src/reverse/platforms/qoder/oauth.js';
-import { getPlatform } from '../src/gateway/reverse/index.js';
+import { getPlatform } from '../src/reverse/registry.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 
 const STUB_CLIENT_ID = 'test-client-id';

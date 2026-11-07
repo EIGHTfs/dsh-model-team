@@ -4,10 +4,22 @@
 // 本文件只做两件事：把平台元数据映射成驱动形状；把驱动调用转成 reverse 链路调用。
 // 新增平台不需要动这里——平台目录 + reverse/index.js 注册表就够了。
 
-import { getDataRoot } from '../config/paths.js';
-import { defaultLogger, describeFailure } from '../logger.js';
-import { createAccountStore } from '../../reverse/core/account-store.js';
-import { openInferenceStream } from '../../reverse/platforms/qoder/infer.js';
+import { getDataRoot } from '../gateway/config/paths.js';
+import { defaultLogger, describeFailure } from '../gateway/logger.js';
+import { registerDriver } from '../gateway/drivers/index.js';
+import { createAccountStore } from './core/account-store.js';
+import { manifest } from './manifest.js';
+
+// 各平台的推理实现按清单动态加载（driver.js 里不出现平台名）
+const inferenceModules = new Map();
+for (const entry of manifest.platforms) {
+  if (typeof entry.inferModule !== 'string') continue;
+  try {
+    inferenceModules.set(entry.id, await import(entry.inferModule));
+  } catch {
+    // 加载失败只是该平台不可用；describeReverse 会报出来
+  }
+}
 
 // accessMode 的 reverse 取值来自 drivers/index.js 的 ACCESS_MODES；这里用字面量避免循环依赖
 const REVERSE_ACCESS_MODE = 'reverse';
@@ -75,7 +87,9 @@ export function createReverseDriver({ platform, logger = defaultLogger }) {
       const timeoutMs = context.group?.request?.timeoutMs;
 
       try {
-        const { status, chunks } = await openInferenceStream({
+        const inferenceModule = inferenceModules.get(platform.id);
+        if (!inferenceModule) return buildDriverError('REVERSE_INFERENCE_FAILED', `平台 ${platform.id} 的推理实现未加载`);
+        const { status, chunks } = await inferenceModule.openInferenceStream({
           credential,
           messages: requestBody.messages,
           tools: requestBody.tools,
@@ -106,4 +120,36 @@ export function listReverseDrivers({ platforms, logger = defaultLogger } = {}) {
     drivers.push(createReverseDriver({ platform, logger }));
   }
   return drivers;
+}
+
+// 把驱动交给网关注册表；重复登记只跳过（插件重载/测试重复调用都安全）
+export function registerReverseDrivers({ platforms, logger = defaultLogger } = {}) {
+  const registeredIds = [];
+  for (const driver of listReverseDrivers({ platforms, logger })) {
+    try {
+      registerDriver(driver, { originLabel: `反代平台 ${driver.id}` });
+      registeredIds.push(driver.id);
+    } catch (registerError) {
+      logger.warn(`反代驱动未登记：${describeFailure(registerError)}`);
+    }
+  }
+  return registeredIds;
+}
+
+// 幂等版：建反代群时兜底登记（独立网关/测试没有插件 apply，也要能建群）
+export function ensureReverseDriversRegistered({ platforms, logger = defaultLogger } = {}) {
+  const registeredIds = [];
+  for (const driver of listReverseDrivers({ platforms, logger })) {
+    try {
+      registerDriver(driver, { originLabel: `反代平台 ${driver.id}` });
+      registeredIds.push(driver.id);
+    } catch (registerError) {
+      // 已登记过时 registerDriver 会抛重复；这里吞掉并视为成功
+      if (!String(registerError?.message ?? '').includes('重复')) {
+        logger.warn(`反代驱动未登记：${describeFailure(registerError)}`);
+      }
+      registeredIds.push(driver.id);
+    }
+  }
+  return registeredIds;
 }

@@ -18,6 +18,8 @@ const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
 
 const ROUTES_FILE = path.join(PROJECT_ROOT, 'src/gateway/routes/index.js');
+// 域贡献路由的声明在各自 manifest 里（反代域）：契约表必须把它们算进来
+const REVERSE_MANIFEST_FILE = path.join(PROJECT_ROOT, 'src/reverse/manifest.js');
 const CONSTANTS_FILE = path.join(PROJECT_ROOT, 'src/gateway/config/constants.js');
 const CONTRACT_FILE = path.join(PROJECT_ROOT, 'docs/02-契约.md');
 const UI_SPEC_FILE = path.join(PROJECT_ROOT, 'docs/03-UI规范.md');
@@ -70,6 +72,19 @@ function readRoutes(apiPrefix) {
   const declaredCount = (source.match(/\{\s*method\s*:/g) || []).length;
   if (entries.length !== declaredCount) {
     throw new Error(`ROUTES 解析不完整：解析到 ${entries.length} 条 / 文件里有 ${declaredCount} 条（检查 routes.js 是否出现多行路由对象，或数组结束标记之后还有追加项）`);
+  }
+
+  // 域贡献路由：声明在 src/reverse/manifest.js 里（主流程不再 import 域实现），同样计入端点表
+  try {
+    const manifestSource = fs.readFileSync(REVERSE_MANIFEST_FILE, 'utf8');
+    const manifestPattern = /\{\s*method:\s*'([A-Z]+)',\s*path:\s*'([^']+)'/g;
+    let manifestMatch = manifestPattern.exec(manifestSource);
+    while (manifestMatch !== null) {
+      entries.push(`${manifestMatch[1]} ${manifestMatch[2]}`);
+      manifestMatch = manifestPattern.exec(manifestSource);
+    }
+  } catch {
+    // 迁移期间该文件可能不存在：没有贡献路由就不额外计入
   }
   return entries;
 }

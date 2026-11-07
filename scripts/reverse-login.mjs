@@ -18,7 +18,7 @@ import path from 'node:path';
 import { getDataRoot } from '../src/gateway/config/paths.js';
 import { createAccountStore } from '../src/reverse/core/account-store.js';
 import { createLoginSessionManager, LOGIN_STATUS } from '../src/reverse/core/login-session.js';
-import { getPlatform } from '../src/gateway/reverse/index.js';
+import { getPlatform } from '../src/reverse/registry.js';
 
 const OPEN_COMMANDS = [
   { command: 'xdg-open', args: (url) => [url] },        // Linux / NAS

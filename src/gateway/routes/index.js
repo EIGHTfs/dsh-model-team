@@ -10,7 +10,6 @@ import {
   handleGroupUpdateRoute,
   handleGroupModelsRoute, handleGroupRemoveRoute, handleGroupVerifyRoute,
 } from './groups.js';
-import { handleReverseImportRoute, handleReverseImportSourcesRoute } from '../../reverse/routes/import.js';
 import {
   handleChatCompletionsRoute, handleSessionEventsRoute, handleSessionModelReadRoute,
   handleSessionModelWriteRoute, handleSessionTargetReadRoute, handleSessionTargetWriteRoute,
@@ -33,8 +32,6 @@ export const ROUTES = Object.freeze([
   { method: 'GET', pattern: `${API_PREFIX}/groups`, handler: handleGroupListRoute },
   { method: 'POST', pattern: `${API_PREFIX}/groups`, handler: handleGroupCreateRoute },
   { method: 'PATCH', pattern: `${API_PREFIX}/groups/:id`, handler: handleGroupUpdateRoute },
-  { method: 'GET', pattern: `${API_PREFIX}/reverse/import/sources`, handler: handleReverseImportSourcesRoute },
-  { method: 'POST', pattern: `${API_PREFIX}/reverse/import`, handler: handleReverseImportRoute },
   { method: 'GET', pattern: `${API_PREFIX}/groups/:id`, handler: handleGroupDetailRoute },
   { method: 'DELETE', pattern: `${API_PREFIX}/groups/:id`, handler: handleGroupRemoveRoute },
   { method: 'GET', pattern: `${API_PREFIX}/friend-groups`, handler: handleFriendGroupListRoute },
@@ -73,11 +70,27 @@ function matchRoutePattern(patternSegments, pathSegments) {
   return routeParams;
 }
 
+// 贡献路由：由域自己挂进来（见 transport/route-contributors.js），主流程不 import 域实现
+let contributedRoutes = [];
+
+export function attachContributedRoutes(routes) {
+  // 与内置路由同样预处理 segments（findRoute 只认 segments，不重新解析 pattern）
+  contributedRoutes = (Array.isArray(routes) ? routes : []).map((route) => ({
+    ...route,
+    segments: route.pattern.split('/').filter((segment) => segment.length > 0),
+  }));
+  return contributedRoutes.length;
+}
+
+export function listContributedRoutes() {
+  return [...contributedRoutes];
+}
+
 // 分发：先找得到路径，再看方法；路径命中但方法不对要报 405 而不是 404
 export function findRoute(method, pathname) {
   const pathSegments = pathname.split('/').filter((segment) => segment.length > 0);
   let methodMismatch = false;
-  for (const route of ROUTES) {
+  for (const route of [...ROUTES, ...contributedRoutes]) {
     const routeParams = matchRoutePattern(route.segments, pathSegments);
     if (!routeParams) {
       continue;

@@ -7,9 +7,10 @@ import http from 'node:http';
 import { createReverseHttpClient, REVERSE_HTTP_ERROR_CODES } from '../src/reverse/platforms/qoder/http-client.js';
 import { INFER_ERROR_CODES, decodeChunkStream, openInferenceStream } from '../src/reverse/platforms/qoder/infer.js';
 import { createAccountStore } from '../src/reverse/core/account-store.js';
-import { createReverseDriver, listReverseDrivers, parseAccountRef } from '../src/gateway/drivers/reverse-driver.js';
-import { getDriver, registerReverseDrivers } from '../src/gateway/drivers/index.js';
-import { listPlatforms } from '../src/gateway/reverse/index.js';
+import { createReverseDriver, listReverseDrivers, parseAccountRef } from '../src/reverse/driver.js';
+import { getDriver } from '../src/gateway/drivers/index.js';
+import { registerReverseDrivers } from '../src/reverse/driver.js';
+import { listPlatforms } from '../src/reverse/registry.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 
 const FAKE_CREDENTIAL = Object.freeze({
