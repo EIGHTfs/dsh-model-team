@@ -1,8 +1,8 @@
 # 15 forward 双模式：链路与实施方案（G12）
 
 > 定位：`12` 讲为什么要有双模式；本文画清链路、定死边界与实施口径。
-> 状态：**已搁置**（2026-11-05）。阻塞原因见 `08` 的 G12 行：forward 依赖宿主 `resolveProfiles`，该函数存在于 bundle 但未导出。
-> 恢复时先跑 `node lib/shared/patch-host-pi-ai-export.mjs --apply` 补导出（幂等、带备份、写完自动验证），再按 §六 实施。
+> 官方适配器直调已存在，不能再标为“已搁置”。本文件描述实际模式边界，不宣称 Qoder 私有协议已经接入。
+> 官方能力缺失由 `host-patch.js` 与运行时探测处理；平台私有协议必须由可选插件提供，低耦合边界与当前缺口见 `18`、`06` §二。
 
 ## 一、链路
 
@@ -53,7 +53,7 @@ DSH 落会话；本插件旁路记录请求行（usage / latency / decodeMs / �
 | 项 | 做法 |
 |---|---|
 | 官方包是否可加载 | 启动时 `import('@deepseek-ai/dsh-llm-pi-ai')` 探测一次并缓存结果；失败则该群走 rewrite 并 **warn 一次**（不每请求刷屏） |
-| profile 怎么拼 | 用包内导出的 `Config`（zod schema）解析群配置得到，缺项走包默认；**不手写** `ResolvedPiAiProviderProfile` |
+| profile 怎么拼 | 调官方 `resolveProfiles(rawProviders, 'deferred')`；传原始 provider 配置映射，不传 `Config()` 的解析包装对象；不手写内部 profile 产物 |
 | 凭据怎么给 | `resolveApiKey` 返回群 `auth` / `apiKeyRef` 解出的值（复用现有 `credentials.js`） |
 
 ## 二点五、宿主能力自愈（启动补导出 / 卸载还原）
