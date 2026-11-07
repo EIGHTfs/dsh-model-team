@@ -6,8 +6,8 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 
-import { createAccountStore } from '../src/gateway/reverse/account-store.js';
-import { createLoginSessionManager, LOGIN_STATUS } from '../src/gateway/reverse/login-session.js';
+import { createAccountStore } from '../src/reverse/core/account-store.js';
+import { createLoginSessionManager, LOGIN_STATUS } from '../src/reverse/core/login-session.js';
 import {
   buildAuthUrl,
   buildPollUrl,

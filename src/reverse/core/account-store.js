@@ -12,7 +12,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { defaultLogger, describeFailure } from '../logger.js';
+import { defaultLogger, describeFailure } from '../../gateway/logger.js';
 
 export const ACCOUNT_DIRECTORY_NAME = 'reverse';
 export const ACCOUNT_FILE_MODE = 0o600;

@@ -5,7 +5,7 @@
 // 铁律 16：新增平台只加一行 import + 一行数组项，不改其它平台文件。
 
 import { platform as qoderPlatform } from './qoder/index.js';
-import { assertPlatformShape, REVERSE_DRIVER_PREFIX } from './types.js';
+import { assertPlatformShape, REVERSE_DRIVER_PREFIX } from '../../reverse/core/types.js';
 
 // 注册顺序 = 列表顺序（将来 UI/日志按这个顺序展示）
 const REGISTERED_PLATFORMS = [qoderPlatform];

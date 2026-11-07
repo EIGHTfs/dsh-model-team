@@ -6,7 +6,7 @@ import http from 'node:http';
 
 import { createReverseHttpClient, REVERSE_HTTP_ERROR_CODES } from '../src/gateway/reverse/qoder/http-client.js';
 import { INFER_ERROR_CODES, decodeChunkStream, openInferenceStream } from '../src/gateway/reverse/qoder/infer.js';
-import { createAccountStore } from '../src/gateway/reverse/account-store.js';
+import { createAccountStore } from '../src/reverse/core/account-store.js';
 import { createReverseDriver, listReverseDrivers, parseAccountRef } from '../src/gateway/drivers/reverse-driver.js';
 import { getDriver, registerReverseDrivers } from '../src/gateway/drivers/index.js';
 import { listPlatforms } from '../src/gateway/reverse/index.js';

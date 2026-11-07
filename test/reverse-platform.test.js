@@ -7,7 +7,7 @@ import {
   REVERSE_DRIVER_PREFIX,
   assertPlatformShape,
   requiredPlatformFields,
-} from '../src/gateway/reverse/types.js';
+} from '../src/reverse/core/types.js';
 import { fromDriverId, getPlatform, listPlatforms, toDriverId } from '../src/gateway/reverse/index.js';
 import { platform as qoderPlatform } from '../src/gateway/reverse/qoder/index.js';
 

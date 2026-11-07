@@ -14,8 +14,8 @@ import {
   listImportSources,
   registerImportSource,
 } from '../src/gateway/credential-import/index.js';
-import { createAccountStore } from '../src/gateway/reverse/account-store.js';
-import { createReverseImportSink, toPublicAccount } from '../src/gateway/reverse/import-sink.js';
+import { createAccountStore } from '../src/reverse/core/account-store.js';
+import { createReverseImportSink, toPublicAccount } from '../src/reverse/core/import-sink.js';
 import { startGatewayHarness } from './helpers/gateway-harness.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 

@@ -4,7 +4,7 @@
 // 回执**永不包含 token**（account 视图由 import/index.js 的 toPublicAccount 统一脱敏）。
 
 import { describeImportSources, importCredential } from '../credential-import/index.js';
-import { createReverseImportSink } from '../reverse/import-sink.js';
+import { createReverseImportSink } from '../../reverse/core/import-sink.js';
 import { ERROR_CODES, GatewayError } from '../errors.js';
 
 const HTTP_OK = 200;

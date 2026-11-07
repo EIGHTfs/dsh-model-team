@@ -6,7 +6,7 @@
 
 import { getDataRoot } from '../config/paths.js';
 import { defaultLogger, describeFailure } from '../logger.js';
-import { createAccountStore } from '../reverse/account-store.js';
+import { createAccountStore } from '../../reverse/core/account-store.js';
 import { openInferenceStream } from '../reverse/qoder/infer.js';
 
 // accessMode 的 reverse 取值来自 drivers/index.js 的 ACCESS_MODES；这里用字面量避免循环依赖
