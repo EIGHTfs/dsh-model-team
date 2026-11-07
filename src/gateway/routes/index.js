@@ -70,27 +70,31 @@ function matchRoutePattern(patternSegments, pathSegments) {
   return routeParams;
 }
 
-// 贡献路由：由域自己挂进来（见 transport/route-contributors.js），主流程不 import 域实现
-let contributedRoutes = [];
+// 贡献路由：由域自己挂进来（见 transport/route-contributors.js），主流程不 import 域实现。
+// 这里保持两个兼容出口：attachContributedRoutes 供"静态注入"测试用，listContributedRoutes 供断言用。
+import { collectContributedRoutes } from '../transport/route-contributors.js';
+
+let staticContributedRoutes = [];
 
 export function attachContributedRoutes(routes) {
-  // 与内置路由同样预处理 segments（findRoute 只认 segments，不重新解析 pattern）
-  contributedRoutes = (Array.isArray(routes) ? routes : []).map((route) => ({
-    ...route,
-    segments: route.pattern.split('/').filter((segment) => segment.length > 0),
-  }));
-  return contributedRoutes.length;
+  staticContributedRoutes = Array.isArray(routes) ? [...routes] : [];
+  return staticContributedRoutes.length;
 }
 
-export function listContributedRoutes() {
-  return [...contributedRoutes];
+export function listContributedRoutes(options = {}) {
+  return [...staticContributedRoutes, ...collectContributedRoutes(options)];
+}
+
+function withSegments(route) {
+  return route.segments ? route : { ...route, segments: String(route.pattern).split('/').filter((segment) => segment.length > 0) };
 }
 
 // 分发：先找得到路径，再看方法；路径命中但方法不对要报 405 而不是 404
-export function findRoute(method, pathname) {
+export function findRoute(method, pathname, extraRoutes = []) {
   const pathSegments = pathname.split('/').filter((segment) => segment.length > 0);
   let methodMismatch = false;
-  for (const route of [...ROUTES, ...contributedRoutes]) {
+  const candidateRoutes = [...ROUTES, ...staticContributedRoutes.map(withSegments), ...(Array.isArray(extraRoutes) ? extraRoutes : []).map(withSegments)];
+  for (const route of candidateRoutes) {
     const routeParams = matchRoutePattern(route.segments, pathSegments);
     if (!routeParams) {
       continue;

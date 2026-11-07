@@ -17,6 +17,10 @@ import {
 import { createAccountStore } from '../src/reverse/core/account-store.js';
 import { createReverseImportSink, toPublicAccount } from '../src/reverse/core/import-sink.js';
 import { startGatewayHarness } from './helpers/gateway-harness.js';
+// 反代路由是「贡献式」的：transport 不再自动挂载，测试里显式注册一次（与插件入口同一入口）
+import { registerReverse } from '../src/reverse/register.js';
+
+await registerReverse({ logger: { info() {}, warn() {}, error() {} } });
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 
 const MANUAL_CREDENTIAL = Object.freeze({

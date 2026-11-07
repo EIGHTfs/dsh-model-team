@@ -10,7 +10,6 @@ import { getPlatform, listPlatformLoadFailures, listPlatforms } from './registry
 import { registerReverseDrivers } from './driver.js';
 import { getImportSource } from './core/import/index.js';
 import { registerRouteContributor } from '../gateway/transport/route-contributors.js';
-import { attachContributedRoutes } from '../gateway/routes/index.js';
 import { defaultLogger, describeFailure } from '../gateway/logger.js';
 
 // 把 '<相对路径>#<导出名>' 解析成真正的 handler
@@ -56,11 +55,7 @@ async function doRegisterReverse({ ctx, dataRoot, logger = defaultLogger, creden
       routes.push(await resolveRouteHandler(routeDeclaration));
     }
     const unregisterContributor = registerRouteContributor(() => routes);
-    attachContributedRoutes(routes);
-    disposeTasks.push(() => {
-      unregisterContributor();
-      attachContributedRoutes([]);
-    });
+    disposeTasks.push(() => unregisterContributor());
     summary.routes = routes.length;
   } catch (routeError) {
     failures.push('routes');

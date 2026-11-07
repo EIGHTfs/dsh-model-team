@@ -223,6 +223,35 @@ function checkPreviewScriptList() {
   return problems;
 }
 
+// 域边界：src/ 下除 src/reverse/** 之外的文件，只允许 import 到 src/reverse/register.js。
+// 为什么钉它：域实现（manifest/platforms/core…）被主流程直接 import 时，边界就名存实亡——
+// 一处偷懒，下一次重构就会有人从 core 里直接拿实现，声明式注册随之失效。
+function checkReverseBoundary() {
+  const problems = [];
+  const reverseRoot = path.join(PROJECT_ROOT, 'src', 'reverse');
+  const allowedEntry = path.join(reverseRoot, 'register.js');
+  // 三种写法都要覆盖：`from '...'`、动态 `import('...')`、副作用 `import '...'`
+  const importPattern = /(?:from\s+|import\s*\(\s*|import\s+)(['"])([^'"]+)\1/g;
+
+  for (const file of listFilesRecursive(path.join(PROJECT_ROOT, 'src'), '.js')) {
+    if (file === reverseRoot || file.startsWith(reverseRoot + path.sep)) continue;
+    const source = fs.readFileSync(file, 'utf8');
+    let match = importPattern.exec(source);
+    while (match !== null) {
+      const specifier = match[2];
+      if (specifier.startsWith('.')) {
+        const resolved = path.resolve(path.dirname(file), specifier);
+        const insideReverse = resolved === reverseRoot || resolved.startsWith(reverseRoot + path.sep);
+        if (insideReverse && resolved !== allowedEntry) {
+          problems.push(`${path.relative(PROJECT_ROOT, file)} 直接 import 了域内实现 ${specifier}（只允许 import reverse/register.js）`);
+        }
+      }
+      match = importPattern.exec(source);
+    }
+  }
+  return problems;
+}
+
 // ---------------------------------------------------------------- 主流程
 
 function main() {
@@ -237,6 +266,7 @@ function main() {
   problems.push(...documented.problems);
   problems.push(...checkUndocumentedDirectories(docText));
   problems.push(...checkPreviewScriptList());
+  problems.push(...checkReverseBoundary());
 
   const sourceFiles = [
     ...listFilesRecursive(path.join(PROJECT_ROOT, 'src'), '.js'),

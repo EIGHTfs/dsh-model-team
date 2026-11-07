@@ -10,17 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { readConfig, resolveHttpConfig } from '../config/config.js';
 import { resolveGatewayDeps } from '../gateway-deps.js';
 import { findRoute } from '../routes/index.js';
-
-// 反代域路由是"贡献式"的：首次请求前确保它挂载过（主流程只允许 import 域的 register.js）
-let contributedRoutesReady = null;
-function ensureContributedRoutes() {
-  if (contributedRoutesReady === null) {
-    contributedRoutesReady = import('../../reverse/register.js')
-      .then((reverseModule) => reverseModule.registerReverse({}))
-      .catch(() => null);   // 域不可用不影响主流程
-  }
-  return contributedRoutesReady;
-}
+import { collectContributedRoutes } from './route-contributors.js';
 import { ERROR_CODES, GatewayError, isGatewayError, toErrorPayload } from '../errors.js';
 import { defaultLogger, describeFailure } from '../logger.js';
 import { getDataRoot } from '../config/paths.js';
@@ -135,8 +125,8 @@ export async function handleGatewayRequest(requestOptions) {
     }
 
     const requestUrl = new URL(requestPath, `http://${incomingRequest.headers.host ?? 'localhost'}`);
-    await ensureContributedRoutes();
-    const matchedRoute = findRoute(incomingRequest.method ?? 'GET', requestUrl.pathname);
+    // 路由表 = 静态 ROUTES + 各域贡献的路由（transport 不认识具体域；未挂载时这些路径自然 404）
+    const matchedRoute = findRoute(incomingRequest.method ?? 'GET', requestUrl.pathname, collectContributedRoutes({ logger }));
     if (!matchedRoute) {
       throw new GatewayError(ERROR_CODES.NOT_FOUND, `没有这个端点：${requestUrl.pathname}`, {
         hint: `对外入口是 /v1/chat/completions 与 /v1/models，内部端点前缀为 ${API_PREFIX}/`,
