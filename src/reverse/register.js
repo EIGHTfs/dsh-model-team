@@ -9,8 +9,8 @@ import { manifest } from './manifest.js';
 import { getPlatform, listPlatformLoadFailures, listPlatforms } from './registry.js';
 import { registerReverseDrivers } from './driver.js';
 import { getImportSource } from './core/import/index.js';
-import { registerRouteContributor } from '../gateway/transport/route-contributors.js';
 import { defaultLogger, describeFailure } from '../gateway/logger.js';
+import { REVERSE_ROUTE_PREFIX, createReverseRouteHandler } from './routes/http-adapter.js';
 
 // 把 '<相对路径>#<导出名>' 解析成真正的 handler
 async function resolveRouteHandler(routeDeclaration) {
@@ -33,6 +33,11 @@ async function resolveRouteHandler(routeDeclaration) {
 // 幂等：进程内只真正挂载一次（插件 apply 与网关首次请求都会调，重复调用返回同一份结果）
 let registrationPromise = null;
 
+// 测试用：清掉"已注册"缓存（用例之间互不污染）
+export function resetReverseRegistrationForTest() {
+  registrationPromise = null;
+}
+
 export function registerReverse(options = {}) {
   if (registrationPromise === null) {
     registrationPromise = doRegisterReverse(options).catch((registrationError) => {
@@ -48,15 +53,27 @@ async function doRegisterReverse({ ctx, dataRoot, logger = defaultLogger, creden
   const summary = { routes: 0, drivers: 0, importSources: 0 };
   const disposeTasks = [];
 
-  // ① 路由：按清单加载 handler，再贡献给 transport 层的路由表
+  // ① 路由：**自己注册到宿主 webServer**（不经任何其它插件）
+  //   宿主只支持 kind=exact|prefix 的路径匹配、没有 :参数、也没有 method 维度，
+  //   所以整个域只占一个 prefix 路由，域内再做"方法 + :参数"匹配（见 http-adapter.js）。
   try {
-    const routes = [];
-    for (const routeDeclaration of manifest.routes) {
-      routes.push(await resolveRouteHandler(routeDeclaration));
+    const webServer = (() => { try { return ctx?.get?.('webServer') ?? null; } catch { return null; } })();
+    if (!webServer || typeof webServer.register !== 'function') {
+      failures.push('routes');
+      logger.warn('宿主未提供 webServer：反代路由未挂载（其它能力不受影响）');
+    } else {
+      const routes = [];
+      for (const routeDeclaration of manifest.routes) {
+        routes.push(await resolveRouteHandler(routeDeclaration));
+      }
+      const disposeRoute = webServer.register({
+        kind: 'prefix',
+        path: REVERSE_ROUTE_PREFIX,
+        handler: createReverseRouteHandler({ routes, dataRoot, logger, credentials }),
+      });
+      if (typeof disposeRoute === 'function') disposeTasks.push(disposeRoute);
+      summary.routes = routes.length;
     }
-    const unregisterContributor = registerRouteContributor(() => routes);
-    disposeTasks.push(() => unregisterContributor());
-    summary.routes = routes.length;
   } catch (routeError) {
     failures.push('routes');
     logger.warn(`反代路由挂载失败（继续）：${describeFailure(routeError)}`);
