@@ -13,12 +13,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { getDataRoot } from '../../config/paths.js';
+import { getDataRoot } from '../../../gateway/config/paths.js';
 
 export const QODER_WASM_ENV_VAR = 'DSH_MODEL_TEAM_QODER_WASM';
 export const QODER_WASM_FILE_NAME = 'qoder-auth-wasm.wasm';
 
-// 插件根目录：本文件在 src/gateway/reverse/qoder/ 下，向上四层即仓库/安装根
+// 插件根目录：本文件在 src/reverse/platforms/qoder/ 下，向上四层即仓库/安装根
 const PLUGIN_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 
 export function pluginRootDirectory() {

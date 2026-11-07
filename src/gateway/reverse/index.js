@@ -4,7 +4,7 @@
 // 铁律 2：平台自描述，这里只负责"收表 + 校验形状"；没有第二份手工登记的名单。
 // 铁律 16：新增平台只加一行 import + 一行数组项，不改其它平台文件。
 
-import { platform as qoderPlatform } from './qoder/index.js';
+import { platform as qoderPlatform } from '../../reverse/platforms/qoder/index.js';
 import { assertPlatformShape, REVERSE_DRIVER_PREFIX } from '../../reverse/core/types.js';
 
 // 注册顺序 = 列表顺序（将来 UI/日志按这个顺序展示）

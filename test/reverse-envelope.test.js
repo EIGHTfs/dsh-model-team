@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ENVELOPE_DONE, unwrapEnvelope } from '../src/gateway/reverse/qoder/envelope.js';
+import { ENVELOPE_DONE, unwrapEnvelope } from '../src/reverse/platforms/qoder/envelope.js';
 
 const INNER_CHUNK = '{"choices":[{"index":0,"delta":{"content":"你好"}}]}';
 

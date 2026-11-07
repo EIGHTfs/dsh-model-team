@@ -14,7 +14,7 @@ import {
   createDeviceSession,
   pollDeviceLogin,
   startDeviceLogin,
-} from '../src/gateway/reverse/qoder/oauth.js';
+} from '../src/reverse/platforms/qoder/oauth.js';
 import { getPlatform } from '../src/gateway/reverse/index.js';
 import { createRecordingLogger, createTempDirectory } from './helpers/test-environment.js';
 

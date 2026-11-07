@@ -12,12 +12,12 @@ import {
   CRYPTO_BACKEND_ENV_VAR,
   createCryptoBackend,
   resolveBackendKind,
-} from '../src/gateway/reverse/qoder/crypto/index.js';
+} from '../src/reverse/platforms/qoder/crypto/index.js';
 import {
   buildEncryptedRequestWithNative,
   buildInferPayloadText,
   qoderEncode,
-} from '../src/gateway/reverse/qoder/crypto/native.js';
+} from '../src/reverse/platforms/qoder/crypto/native.js';
 
 const FIXTURE = JSON.parse(await fs.readFile(
   new URL('./fixtures/qoder-cosy-vectors.json', import.meta.url), 'utf8',

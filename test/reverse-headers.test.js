@@ -9,7 +9,7 @@ import {
   QODER_USER_AGENT,
   REQUEST_KINDS,
   buildCosyHeaders,
-} from '../src/gateway/reverse/qoder/headers.js';
+} from '../src/reverse/platforms/qoder/headers.js';
 
 // 注意：machine_token 与 machine_id 是两个字段。头族要的是 machine_token；
 // machine_id 只随凭据持久化并进续期载荷，**不用于请求头**。

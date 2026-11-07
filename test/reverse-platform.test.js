@@ -9,7 +9,7 @@ import {
   requiredPlatformFields,
 } from '../src/reverse/core/types.js';
 import { fromDriverId, getPlatform, listPlatforms, toDriverId } from '../src/gateway/reverse/index.js';
-import { platform as qoderPlatform } from '../src/gateway/reverse/qoder/index.js';
+import { platform as qoderPlatform } from '../src/reverse/platforms/qoder/index.js';
 
 // 合法平台的最小形状：用于逐字段做"删一个 → 必须报错"
 function buildValidPlatform(overrides = {}) {

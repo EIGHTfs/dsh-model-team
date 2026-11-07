@@ -9,7 +9,7 @@
 import { ENVELOPE_DONE, unwrapEnvelope } from './envelope.js';
 import { createCryptoBackend } from './crypto/index.js';
 import { createReverseHttpClient, DEFAULT_REVERSE_TIMEOUT_MS } from './http-client.js';
-import { parseSseEvents } from '../../transport/sse.js';
+import { parseSseEvents } from '../../../gateway/transport/sse.js';
 
 export const INFER_ERROR_CODES = Object.freeze({
   AUTH_REQUIRED: 'REVERSE_AUTH_REQUIRED',

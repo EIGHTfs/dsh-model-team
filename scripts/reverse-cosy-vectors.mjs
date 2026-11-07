@@ -21,7 +21,7 @@ import {
   buildInferPayloadText,
   createCosySession,
   qoderEncode,
-} from '../src/gateway/reverse/qoder/crypto/native.js';
+} from '../src/reverse/platforms/qoder/crypto/native.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FIXTURE_PATH = path.join(REPO_ROOT, 'test', 'fixtures', 'qoder-cosy-vectors.json');
