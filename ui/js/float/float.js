@@ -354,22 +354,7 @@ function setFloatText(selector, value, fallback) {
   node.textContent = text || (fallback || FLOAT_PLACEHOLDER);
 }
 
-// 面板五个字段的最终文案（纯函数：不读 DOM、不读 store）。
-// 抽出来是为了让 check-render 能在 node:vm 里直接断言「五字段非空且不是加载中」，
-// 而不需要起浏览器、也不需要宿主的 projection。float.js 的 DOM 写入与门禁共用这一份。
-function buildPanelFieldTexts(values) {
-  const source = values || {};
-  const trimmed = function (value) {
-    return value == null ? '' : String(value).trim();
-  };
-  return {
-    fpGroup: trimmed(source.groupName) || FLOAT_PLACEHOLDER,
-    fpSession: trimmed(source.sessionLabel) || FLOAT_PLACEHOLDER,
-    fpTarget: trimmed(source.targetLabel) || FLOAT_PLACEHOLDER,
-    fpRate: trimmed(source.rate) || (FLOAT_PLACEHOLDER + ' tok/s'),
-    fpTotal: trimmed(source.globalText) || FLOAT_PLACEHOLDER,
-  };
-}
+// 面板五字段文案走 panel-fields.js 的 buildPanelFieldTexts（唯一实现；门禁断言的就是那份）。
 
 // 会话行文案走 ui-format.js 的 formatSessionLine（唯一实现，docs/03 条款 5）
 function formatSessionLabel(current) {

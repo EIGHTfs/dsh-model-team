@@ -12,6 +12,7 @@ const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 
 const HOST_PART_PATHS = [
   'ui/js/float/geometry.js',
+  'ui/js/float/panel-fields.js',
   'ui/js/format/ui-format.js',
   'ui/js/float/target-source.js',
   'ui/js/format/list-rules.js',
@@ -36,6 +37,7 @@ export async function loadHostGlobals(extraGlobals = {}) {
   }
   return {
     dshHostGeometry: sandbox.dshHostGeometry,
+    dshHostPanelFields: sandbox.dshHostPanelFields,
     dshHostUiFormat: sandbox.dshHostUiFormat,
     dshHostTargetSource: sandbox.dshHostTargetSource,
     dshHostListRules: sandbox.dshHostListRules,

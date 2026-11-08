@@ -13,6 +13,11 @@ var PANEL_FALLBACK_SIZE = { width: 384, height: 210 };
 var DEFAULT_ANCHOR_INSET_PX = 24;      // 默认锚点：右下角往内缩 24px
 var DEFAULT_ANCHOR_VERTICAL_RATIO = 0.58;   // 默认锚点纵向落在视口 58% 处（改它首帧位置就变）
 
+// 视口尺寸：唯一实现（主题 SDK 的 readViewSize 转调这里）
+function readViewSize() {
+  return readViewportSize(null);
+}
+
 function readViewportSize(viewSize) {
   if (viewSize) return viewSize;
   return {
@@ -97,5 +102,6 @@ if (typeof globalThis !== 'undefined') {
     measureSize: measureSize,
     defaultAnchor: defaultAnchor,
     shouldStartDrag: shouldStartDrag,
+    readViewSize: readViewSize,
   };
 }

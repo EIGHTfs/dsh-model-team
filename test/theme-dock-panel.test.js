@@ -64,6 +64,7 @@ async function loadLegacyFunctions() {
   const floatSource = await fs.readFile(LEGACY_FLOAT_SOURCE_PATH, 'utf8');
   const targetSource = await fs.readFile(LEGACY_TARGET_SOURCE_PATH, 'utf8');
   const geometrySource = await fs.readFile(path.join(PROJECT_ROOT, 'ui', 'js', 'float', 'geometry.js'), 'utf8');
+  const panelFieldsSource = await fs.readFile(path.join(PROJECT_ROOT, 'ui', 'js', 'float', 'panel-fields.js'), 'utf8');
   const sandbox = vm.createContext({
     console,
     warnOnce: () => {},
@@ -73,6 +74,7 @@ async function loadLegacyFunctions() {
     setDockOpenDir: () => {},
   });
   vm.runInContext(geometrySource, sandbox, { filename: 'geometry.js' });
+  vm.runInContext(panelFieldsSource, sandbox, { filename: 'panel-fields.js' });
   vm.runInContext(targetSource, sandbox, { filename: 'target-source.js' });
   const exported = vm.runInContext(
     `${floatSource}\n;({ buildPanelFieldTexts: buildPanelFieldTexts, formatSessionLabel: formatSessionLabel })`,

@@ -461,6 +461,8 @@ function boot() {
     onRender: function (nextState) { renderApp(nextState); }
   });
   window.__teamStore = store;            // 供验收脚本读取 errors / state
+  // 主题若已在等：主动通知（事件驱动，不轮询）。主题晚挂的情况由它自己读 __teamStore。
+  if (typeof window.__dmtThemeAttachStore === "function") window.__dmtThemeAttachStore(store);
 
   const viewRoot = findElement('#viewRoot');
   if (viewRoot) viewRoot.innerHTML = '<div class="loading">正在加载模型团队数据…</div>';

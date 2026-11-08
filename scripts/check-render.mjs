@@ -39,6 +39,8 @@ const FORMAT_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/format/ui-format.js');
 const LIST_RULES_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/format/list-rules.js');
 // float.js 的几何函数已搬到 float/geometry.js（单一实现）
 const GEOMETRY_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/float/geometry.js');
+// 面板五字段口径已搬到 float/panel-fields.js（单一实现）
+const PANEL_FIELDS_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/float/panel-fields.js');
 
 // 只有显式给了 DMT_BACKEND 才连真实部署；否则用下面的进程内 fixture
 const EXPLICIT_BACKEND = (process.env.DMT_BACKEND || '').replace(/\/+$/, '');
@@ -73,7 +75,7 @@ function loadRenderLayer() {
  * 与运行时用的是同一份代码，不是复制品。
  */
 function loadFloatPanelTexts() {
-  const source = `${fs.readFileSync(GEOMETRY_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(path.join(PROJECT_ROOT, 'ui/js/float/float.js'), 'utf8')}`;
+  const source = `${fs.readFileSync(GEOMETRY_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(PANEL_FIELDS_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(path.join(PROJECT_ROOT, 'ui/js/float/float.js'), 'utf8')}`;
   const sandbox = vm.createContext({ console });
   return vm.runInContext(
     `${source}\n;({ buildPanelFieldTexts: buildPanelFieldTexts })`,

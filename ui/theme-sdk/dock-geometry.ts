@@ -49,6 +49,7 @@ interface HostGeometry {
   measureSize(element: { getBoundingClientRect(): { width: number; height: number } } | null, fallback: Size): Size;
   defaultAnchor(ballSize: Size, viewSize: Size): Point;
   shouldStartDrag(deltaX: number, deltaY: number): boolean;
+  readViewSize(): Size;
 }
 
 const hostGeometry = (): HostGeometry => {
@@ -65,6 +66,12 @@ const hostUiFormat = () => {
     };
   }).dshHostUiFormat;
   if (!host) throw new Error('宿主文案口径未加载：ui/js/format/ui-format.js 必须先于主题执行');
+  return host;
+};
+
+const hostPanelFields = () => {
+  const host = (globalThis as { dshHostPanelFields?: { buildPanelFields(values: PanelFieldValues): PanelField[] } }).dshHostPanelFields;
+  if (!host) throw new Error('宿主面板字段实现未加载：ui/js/float/panel-fields.js 必须先于主题执行');
   return host;
 };
 
@@ -109,26 +116,13 @@ export interface PanelFieldValues {
   globalText?: unknown;
 }
 
-const trimmedText = (value: unknown): string => (value == null ? '' : String(value).trim());
+/** 面板五行文案（实现在宿主 panel-fields.js：标签/顺序/占位唯一一份） */
+export const buildPanelFields = (values: PanelFieldValues): PanelField[] => hostPanelFields().buildPanelFields(values);
 
-export function buildPanelFields(values: PanelFieldValues): PanelField[] {
-  return [
-    { key: 'fpGroup', label: '当前群聊：', value: trimmedText(values.groupName) || PLACEHOLDER },
-    { key: 'fpSession', label: '会话：', value: trimmedText(values.sessionText) || PLACEHOLDER, title: trimmedText(values.sessionTitle) || undefined },
-    { key: 'fpTarget', label: '当前目标：', value: trimmedText(values.targetLabel) || PLACEHOLDER, hint: trimmedText(values.targetSourceHintText) || undefined },
-    { key: 'fpRate', label: '📊 当前速率：', value: trimmedText(values.rate) || RATE_PLACEHOLDER },
-    { key: 'fpTotal', label: '📈 全局请求量：', value: trimmedText(values.globalText) || PLACEHOLDER },
-  ];
-}
-
-/** 尺寸测量（实现在宿主） */
 export const measureSize = (element: unknown, fallback: Size): Size => hostGeometry().measureSize(element as { getBoundingClientRect(): { width: number; height: number } } | null, fallback);
 
-/** 视口尺寸：只有这一处需要 window，主题也可以自己传（tests 直接给值） */
-export function readViewSize(): Size {
-  if (typeof window === 'undefined') return { width: 0, height: 0 };
-  return { width: window.innerWidth, height: window.innerHeight };
-}
+/** 视口尺寸（实现在宿主 geometry.js） */
+export const readViewSize = (): Size => hostGeometry().readViewSize();
 
 /** 默认锚点（实现在宿主） */
 export const defaultAnchor = (ballSize: Size, viewSize: Size): Point => hostGeometry().defaultAnchor(ballSize, viewSize);
