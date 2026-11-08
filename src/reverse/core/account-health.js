@@ -16,6 +16,9 @@ import path from 'node:path';
 export const ACCOUNT_HEALTH_FILE_NAME_SUFFIX = '.state.json';
 export const ACCOUNT_HEALTH_FILE_MODE = 0o600;
 
+// 秒 → 毫秒：退避窗口按秒配置（与上游/参考实现一致），落盘的冷却时刻是毫秒
+export const MILLISECONDS_PER_SECOND = 1000;
+
 export const SOFT_RATE_BASE_SECONDS = 600;
 export const SOFT_RATE_MAX_SECONDS = 7200;
 export const BREAKER_THRESHOLD = 3;
@@ -117,7 +120,7 @@ export function createAccountHealthStore({ dataRoot, platformId, now = () => Dat
         ...state,
         softRateStreak: streak,
         hardFailStreak: 0,
-        cooldownUntilMs: now() + softRateBackoffSeconds(streak) * 1000,
+        cooldownUntilMs: now() + softRateBackoffSeconds(streak) * MILLISECONDS_PER_SECOND,
         cooldownReason: ACCOUNT_COOLDOWN_REASONS.SOFT_RATE,
       };
       await writeState(accountId, next);
@@ -133,7 +136,7 @@ export function createAccountHealthStore({ dataRoot, platformId, now = () => Dat
         hardFailStreak: streak,
         softRateStreak: 0,
         ...(shouldBreaker ? {
-          cooldownUntilMs: now() + breakerBackoffSeconds(streak) * 1000,
+          cooldownUntilMs: now() + breakerBackoffSeconds(streak) * MILLISECONDS_PER_SECOND,
           cooldownReason: ACCOUNT_COOLDOWN_REASONS.BREAKER,
         } : {}),
       };
@@ -149,7 +152,7 @@ export function createAccountHealthStore({ dataRoot, platformId, now = () => Dat
         ...state,
         unknownFailStreak: streak,
         ...(shouldDegrade ? {
-          cooldownUntilMs: now() + degradeBackoffSeconds(streak) * 1000,
+          cooldownUntilMs: now() + degradeBackoffSeconds(streak) * MILLISECONDS_PER_SECOND,
           cooldownReason: ACCOUNT_COOLDOWN_REASONS.DEGRADE,
         } : {}),
       };

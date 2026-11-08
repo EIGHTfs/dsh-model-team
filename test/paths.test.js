@@ -51,7 +51,7 @@ test('派生路径：config.json 与 drivers/ 都挂在数据根之下', () => {
 test('数据根①：DSH_MODEL_TEAM_HOME 与 DSH_HOME 同时存在时，显式覆盖赢', () => {
   const dataRoot = getDataRoot({
     [DATA_ROOT_ENV_VAR]: '/tmp/explicit-root',
-    [DSH_HOME_ENV_VAR]: '/volume1/@appdata/dsh/0.2.2-rc.1/.dsh',
+    [DSH_HOME_ENV_VAR]: '/srv/host-app/home/.dsh',
   }, '/home/example');
 
   assert.equal(dataRoot, path.resolve('/tmp/explicit-root'));
@@ -59,7 +59,7 @@ test('数据根①：DSH_MODEL_TEAM_HOME 与 DSH_HOME 同时存在时，显式�
 });
 
 test('数据根②：只有 DSH_HOME 时，挂到 <DSH_HOME>/dsh-model-team', () => {
-  const dshHome = '/volume1/@appdata/dsh/0.2.2-rc.1/.dsh';
+  const dshHome = '/srv/host-app/home/.dsh';
   const dataRoot = getDataRoot({ [DSH_HOME_ENV_VAR]: dshHome }, '/home/example');
 
   assert.equal(dataRoot, path.resolve(path.join(dshHome, DATA_DIRECTORY_NAME)));
