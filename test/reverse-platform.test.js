@@ -76,7 +76,8 @@ test('平台元数据自描述：端点/超时/能力都在 platform 对象里�
   assert.equal(qoderPlatform.endpoints.openApiBase, 'https://openapi.qoder.com.cn');
   assert.equal(typeof qoderPlatform.timeouts.requestMs, 'number');
   assert.equal(qoderPlatform.capabilities.streaming, true);
-  assert.deepEqual([...qoderPlatform.capabilities.catalogKeys], ['qfmodel', 'dmodel']);
+  // 模型目录改成运行时从上游拉：能力位里不再有静态清单（防止有人把模型名写回来）
+  assert.equal('catalogKeys' in qoderPlatform.capabilities, false, '不应再有静态模型清单');
 
   const created = qoderPlatform.createPlatform({});
   // M2 起登录已实现：startDeviceLogin 只拼授权 URL、不发请求（返回 loginUrl）
@@ -84,7 +85,8 @@ test('平台元数据自描述：端点/超时/能力都在 platform 对象里�
   assert.equal(started.loginUrl.startsWith('https://qoder.com.cn/device/selectAccounts?'), true);
   assert.equal(typeof created.pollDeviceLogin, 'function');
   // 仍未实现（M3/M4）：模型清单、加密请求体、续期
-  assert.throws(() => created.listModels(), (error) => error.code === 'REVERSE_NOT_IMPLEMENTED');
+  // listModels 已实现（运行时远端拉取）：没有凭据时应当是"缺设备身份"的明确错误，而不是"未实现"
+  await assert.rejects(() => created.listModels({}), (error) => typeof error.code === 'string' && error.code.length > 0);
   assert.throws(() => created.encodeRequestBody(), (error) => error.code === 'REVERSE_NOT_IMPLEMENTED');
   assert.throws(() => created.refreshCredential(), (error) => error.code === 'REVERSE_NOT_IMPLEMENTED');
   // 纯函数已可用

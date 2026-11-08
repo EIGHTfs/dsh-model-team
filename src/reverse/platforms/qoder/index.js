@@ -9,7 +9,7 @@ import { unwrapEnvelope } from './envelope.js';
 import { pollDeviceLogin, startDeviceLogin } from './oauth.js';
 import { isQoderWasmAvailable } from './wasm-path.js';
 import { deriveFingerprint, mergeFingerprint } from './fingerprint.js';
-import { displayNameFor, isKnownCatalogKey, listCatalogKeys } from './catalog.js';
+import { displayNameFor, fetchRemoteCatalog, isKnownCatalogKey } from './catalog.js';
 
 // 未实现的网络方法统一抛这个错误：M1 不允许"悄悄发请求"
 export const NOT_IMPLEMENTED_CODE = 'REVERSE_NOT_IMPLEMENTED';
@@ -112,7 +112,7 @@ export const platform = {
     // wasm 是可选后端，缺失只影响 wasmBackend 位，不影响该平台能不能跑
     encryptedInference: true,
     wasmBackend: isQoderWasmAvailable(),
-    catalogKeys: Object.freeze(['qfmodel', 'dmodel']),
+    // 模型目录**不再有静态清单**：运行时从上游拉（catalog.js），缓存 10 分钟
   }),
 
   // 契约方法：纯函数直接接；需要网络/加密的在 M1 明确抛「未实现」
@@ -140,8 +140,20 @@ export const platform = {
       mergeFingerprint(existingCredential, derived) { return mergeFingerprint(existingCredential, derived); },
       // 续期是 M4 的范围
       refreshCredential() { throw notImplemented('refreshCredential'); },
-      // 取模型清单需要网络（M2/M3）
-      listModels() { throw notImplemented('listModels'); },
+      // 取模型清单：运行时从上游拉（GET 带 body + COSY 头），带 TTL 缓存；失败抛明确错误，不回落静态表
+      async listModels({ credential, dataRoot, logger, fetchImpl, forceRefresh, now } = {}) {
+        const { models } = await fetchRemoteCatalog({
+          platformId: platform.id,
+          credential,
+          endpoints: platform.endpoints,
+          dataRoot,
+          logger,
+          fetchImpl,
+          forceRefresh,
+          now,
+        });
+        return models;
+      },
       // 加密请求体需要 WASM（M3）
       encodeRequestBody() { throw notImplemented('encodeRequestBody'); },
       // 纯函数：头族与信封剥离现在就能用
@@ -151,9 +163,9 @@ export const platform = {
       decodeStreamChunk(rawEvent) {
         return unwrapEnvelope(rawEvent);
       },
-      // 目录映射（纯数据）
+      // 目录判定：按运行时缓存判断（没拉过就返回 false，调用方先 listModels 再判）
       isKnownModel(catalogKey) { return isKnownCatalogKey(catalogKey); },
-      listModelsMeta() { return listCatalogKeys().map((key) => ({ key, displayName: displayNameFor(key) })); },
+      displayNameFor(catalogKey) { return displayNameFor(catalogKey); },
     };
   },
 };

@@ -125,10 +125,20 @@ export function createReverseDriver({
       logger?.info?.(`反代平台 ${platform.id} 尚无可用账号（群 ${context.group?.id ?? ''}）：先登录或走凭据导入`);
       return false;
     },
-    // 模型清单来自平台目录（加密链路的模型 key 是目录 key，不额外请求上游）
-    async fetchModels() {
-      const catalogKeys = Array.isArray(platform.capabilities?.catalogKeys) ? platform.capabilities.catalogKeys : [];
-      return catalogKeys.map((catalogKey) => ({ id: catalogKey, name: catalogKey }));
+    // 模型清单：运行时从上游拉（平台实现负责签名/解析/缓存）。失败必须抛错——
+    // 返回空数组会变成"探测成功但零模型"，把真实原因（未登录/403/加密体）藏起来。
+    async fetchModels(context = {}) {
+      const credential = await resolveGroupReverseCredential(context.group, { dataRoot: context.dataRoot ?? dataRoot, logger });
+      if (!credential) {
+        throw Object.assign(new Error(`反代平台 ${platform.id} 尚未登录：先在加群页完成登录或导入账号`), { code: 'REVERSE_NOT_LOGGED_IN' });
+      }
+      const platformImpl = platform.createPlatform({});
+      return platformImpl.listModels({
+        credential,
+        dataRoot: context.dataRoot ?? dataRoot ?? getDataRoot(),
+        logger,
+        fetchImpl: context.fetchImpl,
+      });
     },
     async streamCompletions(context = {}, requestBody = {}, options = {}) {
       let credential;
@@ -145,9 +155,8 @@ export function createReverseDriver({
         return buildDriverError('REVERSE_NOT_LOGGED_IN', `未登录：群 ${context.group?.id ?? ''} 的凭据引用不是有效账号（先登录或导入账号）`);
       }
 
-      const model = typeof requestBody.model === 'string' && requestBody.model.length > 0
-        ? requestBody.model
-        : (platform.capabilities?.catalogKeys?.[0] ?? '');
+      // 模型名由调用方给（真实模型 key）；目录是运行时数据，这里不再从静态清单兜底
+      const model = typeof requestBody.model === 'string' ? requestBody.model.trim() : '';
       const timeoutMs = context.group?.request?.timeoutMs;
       const accountRef = parseAccountRef(context.group?.auth?.apiKeyRef);
       const accountId = accountRef?.accountId ?? '';

@@ -247,7 +247,7 @@ export async function buildEncryptedRequestWithNative({
   rng = defaultRng,
 } = {}) {
   if (typeof model !== 'string' || model.length === 0) {
-    const modelError = new Error('Qoder 加密请求需要 model（模型目录 key，如 qfmodel）');
+    const modelError = new Error('Qoder 加密请求需要 model（运行时目录里的模型 key）');
     modelError.code = NATIVE_ERROR_CODES.ENCRYPT_FAILED;
     throw modelError;
   }

@@ -90,3 +90,20 @@
 1. 改任何 Qoder 相关代码前，先在本表找到对应行；**没有对应行就先加一行**（连同证据行号）再动手。
 2. 两家参考冲突时（如 `client_id`、授权站点），**保留可切换 + 日志可观测**，真机一次定论后删掉多余分支。
 3. 任何一行标着「未实现 / 待对齐」的，不许在文档或回复里说成「已支持」。
+
+## 九、模型目录（远端拉取 + 缓存）
+
+| 项 | 值 / 做法 | 证据 |
+|---|---|---|
+| 路径 | `/algo/api/v2/model/list?Encode=1` | `qoder_proxy.py:336`（`MODELS_PATH`） |
+| 主机 | 同 `platform.endpoints.inferBase`（CN 为 `https://gateway.qoder.com.cn`） | `qoder_proxy.py:336`、`qoder_accounts.py:254` |
+| 方法 | **GET，但必须带 body**；裸 GET 返回 **403** | `qoder_proxy.py:3099-3116` 注释原文 |
+| body | `qoderEncode('{}')`，且"签名用的 body" 与"发出去的 body" 必须同一串 | 同上 |
+| 头族 | COSY 签名头（与推理同一套）+ `accept: application/json`；**不带** `cache-control: no-cache`（`sse=False` 语义） | `qoder_proxy.py:3099-3116` |
+| 响应 | 明文 JSON，模型在 `payload.chat[]`：`key` 为标识、`display_name` 为展示名；`price_factor` / `is_free` / `enabled` / `minimal_version` 等**原样保留**，只补 `id` / `name` 兼容键 | `qoder_proxy.py:3122-3138` |
+| 版本闸门 | `client_type=5` 且 `cosy-version >= 1.1.70` 才拿到全部；本项目常量为 `1.1.75` | 参考实现实测结论 |
+| 缓存 | 进程内 TTL **10 分钟**（`CATALOG_CACHE_TTL_MS`）+ 可选落盘 `<dataRoot>/reverse/<platformId>/catalog.json`（0600，含 `fetchedAtMs`）；过期重拉 | 本项目实现（`platforms/qoder/catalog.js`） |
+| 失败策略 | 非明文 JSON → `REVERSE_CATALOG_UNDECRYPTABLE`；HTTP 非 2xx → `REVERSE_CATALOG_UPSTREAM_FAILED`（带 `status`）；**一律不回落静态清单** | 本项目实现 |
+| 传输实现 | 用 `node:https` 原生请求（**fetch/undici 不允许 GET 带 body**），测试可注入 `fetchImpl` | 本项目实现 |
+
+**纪律**：源码里不许再出现具体模型名（`src/` 内已清零，并有用例钉住）。要加"某模型特判"必须走运行时目录字段，不许写死 key。
