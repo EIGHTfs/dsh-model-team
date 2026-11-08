@@ -101,6 +101,9 @@ export function createReverseDriver({
     id: platform.driverId,
     name: platform.name ?? platform.id,
     accessMode: REVERSE_ACCESS_MODE,
+    // 上游错误认领：只透传平台声明里的字符串路径与模块地址（本文件不 import 平台实现）
+    streamErrorClaimersModule: platform.streamErrorClaimersModule ?? null,
+    streamErrorClaimersBase: platform.streamErrorClaimersBase ?? null,
     // 界面判别标记：有它就渲染"账号区"而不是 API Key 输入框
     authKind: AUTH_KINDS.REVERSE_ACCOUNT,
     platformId: platform.id,

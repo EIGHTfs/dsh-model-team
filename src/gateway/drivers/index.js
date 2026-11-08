@@ -31,6 +31,8 @@ export const AUTH_KINDS = Object.freeze({
   REVERSE_ACCOUNT: 'reverse-account',
 });
 
+import { registerStreamErrorClaimer } from './stream-error-claimers.js';
+
 // accessMode 取值（docs/07）：official 走公开 API，reverse 走浏览器凭证/私有接口
 export const ACCESS_MODES = Object.freeze({
   OFFICIAL: 'official',
@@ -99,6 +101,55 @@ export function registerDriver(driverCandidate, { originLabel = '驱动' } = {})
 }
 
 // 重扫前清掉外挂部分：删掉文件后列表里就不该再有它（内置驱动保留）
+
+/**
+ * 按声明里的**字符串路径**动态加载并登记某个驱动的"上游错误认领者"。
+ *
+ * 通用层只做两件事：把模块 import 回来、把 claim 函数交给注册表——它不认识平台名、
+ * 不认识错误码表、也不认识具体文件（路径来自声明）。加载/形状不对只 warn 并跳过：
+ * 认领是增强，不是前置依赖，坏了不能拖垮对话。
+ *
+ * @returns {Promise<Array<() => void>>} 注销函数列表（驱动卸载时逐个调用）
+ */
+export async function attachStreamErrorClaimers({ baseUrl, moduleSpecifier, idPrefix, logger = defaultLogger } = {}) {
+  if (typeof moduleSpecifier !== 'string' || moduleSpecifier.length === 0) return [];
+  if (typeof baseUrl !== 'string' || baseUrl.length === 0) {
+    logger.warn(`上游错误认领跳过：缺少模块基准地址（${idPrefix ?? '未知驱动'}）`);
+    return [];
+  }
+  let moduleNamespace;
+  try {
+    moduleNamespace = await import(new URL(moduleSpecifier, baseUrl).href);
+  } catch (loadError) {
+    logger.warn(`上游错误认领模块加载失败（跳过）：${moduleSpecifier} -> ${describeFailure(loadError)}`);
+    return [];
+  }
+  const declaredClaimers = moduleNamespace?.claimers;
+  if (!Array.isArray(declaredClaimers)) {
+    logger.warn(`上游错误认领模块未导出 claimers 数组（跳过）：${moduleSpecifier}`);
+    return [];
+  }
+  const disposers = [];
+  for (const declaredClaimer of declaredClaimers) {
+    try {
+      disposers.push(registerStreamErrorClaimer({ id: `${idPrefix}#${declaredClaimer?.id}`, claim: declaredClaimer?.claim }));
+    } catch (registerError) {
+      logger.warn(`上游错误认领登记失败（跳过）：${declaredClaimer?.id ?? '(无 id)'} -> ${describeFailure(registerError)}`);
+    }
+  }
+  return disposers;
+}
+
+// 驱动自己声明了认领模块时激活（驱动注册流程的一部分；失败只 warn）
+export async function activateDriverStreamErrorClaimers(driver, { logger = defaultLogger } = {}) {
+  return attachStreamErrorClaimers({
+    baseUrl: driver?.streamErrorClaimersBase,
+    moduleSpecifier: driver?.streamErrorClaimersModule,
+    idPrefix: driver?.id ?? 'driver',
+    logger,
+  });
+}
+
 function clearExternalDrivers() {
   for (const [sourceKey, record] of driverLoadRecords) {
     if (sourceKey.startsWith('builtin:')) {
@@ -256,5 +307,23 @@ export function listDrivers() {
     .map(toDriverMeta);
 }
 
+// 激活内置驱动的认领者（异步 import；失败只 warn）。测试可 await 它来保证时序确定。
+export async function activateBuiltInStreamErrorClaimers({ logger = defaultLogger } = {}) {
+  const activated = [];
+  for (const builtInDriver of BUILT_IN_DRIVERS) {
+    if (!builtInDriver?.streamErrorClaimersModule) continue;
+    const disposers = await attachStreamErrorClaimers({
+      baseUrl: builtInDriver.streamErrorClaimersBase,
+      moduleSpecifier: builtInDriver.streamErrorClaimersModule,
+      idPrefix: builtInDriver.id,
+      logger,
+    });
+    activated.push(...disposers);
+  }
+  return activated;
+}
+
 // 模块加载即装好内置驱动，调用方不必先手动 register
 resetDriverRegistry();
+// 认领者随模块加载异步挂上（不阻塞 import；加载失败已在 attach 内部 warn）
+activateBuiltInStreamErrorClaimers().catch(() => {});

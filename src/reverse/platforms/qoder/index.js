@@ -21,6 +21,9 @@ function notImplemented(methodName) {
 }
 
 export const platform = {
+  // 上游错误认领模块（字符串路径；由注册器动态加载，通用层不认识它）
+  streamErrorClaimersModule: './claimers.js',
+  streamErrorClaimersBase: import.meta.url,
   // 内部 id 与对外驱动 id 是两个空间；换算在 reverse/index.js（此处只声明结果）
   id: 'qoder',
   // 驱动展示名（drivers 列表里给用户看的）

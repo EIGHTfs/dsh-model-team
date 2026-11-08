@@ -12,9 +12,10 @@ import { resolveSessionTargetWithFallback } from '../../gateway/session/fallback
 import { resolveAttemptContext } from '../../gateway/transport/attempt-context.js';
 import { DEFAULT_MAX_REQUEST_ROWS, appendRequestRow, buildRequestRow } from '../../gateway/stats/index.js';
 import { createClock } from '../../gateway/clock.js';
-import { DEFAULT_USAGE_PATH, extractUsage } from '../../gateway/mapping.js';
+import { DEFAULT_USAGE_PATH, carriesFirstToken, extractUsage } from '../../gateway/mapping.js';
 import { resolveGroupCredentials } from '../../gateway/config/credentials.js';
 import { parseSseJsonData } from '../../gateway/transport/sse.js';
+import { claimStreamError } from '../../gateway/drivers/stream-error-claimers.js';
 import { defaultLogger, describeFailure } from '../../gateway/logger.js';
 import { ERROR_CODES, GatewayError } from '../../gateway/errors.js';
 import { classifyUpstreamFailure, createStreamChunkBuilder } from './llm-protocol.js';
@@ -59,7 +60,12 @@ import {
 
 // 兼容旧的导入面：消息/工具/请求体转换仍可从 adapter.js 取到
 export { buildOpenAiRequestBody, toOpenAiMessages, toOpenAiTools } from './support.js';
-// 工厂：注入基类与错误类（本项目不 import 宿主包，测试可传桩）
+// 记录首字时刻（只在第一次真正有内容时写；判据复用 carriesFirstToken，不另写一套）
+export function noteFirstToken(streamState, payload, nowMs = Date.now) {
+  if (typeof streamState.firstTokenAtMs === 'number' || !carriesFirstToken(payload)) return;
+  streamState.firstTokenAtMs = nowMs();
+}
+
 export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} }) {
   const resolvedDeps = {
     dataRoot: undefined,
@@ -186,16 +192,21 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
   };
 
   // 上游事件 → StreamChunk：块逐条 yield，usage/id/完成原因收集到 streamState
-  const relayEventChunks = async function* relayStreamEvents({ streamResult, chunkBuilder, usagePath, streamState }) {
+  const relayEventChunks = async function* relayStreamEvents({ streamResult, chunkBuilder, usagePath, streamState, driverId, model, nowMs = Date.now }) {
     for await (const sseEvent of streamResult.events) {
       const parsedEvent = parseSseJsonData(sseEvent);
       if (parsedEvent.done) {
         streamState.upstreamFinished = true;
         continue;
       }
-      if (parsedEvent.invalid || !parsedEvent.payload) {
-        continue;
+      if (parsedEvent.invalid || !parsedEvent.payload) continue;
+      // 认领：某些上游用 HTTP 200 + 错误帧回话（各平台/驱动自己登记判据，通用层不认识它们）
+      const claimed = claimStreamError(parsedEvent.payload, { driverId, model });
+      if (claimed) {
+        streamState.claimedError = claimed;
+        throw Object.assign(new LlmErrorClass(claimed.message, claimed.code), { upstreamStatus: claimed.status });
       }
+      noteFirstToken(streamState, parsedEvent.payload, nowMs);
       collectStreamState(streamState, parsedEvent.payload, usagePath);
       for (const streamChunk of chunkBuilder.appendOpenAiChunk(parsedEvent.payload)) {
         yield streamChunk;
@@ -360,6 +371,9 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
           chunkBuilder,
           usagePath: rowContext.targetGroup?.response?.usagePath ?? DEFAULT_USAGE_PATH,
           streamState,
+          driverId: rowContext.targetGroup?.driver ?? null,
+          model: rowContext.targetModel ?? null,
+          nowMs: () => resolvedDeps.clock.nowMs(),
         });
       } catch (streamError) {
         await this.handleStreamError({ streamError, streamState, options, rowContext });
@@ -371,6 +385,7 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
         usage: streamState.lastUsage,
         requestId: streamState.lastResponseId,
         aborted: streamState.abortedByCaller,
+        firstTokenAtMs: streamState.firstTokenAtMs ?? null,
       });
       yield* this.finishStream({ streamState, chunkBuilder });
     }
@@ -422,16 +437,19 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
       resolvedDeps.logger.warn(`适配器流式转发中断：${describeFailure(streamError)}`);
       await this.recordRow({
         ...rowContext,
-        upstreamStatus: streamState.upstreamStatus,
+        // 平台侧识别出的业务错误会带 upstreamStatus（如 502）：请求行必须记失败，不能记成 200
+        upstreamStatus: streamError?.upstreamStatus ?? streamState.upstreamStatus,
         usage: streamState.lastUsage,
         requestId: streamState.lastResponseId,
         aborted: false,
+        firstTokenAtMs: streamState.firstTokenAtMs ?? null,
+        claimedReason: streamState.claimedError?.reason ?? null,
       });
       throw toLlmError(streamError, 'UPSTREAM_ERROR');
     }
 
     // 请求行：与 HTTP 路径同一份组装/存储实现，保证两边字段口径一致
-    async recordRow({ sessionId, targetGroup, targetModel, groupId, targetSource, startedAtMs, upstreamStatus, usage, requestId, aborted }) {
+    async recordRow({ sessionId, targetGroup, targetModel, groupId, targetSource, startedAtMs, upstreamStatus, usage, requestId, aborted, firstTokenAtMs, claimedReason }) {
       const requestRow = resolvedDeps.buildRequestRow({
         sessionId,
         statusCode: aborted ? 0 : upstreamStatus || 0,
@@ -442,6 +460,8 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
         userAgent: IN_PROCESS_USER_AGENT,
         startedAtMs,
         finishedAtMs: resolvedDeps.clock.nowMs(),
+        firstTokenAtMs: typeof firstTokenAtMs === 'number' ? firstTokenAtMs : null,
+        claimedReason: typeof claimedReason === 'string' && claimedReason.length > 0 ? claimedReason : null,
         usage: usage ?? null,
         credit: null,
         requestId: requestId ?? resolvedDeps.clock.createRequestId(),

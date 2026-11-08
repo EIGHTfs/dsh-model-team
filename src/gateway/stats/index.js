@@ -108,10 +108,11 @@ function toLatencySeconds(elapsedMilliseconds) {
 }
 
 // title：按"时间 | 状态 | 模型 | 会话账号 | IP | UA | 耗时 | tokens | credit | 命中 | req-id"拼接
+// 顺序由契约冻结（§3.2.1）：认领依据走 claimedReason 字段，不往 title 里追加段（见 docs/02 §九）
 export function buildRequestTitle(requestRow) {
   const statusSegment = `${requestRow.status} ${requestRow.statusText}`;
   const accountSegment = `${requestRow.account.name}(${requestRow.account.id})`;
-  return [
+  const titleSegments = [
     requestRow.time,
     statusSegment,
     requestRow.model,
@@ -123,7 +124,8 @@ export function buildRequestTitle(requestRow) {
     requestRow.credit,
     requestRow.cacheHit,
     requestRow.requestId,
-  ].join(TITLE_FIELD_SEPARATOR);
+  ];
+  return titleSegments.join(TITLE_FIELD_SEPARATOR);
 }
 
 // 组装一条请求行：所有字段落到成品值，纯函数便于逐字段断言
@@ -139,6 +141,8 @@ export function buildRequestRow({
   finishedAtMs,
   // 首字时刻（毫秒）：流式路径才有，非流式 / 上游没吐内容时是 null
   firstTokenAtMs,
+  // 认领依据（机器可查的原始依据，如 qoder-code:112）：只有"上游帧被认领为错误"时才非空
+  claimedReason,
   usage,
   credit,
   requestId,
@@ -182,6 +186,10 @@ export function buildRequestRow({
     firstTokenAtMs: typeof firstTokenAtMs === 'number' ? firstTokenAtMs : null,
     usage: usage ?? null,
   };
+  // 认领依据：只有命中上游错误认领才出现（契约 §3.2：未命中不出现该字段）
+  if (typeof claimedReason === 'string' && claimedReason.length > 0) {
+    requestRow.claimedReason = claimedReason;
+  }
   requestRow.title = buildRequestTitle(requestRow);
   // 分组派发时记录"本轮由哪个分组派出去"（INV-11：model 仍是真实模型，groupId 只补来源）
   if (typeof groupId === 'string' && groupId.length > 0) {

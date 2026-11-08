@@ -11,6 +11,7 @@
 //   3) usage 只旁路观测：读 chunk 里的 usage 供请求行落库，不重算 token
 
 import { describeFailure } from '../../gateway/logger.js';
+import { carriesFirstToken } from '../../gateway/mapping.js';
 import { capMaxTokens } from '../../gateway/config/limits.js';
 import { MODE_FORWARD, resolveMode } from './mode.js';
 
@@ -146,7 +147,7 @@ export function toRowUsage(tokenUsage) {
 }
 
 // forward 的请求行入参：字段与 rewrite 走同一个 recordRow，只是 usage 来自旁路观测
-export function buildForwardRowInput({ request, sessionId, startedAtMs, upstreamStatus, aborted }) {
+export function buildForwardRowInput({ request, sessionId, startedAtMs, upstreamStatus, aborted, firstTokenAtMs }) {
   return {
     sessionId,
     targetGroup: request.group,
@@ -155,6 +156,7 @@ export function buildForwardRowInput({ request, sessionId, startedAtMs, upstream
     targetSource: request.targetSource,
     startedAtMs,
     upstreamStatus,
+    firstTokenAtMs: typeof firstTokenAtMs === 'number' ? firstTokenAtMs : null,
     usage: toRowUsage(request.observation.usage),
     requestId: null,
     aborted,
@@ -241,28 +243,36 @@ export async function openForwardRequest({
   // 请求行也在这里收口：成功记 200，中途失败记 0，记完再把错误抛给上层。
   async function* drainChunksWithRow() {
     let upstreamStatus = 200;
+    let firstTokenAtMs = null;
+    const noteChunkFirstToken = (streamChunk) => {
+      if (typeof firstTokenAtMs === 'number') return;
+      if (!carriesFirstToken(streamChunk)) return;
+      firstTokenAtMs = Date.now();
+    };
     const rowRequest = { group, model: target.id, targetSource: resolution.source ?? null, observation };
     try {
       if (!firstResult.done) {
         observeForwardChunk(observation, firstResult.value);   // 旁路观测：只读 usage/finish，不改块
+        noteChunkFirstToken(firstResult.value);
         yield firstResult.value;
       }
       for (;;) {
         const next = await iterator.next();
         if (next.done) break;
         observeForwardChunk(observation, next.value);
+        noteChunkFirstToken(next.value);
         yield next.value;
       }
     } catch (streamError) {
       upstreamStatus = 0;
       await recordRow(buildForwardRowInput({
-        request: rowRequest, sessionId, startedAtMs, upstreamStatus,
+        request: rowRequest, sessionId, startedAtMs, upstreamStatus, firstTokenAtMs,
         aborted: Boolean(options?.signal?.aborted),
       })).catch(() => {});
       throw streamError;
     }
     await recordRow(buildForwardRowInput({
-      request: rowRequest, sessionId, startedAtMs, upstreamStatus,
+      request: rowRequest, sessionId, startedAtMs, upstreamStatus, firstTokenAtMs,
       aborted: Boolean(options?.signal?.aborted),
     })).catch(() => {});
   }

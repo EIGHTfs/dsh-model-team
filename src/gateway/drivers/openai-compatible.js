@@ -385,6 +385,9 @@ export async function streamCompletions(context, body, { signal } = {}) {
 // 驱动实现（默认导出由注册表读取）
 export const openAiCompatibleDriver = Object.freeze({
   id: OPENAI_COMPATIBLE_DRIVER_ID,
+  // 上游错误帧认领：声明只给字符串路径 + 本模块地址，由驱动注册流程动态加载（不内联函数）
+  streamErrorClaimersModule: './openai-compatible.claimers.js',
+  streamErrorClaimersBase: import.meta.url,
   name: OPENAI_COMPATIBLE_DRIVER_NAME,
   accessMode: ACCESS_MODE_OFFICIAL,
   authSchema: OPENAI_COMPATIBLE_AUTH_SCHEMA,

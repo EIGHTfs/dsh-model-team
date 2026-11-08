@@ -8,6 +8,7 @@
 import { manifest } from './manifest.js';
 import { getPlatform, listPlatformLoadFailures, listPlatforms } from './registry.js';
 import { registerReverseDrivers } from './driver.js';
+import { attachStreamErrorClaimers } from '../gateway/drivers/index.js';
 import { getImportSource } from './core/import/index.js';
 import { registerRouteContributor } from '../gateway/transport/route-contributors.js';
 import { defaultLogger, describeFailure } from '../gateway/logger.js';
@@ -68,6 +69,25 @@ async function doRegisterReverse({ ctx, dataRoot, logger = defaultLogger, creden
   } catch (driverError) {
     failures.push('drivers');
     logger.warn(`反代驱动挂载失败（继续）：${describeFailure(driverError)}`);
+  }
+
+  // ②b 上游错误认领：平台声明里给了字符串路径就动态加载（认领是增强，失败只 warn）
+  try {
+    for (const platformEntry of listPlatforms()) {
+      const platformImpl = platformEntry?.createPlatform ? platformEntry.createPlatform({}) : null;
+      const declaredModule = platformEntry.streamErrorClaimersModule ?? platformImpl?.streamErrorClaimersModule ?? null;
+      const declaredBase = platformEntry.streamErrorClaimersBase ?? platformImpl?.streamErrorClaimersBase ?? null;
+      if (!declaredModule) continue;
+      const claimerDisposers = await attachStreamErrorClaimers({
+        baseUrl: declaredBase,
+        moduleSpecifier: declaredModule,
+        idPrefix: platformEntry.driverId ?? platformEntry.id,
+        logger,
+      });
+      for (const disposeClaimer of claimerDisposers) disposeTasks.push(disposeClaimer);
+    }
+  } catch (claimerError) {
+    logger.warn(`上游错误认领挂载失败（继续）：${describeFailure(claimerError)}`);
   }
 
   // ③ 导入源：清单里声明的 id 必须真的存在（实现自带 id 注册）

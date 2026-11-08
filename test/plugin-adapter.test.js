@@ -10,6 +10,8 @@ import { readRequestRows } from '../src/gateway/stats/index.js';
 import { writeSessionMapping } from '../src/gateway/session/store.js';
 import { createRecordingLogger, createTempDirectory, setEnvironmentVariableForTest } from './helpers/test-environment.js';
 import { startStubUpstream, writeJson } from './helpers/stub-upstream.js';
+import { registerStreamErrorClaimer, resetStreamErrorClaimersForTest } from '../src/gateway/drivers/stream-error-claimers.js';
+import { claimers as qoderClaimers } from '../src/reverse/platforms/qoder/claimers.js';
 
 // 假 Key 环境变量：只用假值
 const TEST_KEY_ENV = 'DSH_MODEL_TEAM_TEST_API_KEY';
@@ -368,4 +370,49 @@ test('适配器：消息/请求体转换（system 前置、tools、采样参数�
   assert.equal(requestBody.max_tokens, 256);
   assert.deepEqual(requestBody.stop, ['\n\n']);
   assert.equal(requestBody.tools[0].function.name, 'search');
+});
+
+test('适配器：上游业务错误帧被认领 → 抛错且请求行记失败（不出现假成功）', async (t) => {
+  resetStreamErrorClaimersForTest();
+  const disposeClaimer = registerStreamErrorClaimer({ id: 'test#quota', claim: qoderClaimers[0].claim });
+  t.after(() => { disposeClaimer(); resetStreamErrorClaimersForTest(); });
+
+  const { adapter, dataRoot } = await setupAdapter(t, {
+    routes: {
+      'POST /v1/chat/completions': buildSseRoute([{ code: '112', message: '{"pricingUrl":"https://example.invalid/pricing"}' }]),
+    },
+  });
+  await writeSessionMapping('sess-claimed', { platform: 'agnes', model: 'agnes-3.0-flash', updatedAt: '2026-11-02T13:00:00+08:00' }, { dataRoot });
+
+  await assert.rejects(
+    () => collectChunks(adapter.stream({ model: 'dsh-model-team', sessionId: 'sess-claimed', messages: [{ role: 'user', content: 'hi' }] })),
+    (llmError) => llmError instanceof StubLlmError && llmError.code === 'UPSTREAM_QUOTA_EXHAUSTED',
+  );
+
+  const rows = await readRequestRows({ dataRoot });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].status, 402, '认领给的状态要落进请求行');
+  assert.equal(rows[0].claimedReason, 'qoder-code:112', '认领依据可查');
+  assert.equal(rows[0].completionTokens, null);
+});
+
+test('适配器：订阅路径也记首字时刻（请求行 decodeMs 不再是 null）', async (t) => {
+  const { adapter, dataRoot } = await setupAdapter(t, {
+    routes: {
+      'POST /v1/chat/completions': buildSseRoute([
+        { choices: [{ index: 0, delta: { role: 'assistant' } }] },
+        { choices: [{ index: 0, delta: { content: '你好' } }] },
+        { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } },
+      ]),
+    },
+  });
+  await writeSessionMapping('sess-first-token', { platform: 'agnes', model: 'agnes-3.0-flash', updatedAt: '2026-11-02T13:00:00+08:00' }, { dataRoot });
+
+  await collectChunks(adapter.stream({ model: 'dsh-model-team', sessionId: 'sess-first-token', messages: [{ role: 'user', content: 'hi' }] }));
+
+  const rows = await readRequestRows({ dataRoot });
+  assert.equal(rows.length, 1);
+  assert.equal(typeof rows[0].decodeMs, 'number', '首字时刻要参与 decodeMs 计算');
+  assert.equal(rows[0].decodeMs >= 0, true);
+  assert.equal(typeof rows[0].completionTokens, 'number');
 });
