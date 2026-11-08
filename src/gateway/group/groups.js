@@ -12,7 +12,7 @@ import { attachLastUpdated } from './last-updated.js';
 import { loadPlatformPresets, resolveGroupAvatar } from '../config/platform-presets.js';
 import { normalizeModelList } from '../model/catalog.js';
 import { buildGroupModels, normalizeGroupSubmission, persistGroupApiKey } from './credentials.js';
-import { getDriver } from '../drivers/index.js';
+import { AUTH_KINDS, getDriver } from '../drivers/index.js';
 import { ACCESS_MODES } from '../drivers/index.js';
 import { readConfig, writeConfig } from '../config/config.js';
 import { resolveGroupCredentials } from '../config/credentials.js';
@@ -38,7 +38,6 @@ const CREDENTIAL_REF_PREFIXES = Object.freeze(['env:', 'file:']);
 // 账号型驱动的引用前缀：反代等驱动的凭据是「账号文件」而不是 API Key。
 // 前缀由驱动自己声明（authKind），网关只按声明放行——不在这里写任何平台名。
 const ACCOUNT_REF_PREFIX = 'account:';
-const ACCOUNT_AUTH_KIND = 'reverse-account';
 
 // 校验并归一化一份群配置；非法直接抛 GatewayError（调用方转 400/409）
 // 由群名称派生 id：小写、空白转连字符、剔除非法字符，超长截断。
@@ -176,7 +175,7 @@ function assertCredentialRef(groupPayload) {
     });
   }
   const driver = getDriver(groupPayload.driver);
-  const acceptsAccountRef = driver?.authKind === ACCOUNT_AUTH_KIND;
+  const acceptsAccountRef = driver?.authKind === AUTH_KINDS.REVERSE_ACCOUNT;
   if (acceptsAccountRef && apiKeyRef.startsWith(ACCOUNT_REF_PREFIX)) {
     // 账号引用只校验形状：具体账号存在与否由驱动在发请求时判定（拿不到就明确报「未登录」）
     if (!/^account:[^/]+\/[^/]+$/.test(apiKeyRef)) {
@@ -239,7 +238,7 @@ export async function renderGroupSummary(group, { dataRoot, logger = defaultLogg
   }
   try {
     // 账号型驱动的凭据由驱动自己按账号引用取，不能当 API Key 解析
-    const credentialResult = driver.authKind === ACCOUNT_AUTH_KIND
+    const credentialResult = driver.authKind === AUTH_KINDS.REVERSE_ACCOUNT
       ? { ok: true, credentials: null, error: null }
       : await resolveGroupCredentials(group, { dataRoot });
     const summaryText = await driver.fetchSummary({
@@ -456,7 +455,7 @@ export async function verifyGroup(group, { dataRoot, logger = defaultLogger, fet
   }
   // 账号型驱动：鉴权由驱动自己按账号引用判定（validateAuth 内部查账号存储），
   // 这里不能先用 API Key 解析把请求挡死，否则校验永远返回「不支持的 apiKeyRef 前缀」。
-  const credentialResult = driver.authKind === ACCOUNT_AUTH_KIND
+  const credentialResult = driver.authKind === AUTH_KINDS.REVERSE_ACCOUNT
     ? { ok: true, credentials: null, error: null }
     : await resolveGroupCredentials(group, { dataRoot });
   try {

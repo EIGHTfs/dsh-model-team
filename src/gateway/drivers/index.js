@@ -23,6 +23,14 @@ const DRIVERS_MODULE_TYPE_CONTENT = '{\n  "type": "module"\n}\n';
 // 目录不存在的错误码：区分"还没放驱动"和"目录读不了"
 const DIRECTORY_NOT_FOUND_CODE = 'ENOENT';
 
+// 驱动的认证形态：配置型驱动用 API Key 引用，账号型驱动用 account:<platformId>/<accountId> 引用。
+// ⚠️ 这些**值是对外契约的一部分**（已存的群配置与驱动描述符里就是这些字面量）：
+//    重命名常量可以，改值等于破坏存量配置与前端判别，必须有迁移方案。
+export const AUTH_KINDS = Object.freeze({
+  API_KEY: 'api-key',
+  REVERSE_ACCOUNT: 'reverse-account',
+});
+
 // accessMode 取值（docs/07）：official 走公开 API，reverse 走浏览器凭证/私有接口
 export const ACCESS_MODES = Object.freeze({
   OFFICIAL: 'official',

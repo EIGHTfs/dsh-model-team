@@ -6,7 +6,7 @@
 
 import { getDataRoot } from '../gateway/config/paths.js';
 import { defaultLogger, describeFailure } from '../gateway/logger.js';
-import { registerDriver } from '../gateway/drivers/index.js';
+import { AUTH_KINDS, registerDriver } from '../gateway/drivers/index.js';
 import { createAccountStore } from './core/account-store.js';
 import {
   ACCOUNT_COOLDOWN_ERROR_CODES,
@@ -102,7 +102,7 @@ export function createReverseDriver({
     name: platform.name ?? platform.id,
     accessMode: REVERSE_ACCESS_MODE,
     // 界面判别标记：有它就渲染"账号区"而不是 API Key 输入框
-    authKind: 'reverse-account',
+    authKind: AUTH_KINDS.REVERSE_ACCOUNT,
     platformId: platform.id,
     // 反代不吃群里的 apiKey 字段：凭据是 account 引用（由 account-store 管理）
     // options 由 GET /_team/reverse/accounts 动态填充（optionsSource 告诉前端去哪儿取）

@@ -3,7 +3,7 @@
 //          所以在这一层统一把异常收敛成 GatewayError，绝不把异常原样丢给 HTTP 客户端。
 // 思路：解引用凭证 → 调驱动 fetchModels → 失败按上游错误 502 上抛；配置问题（驱动缺失/凭证缺失）单独分类。
 
-import { getDriver } from '../drivers/index.js';
+import { AUTH_KINDS, getDriver } from '../drivers/index.js';
 import { resolveGroupCredentials } from '../config/credentials.js';
 import { normalizeModelList } from '../model/catalog.js';
 import { defaultLogger, describeFailure } from '../logger.js';
@@ -38,7 +38,7 @@ export async function fetchGroupModels(group, { dataRoot, logger = defaultLogger
     throw new GatewayError(ERROR_CODES.DRIVER_NOT_FOUND, `驱动未加载：${group.driver}`);
   }
   // 账号型驱动（如反代）：凭据由驱动按账号引用自己取，这里不能当 API Key 解析
-  const credentialResult = driver.authKind === 'reverse-account'
+  const credentialResult = driver.authKind === AUTH_KINDS.REVERSE_ACCOUNT
     ? { ok: true, credentials: null, error: null }
     : await resolveGroupCredentials(group, { dataRoot });
   if (!credentialResult.ok) {

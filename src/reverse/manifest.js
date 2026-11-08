@@ -5,6 +5,8 @@
 //   · 新增平台 / 新增路由 = 只改这个文件；
 //   · 反代整体不可用时，主流程照常（register 里每一步失败只 warn，不抛）。
 
+import { AUTH_KINDS } from '../gateway/drivers/index.js';
+
 export const manifest = {
   id: 'reverse',
 
@@ -38,7 +40,7 @@ export const manifest = {
 
   // 界面挂载点：加群页的"接入信息"段在反代平台下换成账号区（第 5 步实现 UI）
   uiMounts: [
-    { slot: 'add-group.auth', kind: 'reverse-account', platformId: 'qoder' },
+    { slot: 'add-group.auth', kind: AUTH_KINDS.REVERSE_ACCOUNT, platformId: 'qoder' },
   ],
 };
 
