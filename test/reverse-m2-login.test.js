@@ -293,5 +293,6 @@ test('真上游登录：只有 QODER_E2E=1 时才跑（默认 skip）', { skip: 
   const platform = getPlatform('qoder');
   const platformImpl = platform.createPlatform({});
   const started = platformImpl.startDeviceLogin({});
-  assert.equal(started.loginUrl.startsWith('https://qoder.cn/device/selectAccounts?'), true);
+  // 授权站由生效 profile 决定，不写死某一个域
+  assert.equal(/^https:\/\/qoder\.(cn|com\.cn)\/device\/selectAccounts\?/.test(started.loginUrl), true);
 });

@@ -14,7 +14,7 @@ import { platform, resolveLoginProfile } from '../src/reverse/platforms/qoder/in
 import { deriveUuidFromText, machineIdFilePath, resolveMachineId } from '../src/reverse/platforms/qoder/machine-id.js';
 import { createTempDirectory } from './helpers/test-environment.js';
 
-const ENDPOINTS = Object.freeze({ authBase: 'https://qoder.cn', deviceSelectPath: '/device/selectAccounts' });
+const ENDPOINTS = Object.freeze({ authBase: 'https://qoder.com.cn', deviceSelectPath: '/device/selectAccounts' });
 
 function buildUrlFor(profileName) {
   const profile = resolveLoginProfile({ platform, profileName, environment: {} });

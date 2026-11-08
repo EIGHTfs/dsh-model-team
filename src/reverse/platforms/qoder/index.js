@@ -29,8 +29,13 @@ export const platform = {
   // 端点表：全部相对路径；base 只有国内版（国际版本机 SNI 不可达，试点不做）
   endpoints: Object.freeze({
     openApiBase: 'https://openapi.qoder.com.cn',
-    // 授权页挂在 authBase（≠ openApiBase）：写错 host 会让登录永远失败
-    authBase: 'https://qoder.cn',
+    // authBase 是**兜底值**：真正生效的是 profile.authBase（见 login.profiles）。
+    // 教训（2026-11-08）：两套 CN 客户端配置的「授权站 + client_id + redirect_uri」是**成套**的
+    // —— providers-hub 用 qoder.cn + 732aef47…（不带 redirect_uri），Python 用 qoder.com.cn +
+    // 1c5e33e1…（带 qoder-work-cn://）。我们曾把两家的参数混在一套里（授权站取 A、client_id 取 B），
+    // 现象正是「浏览器在授权站显示登录成功，插件轮询一直拿不到 token」。
+    // 定论前先不删任何一家：默认 Python 那套，另一套留作可切换 profile。
+    authBase: 'https://qoder.com.cn',
     deviceSelectPath: '/device/selectAccounts',
     inferBase: 'https://gateway.qoder.com.cn',
     inferPath: '/algo/api/v2/service/pro/sse/agent_chat_generation?Encode=1',
@@ -42,7 +47,9 @@ export const platform = {
     usage: '/api/v1/usage',
   }),
 
-  // 登录参数：client_id / redirect_uri / nonce 形态按 profile 走（两家参考实现不一致，做成可切换 + 日志可观测）
+  // 登录参数：**一套 profile 必须自带 authBase + clientId + redirectUri + userAgent**。
+  // 为什么把 authBase 收进 profile：两套 CN 配置的授权站与参数是绑定的，混用会出现
+  // 「授权页显示成功、轮询一直 pending」。把四者放在同一对象里，切换就是成套切换，不可能再混搭。
   login: Object.freeze({
     machineType: 'mac-arm64',
     pollIntervalMs: 1_000,
@@ -50,14 +57,40 @@ export const platform = {
     defaultProfile: 'cn-python',
     profileEnvVar: 'DSH_MODEL_TEAM_QODER_LOGIN_PROFILE',
     profiles: Object.freeze({
-      // 默认：CN Python 参考（qoder_accounts.py:255-266,4458-4462）——带 redirect_uri
-      'cn-python': Object.freeze({ id: 'cn-python', clientId: '1c5e33e1-364d-4ce6-b02c-acaa81274a5c', redirectUri: 'qoder-work-cn://', nonceStyle: 'dashed' }),
-      // 备选：providers-hub 的 CN prod 值（不带 redirect_uri）
-      'cn-providers': Object.freeze({ id: 'cn-providers', clientId: '732aef47-9cf2-46a2-95fe-4cebb5d0d1fa', nonceStyle: 'dashed' }),
+      // 默认：CN Python 参考（qoder_accounts.py:250-266,4450-4463）——授权站 qoder.com.cn + 带 redirect_uri + UA QoderWork
+      'cn-python': Object.freeze({
+        id: 'cn-python',
+        authBase: 'https://qoder.com.cn',
+        clientId: '1c5e33e1-364d-4ce6-b02c-acaa81274a5c',
+        redirectUri: 'qoder-work-cn://',
+        nonceStyle: 'dashed',
+        userAgent: 'QoderWork/1.1.75',
+      }),
+      // 备选：providers-hub 的 CN 成套值（qoder-product.js:316-319）——授权站 qoder.cn、不带 redirect_uri、UA qoder/1.0.0
+      'cn-providers': Object.freeze({
+        id: 'cn-providers',
+        authBase: 'https://qoder.cn',
+        clientId: '732aef47-9cf2-46a2-95fe-4cebb5d0d1fa',
+        nonceStyle: 'dashed',
+        userAgent: 'qoder/1.0.0',
+      }),
       // 国际版：client_id 不同 + nonce 为 32 位无横线 hex
-      intl: Object.freeze({ id: 'intl', clientId: 'e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb', nonceStyle: 'hex32' }),
+      intl: Object.freeze({
+        id: 'intl',
+        authBase: 'https://qoder.com',
+        clientId: 'e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb',
+        nonceStyle: 'hex32',
+        userAgent: 'Qoder/1.1.75',
+      }),
     }),
   }),
+
+  // 解析本次实际生效的授权站：profile 自带优先，缺失才回落 endpoints.authBase
+  resolveAuthBase(profile) {
+    const fromProfile = profile?.authBase;
+    if (typeof fromProfile === 'string' && fromProfile.length > 0) return fromProfile;
+    return platform.endpoints.authBase;
+  },
 
   // 超时与轮询参数：与端点一样，只在这里出现
   timeouts: Object.freeze({

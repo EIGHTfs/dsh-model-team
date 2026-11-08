@@ -35,7 +35,8 @@ test('登录接口：start → pending → cancel → cancelled（幂等），lo
   });
   assert.equal(startResponse.status, 200);
   assert.equal(typeof startResponse.body.sessionId, 'string');
-  assert.match(startResponse.body.loginUrl, /^https:\/\/qoder\.cn\/device\/selectAccounts\?/);
+  // 授权站由登录 profile 决定（成套配置），不在这里写死某个域
+  assert.match(startResponse.body.loginUrl, /^https:\/\/qoder\.(cn|com\.cn)\/device\/selectAccounts\?/);
   assert.match(startResponse.body.loginUrl, /challenge=/);
   assert.equal(typeof startResponse.body.expiresAtMs, 'number');
 

@@ -68,6 +68,8 @@ export function createDeviceSession({ machineId, nonceStyle = NONCE_STYLES.DASHE
 }
 
 // 授权页地址：五个基础参数 + **profile 决定的** redirect_uri（CN Python 参考要带，providers-hub/intl 不带）
+// 授权站也由 profile 决定（`profile.authBase`）：两套 CN 配置的「授权站 + client_id + redirect_uri」成套，
+// 混搭会出现「页面登录成功、轮询永远拿不到 token」。
 export function buildAuthUrl({ session, endpoints, profile } = {}) {
   const loginProfile = profile ?? {};
   const clientId = loginProfile.clientId;
@@ -84,7 +86,10 @@ export function buildAuthUrl({ session, endpoints, profile } = {}) {
   if (typeof loginProfile.redirectUri === 'string' && loginProfile.redirectUri.length > 0) {
     query.set('redirect_uri', loginProfile.redirectUri);
   }
-  return `${endpoints.authBase}${endpoints.deviceSelectPath}?${query.toString()}`;
+  const authBase = typeof loginProfile.authBase === 'string' && loginProfile.authBase.length > 0
+    ? loginProfile.authBase
+    : endpoints.authBase;
+  return `${authBase}${endpoints.deviceSelectPath}?${query.toString()}`;
 }
 
 // 轮询地址：挂 openApiBase（不是 authBase）；404 是"还没授权"
@@ -121,10 +126,14 @@ export function parseTokenPayload(payload) {
 }
 
 // 登录成功后补一次 userinfo：判重键 user_id 与显示名都优先取它
-async function fetchUserInfo({ accessToken, endpoints, fetchImpl }) {
+// UA 必须与登录 profile 一致：两家参考实现都在 userinfo / 续期上带自家 UA，
+// 缺 UA 时服务端行为未验证（先对齐再谈是否必需）。
+async function fetchUserInfo({ accessToken, endpoints, fetchImpl, userAgent }) {
+  const headers = { accept: 'application/json', authorization: `Bearer ${accessToken}` };
+  if (typeof userAgent === 'string' && userAgent.length > 0) headers['user-agent'] = userAgent;
   const response = await fetchImpl(`${endpoints.openApiBase}${endpoints.userInfo}`, {
     method: 'GET',
-    headers: { accept: 'application/json', authorization: `Bearer ${accessToken}` },
+    headers,
   });
   if (!response.ok) {
     throw loginError(LOGIN_ERROR_CODES.USERINFO_FAILED, `userinfo 返回 HTTP ${response.status}`);
@@ -149,7 +158,10 @@ export async function startDeviceLogin({ endpoints, login, profile, machineId, m
     nonceStyle: loginProfile.nonceStyle,
   });
   const loginUrl = buildAuthUrl({ session, endpoints, profile: loginProfile });
-  logger?.info?.(`登录 profile=${loginProfile.id ?? '(未命名)'}（client_id 尾 8 位 ${String(loginProfile.clientId).slice(-8)}，machine_id 来源 ${resolvedMachine.source}）`);
+  const authBase = typeof loginProfile.authBase === 'string' && loginProfile.authBase.length > 0
+    ? loginProfile.authBase
+    : endpoints.authBase;
+  logger?.info?.(`登录 profile=${loginProfile.id ?? '(未命名)'}（授权站 ${new URL(authBase).host}，client_id 尾 8 位 ${String(loginProfile.clientId).slice(-8)}，redirect_uri ${loginProfile.redirectUri ?? '(不带)'}，machine_id 来源 ${resolvedMachine.source}）`);
   return {
     loginUrl,
     pollContext: {
@@ -158,6 +170,10 @@ export async function startDeviceLogin({ endpoints, login, profile, machineId, m
       machineId: session.machineId,
       machineType: login.machineType,
       machineToken: machineToken ?? randomUUID(),
+      // UA 跟随 profile：授权站/凭据/UA 是同一套客户端身份，不能一半带一半不带
+      userAgent: loginProfile.userAgent,
+      // 轮询可观测日志要用它；不带凭据，仅状态码与字段名
+      logger,
     },
     intervalMs: login.pollIntervalMs,
     expiresAtMs: login.timeoutMs ?? timeoutMs,
@@ -165,25 +181,39 @@ export async function startDeviceLogin({ endpoints, login, profile, machineId, m
 }
 
 // 轮询一次：404/无 token = pending；拿到 token = granted（再补 userinfo 组装凭据）
+// 每次轮询都记一行可观测日志（状态码 + 是否含 token 字段），**绝不打印 token 值**：
+// 「浏览器说登录成功、插件一直 pending」这类故障只有靠这行才能分清是哪个域/哪个状态。
 export async function pollDeviceLogin({ pollContext, fetchImpl }) {
-  const { session, endpoints, machineId, machineType, machineToken } = pollContext;
-  const response = await fetchImpl(buildPollUrl({ session, endpoints }), {
+  const { session, endpoints, machineId, machineType, machineToken, logger, userAgent } = pollContext;
+  const pollUrl = buildPollUrl({ session, endpoints });
+  const pollHeaders = { accept: 'application/json' };
+  if (typeof userAgent === 'string' && userAgent.length > 0) pollHeaders['user-agent'] = userAgent;
+  const response = await fetchImpl(pollUrl, {
     method: 'GET',
-    headers: { accept: 'application/json' },
+    headers: pollHeaders,
   });
 
   // 404 = 会话还没就绪；202 = 已接受但尚未完成授权（Python 参考 qoder_accounts.py:4497-4498 同口径）
-  if (response.status === 404 || response.status === 202) return { status: 'pending' };
+  if (response.status === 404 || response.status === 202) {
+    logger?.info?.(`登录轮询：${new URL(pollUrl).host} → HTTP ${response.status}（等待授权）`);
+    return { status: 'pending' };
+  }
   if (!response.ok) {
+    logger?.warn?.(`登录轮询：${new URL(pollUrl).host} → HTTP ${response.status}（服务端异常）`);
     throw loginError(LOGIN_ERROR_CODES.POLL_FAILED, `登录轮询返回 HTTP ${response.status}`);
   }
 
-  const tokenPayload = parseTokenPayload(await response.json());
-  if (!tokenPayload) return { status: 'pending' };
+  const payload = await response.json();
+  const tokenPayload = parseTokenPayload(payload);
+  if (!tokenPayload) {
+    logger?.warn?.(`登录轮询：HTTP ${response.status} 但没有 token 字段（回执字段：${Object.keys(payload ?? {}).join(',') || '空'}）`);
+    return { status: 'pending' };
+  }
+  logger?.info?.(`登录轮询：HTTP ${response.status} 已拿到 token（长度 ${tokenPayload.accessToken.length}），继续取 userinfo`);
 
   let userInfo = { userId: null, nickname: null };
   if (endpoints.userInfo) {
-    userInfo = await fetchUserInfo({ accessToken: tokenPayload.accessToken, endpoints, fetchImpl });
+    userInfo = await fetchUserInfo({ accessToken: tokenPayload.accessToken, endpoints, fetchImpl, userAgent });
   }
 
   // 判重键：userinfo 的 user_id 优先，其次设备码响应里的 user_id；
