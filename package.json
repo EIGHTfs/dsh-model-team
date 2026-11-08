@@ -51,18 +51,22 @@
   "scripts": {
     "build": "node build.cjs",
     "build:client": "node build.cjs",
+    "build:theme": "node scripts/build-theme.mjs",
     "mock:server": "node scripts/mock-team-server.mjs",
+    "gate:ui-contract": "node scripts/check-ui-contract.mjs",
     "prepack": "node build.cjs",
     "test": "node --test test/*.test.js"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": ">=0.2.0 <0.3.0"
   },
-  "dependencies": {},
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-llm": {
       "optional": true
     }
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild-wasm": "^0.28.2"
+  }
 }

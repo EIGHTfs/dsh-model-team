@@ -4,6 +4,8 @@
  * - 顺序由 PART_ORDER 里两组数组显式声明（文件名语义化、不带序号）
  * - ui CSS 由本脚本内联成 UI_CSS 常量（按 ui/app.css 的 @import 顺序），避免运行时依赖外部文件
  * - ui 的 render/chat/admin/float/app 分片原样拼入（唯一一套界面实现，禁止再手写第二套）
+ * - 配了 theme.source 时，额外把 TSX 主题编译成 THEME_BUNDLE 段插在 UI 分片之后、收尾分片之前；
+ *   没配则产物**逐字节不变**（legacy 门槛，见 docs/03 §7.4 最后一行）
  * - 产物头写明「自动生成，勿手改」
  * - 幂等：同样输入 → 逐字节相同的产物
  *
@@ -64,6 +66,9 @@ function assertPartOrder() {
     [CLIENT_PARTS, "foundation/z-layers.js", "foundation/styles.js", "z-layers 必须早于 styles"],
     [UI_PARTS, "js/store/state.js", "js/store/index.js", "store/state 必须早于 store/index"],
     [UI_PARTS, "js/float/dock-state.js", "js/float/float.js", "dock-state 必须早于 float"],
+    // ui-format 提供跨视图展示口径（群友数三态、副标题判空），render 是它们的调用方：
+    // 拼接顺序反了就会在真实产物里变成「调用先于定义」（函数声明能提升，但 const/let 不能）。
+    [UI_PARTS, "js/format/ui-format.js", "js/view/render.js", "ui-format 必须早于 render"],
   ];
   for (const [list, early, late, reason] of pairs) {
     const earlyIndex = list.indexOf(early);
@@ -132,16 +137,56 @@ function readUiPart(relativePath) {
 const uiCssPart = "// 由 build.cjs 内联的 ui 样式（勿手改）\nvar UI_CSS = " + JSON.stringify(readThemeCss()) + ";\n";
 const uiSkeletonPart = "// 由 build.cjs 从 ui/index.html 抽取的界面骨架（勿手改）\nvar UI_SKELETON_HTML = "
   + JSON.stringify(readUiSkeleton(theme.htmlPath)) + ";\n";
-const source = [
-  ...CLIENT_PARTS.map(readPart),
-  uiCssPart,
-  uiSkeletonPart,
-  ...UI_PARTS.map(readUiPart),
-  ...TAIL_PARTS.map(readPart)
-].join("");
 
-const output = HEADER + source;
-fs.writeFileSync(clientPath, output, "utf8");
+// TSX 主题段：只有配置了 theme.source 才产出。
+// 为什么包成 factory：esbuild 的 cjs 产物里是 require("react")，
+// ModuleLoader 的签名恰好是 function (require)，原样塞进函数体就零适配（docs/03 §7.3）。
+function buildThemePart(built) {
+  return "// 由 scripts/build-theme.mjs 编译的 TSX 主题（esbuild-wasm 产物，勿手改）\n"
+    + "var THEME_META = " + JSON.stringify(built.meta) + ";\n"
+    + "var THEME_FACTORY = function (require) {\n"
+    + "  var module = { exports: {} };\n"
+    + "  var exports = module.exports;\n"
+    + built.bundleCode
+    + "\n  return module.exports;\n"
+    + "};\n";
+}
+
+async function readThemeBundlePart() {
+  if (!theme.themeSourcePath) return "";
+  const buildTheme = await import("./scripts/build-theme.mjs");
+  const built = await buildTheme.buildThemeBundle(theme.themeSourcePath);
+  console.log("[build] TSX 主题已编译：" + built.bytes + " 字节（meta.id=" + built.meta.id + "）");
+  return buildThemePart(built);
+}
+
+// 把主题接线语句插到 apply 的导出之后（那时 exports.apply 已经是真函数，且还没 return）
+function insertThemeEpilogue(sourceText) {
+  const anchor = "exports.apply = apply;";
+  if (sourceText.indexOf(anchor) < 0) {
+    throw new Error("[build] 找不到 exports.apply = apply;，无法接入主题接线（apply.js 结构变了？）");
+  }
+  const epilogue = readPart("theme-epilogue.js");
+  return sourceText.replace(anchor, anchor + "\n" + epilogue);
+}
+
+async function main() {
+  const themeBundlePart = await readThemeBundlePart();
+  const source = [
+    ...CLIENT_PARTS.map(readPart),
+    uiCssPart,
+    uiSkeletonPart,
+    ...UI_PARTS.map(readUiPart),
+    ...(themeBundlePart ? [themeBundlePart] : []),
+    ...TAIL_PARTS.map(readPart)
+  ].join("");
+
+  // 主题接线：必须是**语句**、插在 `exports.apply = apply;` 之后、`return module.exports;` 之前。
+  // 放在收尾分片之后是错的——apply.js 末尾就 return 了，那之后的代码永远不会执行（踩过）。
+  const themedSource = themeBundlePart ? insertThemeEpilogue(source) : source;
+
+  const output = HEADER + themedSource;
+  fs.writeFileSync(clientPath, output, "utf8");
 
 // 断言：防止「又忘了内联 ui 与渲染层」——缺任何一项都直接失败
 const requiredSnippets = [
@@ -163,12 +208,38 @@ const requiredSnippets = [
   ["function createEventHub", "ui/js/store-events.js（事件总线与错误出口）"],
   ["function mountDock", "dock.js"]
 ];
-const missing = requiredSnippets.filter(([snippet]) => output.indexOf(snippet) < 0);
-if (missing.length) {
-  console.error("[build] 产物缺少必需内容：" + missing.map(([, label]) => label).join("、"));
-  process.exit(1);
+  const missing = requiredSnippets.filter(([snippet]) => output.indexOf(snippet) < 0);
+  if (missing.length) {
+    console.error("[build] 产物缺少必需内容：" + missing.map(([, label]) => label).join("、"));
+    process.exit(1);
+  }
+
+  // TSX 主题的产物断言（docs/03 §7.4）：段必须在 UI 分片之后、收尾分片之前，
+  // 且主题根标记已经进产物——顺序错了会在运行期变成「用了未定义的东西」，这里提前失败。
+  if (themeBundlePart) {
+    const themeIndex = output.indexOf("var THEME_FACTORY = ");
+    const uiTailIndex = output.indexOf("function mountDock");
+    if (themeIndex < 0) {
+      console.error("[build] 配了 theme.source 但产物里没有 THEME_FACTORY 段");
+      process.exit(1);
+    }
+    if (uiTailIndex >= 0 && themeIndex > uiTailIndex) {
+      console.error("[build] THEME_BUNDLE 位置不对：必须在收尾分片（dock/apply）之前");
+      process.exit(1);
+    }
+    if (output.indexOf("data-theme-root") < 0) {
+      console.error("[build] 产物里没有 data-theme-root 标记：主题根节点没被内联");
+      process.exit(1);
+    }
+  }
+
+  console.log("[build] lib/client.js ← " + (CLIENT_PARTS.length + UI_PARTS.length + TAIL_PARTS.length)
+    + " 片段（含 ui 样式 " + readThemeCss().length + " 字符），共 " + output.split("\n").length + " 行"
+    + "；主题来源 " + theme.source + (theme.configPath ? "（" + theme.configPath + "）" : "（默认 ui/）")
+    + (theme.themeSourcePath ? "；TSX 主题 " + theme.themeSourcePath : ""));
 }
 
-console.log("[build] lib/client.js ← " + (CLIENT_PARTS.length + UI_PARTS.length + TAIL_PARTS.length)
-  + " 片段（含 ui 样式 " + readThemeCss().length + " 字符），共 " + output.split("\n").length + " 行"
-  + "；主题来源 " + theme.source + (theme.configPath ? "（" + theme.configPath + "）" : "（默认 ui/）"));
+main().catch((error) => {
+  console.error("[build] 失败：" + (error && error.message ? error.message : error));
+  process.exit(1);
+});

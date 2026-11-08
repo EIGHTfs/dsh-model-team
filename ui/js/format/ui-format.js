@@ -2,6 +2,9 @@
 // 为什么单独成文件：球（float.js）、@ 选择器（render.js）、切换提示（chat.js）三处都要用，
 // 各写一份必然在边界上漂移（未知值怎么显示、字母怎么取），而且 render.js 已到 400 行上限，
 // 把这些"口径"搬出来比压行更符合约定。
+// 依赖方向：本文件的函数会调用 render.js 的 escapeHtml / renderAvatar，靠的是
+// build.cjs 的 UI_PARTS 把它们拼进同一个作用域（format 在前、render 在后，顺序有断言守着）。
+// 单独执行本文件（不在 bundle 里）时必须自行垫上这两个函数，别把「依赖同作用域」当隐式约定。
 
 // 球内目标标记（G6）：有 URL 头像就只显示图、不显示任何文字；没有头像就用平台首字母圆牌。
 // 为什么不另写一套首字母规则：renderAvatar 已经封装了「URL 判定 + 首字母 + 转义」，
@@ -31,4 +34,19 @@ function formatContextLength(contextLength) {
   }
   if (numericValue >= CONTEXT_LENGTH_THOUSAND) return Math.round(numericValue / CONTEXT_LENGTH_THOUSAND) + 'K';
   return String(numericValue);
+}
+
+// 副标题（群列表里「接入方式 · 地址」那一行）：内容由后端整串给出，这里只判空、不加工。
+// trim 后为空就不输出节点——空 div 会在列表里留一条视觉空行，看起来像「副标题是空白的」（D-4）。
+function renderGroupSummaryLine(summaryText) {
+  const rawText = String(summaryText == null ? '' : summaryText);
+  return rawText.trim() ? `<div class="group-summary">${escapeHtml(rawText)}</div>` : '';
+}
+
+// 群友数三态（D-3，docs/24 §八）：status 决定显示什么，不能一律用占位符糊过去。
+// loading → `—`（未知，显示成 0 就是把「没拉到」当成「没有群友」）；error → `加载失败`（失败要让用户知道该重试）。
+function formatMemberCount(models, modelsStatus) {
+  if (modelsStatus === 'error') return '加载失败';
+  if (modelsStatus === undefined || modelsStatus === 'loaded') return String(models.length);
+  return '—';
 }

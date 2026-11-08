@@ -8,7 +8,7 @@
 // 设计取舍：
 //   · 任一道失败也继续跑完其余道 —— 一次就能看到全部问题，而不是修一个跑一次；
 //   · 每道都打印「✓/✗ 名称 耗时」，最后一行汇总，失败则 exit 1；
-//   · 不含浏览器端测试：那条路线已整体移除（见 docs/05 §三点五）——
+//   · 不含浏览器端测试：那条路线已整体移除（见 docs/12 §三点五）——
 //     真渲染的正确做法是人工看一次 + 机器断言在数据层，而不是把浏览器驱动成 CI 的靶子。
 //   · 代码行门禁自己解析 scripts/code-lines.mjs 的输出并卡 400 行阈值
 //     （那个脚本只打印数字、不做判定，参数是文件清单）。
@@ -83,10 +83,14 @@ async function collectGates(args) {
         return { ok: true };
       },
     },
-    // test 道走 test-all.mjs：全量红时先单跑失败文件，单跑绿判为抖动并留痕（docs/05）
+    // test 道走 test-all.mjs：全量红时先单跑失败文件，单跑绿判为抖动并留痕（docs/12）
     { name: 'test', command: process.execPath, args: ['scripts/test-all.mjs'] },
     { name: 'contract', command: process.execPath, args: ['scripts/check-contract.mjs'] },
     { name: 'render', command: process.execPath, args: ['scripts/check-render.mjs'] },
+    // 界面约束（U-1~U-4，docs/03 §6.4）：自起假后端 + vm 里跑真渲染分片，不启浏览器。
+    // 与 render 道的分工：render 验「条数 / 群友数与接口一致」，这道验「契约字段在界面上的显示规则」
+    // （副标题逐字透传、空值不占位、无平台名硬编码、群友数三态）。
+    { name: 'ui-contract', command: process.execPath, args: ['scripts/check-ui-contract.mjs'] },
     {
       name: 'deploy',
       command: process.execPath,
@@ -95,6 +99,7 @@ async function collectGates(args) {
     },
     { name: 'css', command: process.execPath, args: ['scripts/check-css.mjs'] },
     { name: 'layout', command: process.execPath, args: ['scripts/check-layout.mjs'] },
+    { name: 'doc-refs', command: process.execPath, args: ['scripts/check-doc-refs.mjs'] },
     {
       name: 'code-lines',
       command: process.execPath,

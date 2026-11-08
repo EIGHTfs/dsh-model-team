@@ -2,7 +2,7 @@
 //
 // 契约一致性门禁。目前覆盖两项：
 //   ① 端点表：docs/02-契约.md §二 ↔ src/gateway/routes.js 的 ROUTES
-//   ② DOM 钩子：docs/03-UI规范.md §2.1~§2.2 ↔ ui/index.html
+//   ② DOM 钩子：docs/03-UI与主题契约.md §2.1~§2.2 ↔ ui/index.html
 //
 // 需求意图：文档与代码的「同一事实两处表达」必须由机器钉死，靠人核对必然复发
 //          （历史上出现过文档写 15 个端点而代码实际 25 个）。
@@ -22,7 +22,7 @@ const ROUTES_FILE = path.join(PROJECT_ROOT, 'src/gateway/routes/index.js');
 const REVERSE_MANIFEST_FILE = path.join(PROJECT_ROOT, 'src/reverse/manifest.js');
 const CONSTANTS_FILE = path.join(PROJECT_ROOT, 'src/gateway/config/constants.js');
 const CONTRACT_FILE = path.join(PROJECT_ROOT, 'docs/02-契约.md');
-const UI_SPEC_FILE = path.join(PROJECT_ROOT, 'docs/03-UI规范.md');
+const UI_SPEC_FILE = path.join(PROJECT_ROOT, 'docs/03-UI与主题契约.md');
 const THEME_HTML_FILE = path.join(PROJECT_ROOT, 'ui/index.html');
 
 const EXIT_OK = 0;

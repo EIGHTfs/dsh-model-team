@@ -9,6 +9,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
+// ui-format.js 的展示口径函数要调用 render.js 的 escapeHtml——真实 bundle 里同作用域，
+// 所以这里把两个分片按 build.cjs 的 UI_PARTS 顺序（format → render）拼起来执行。
+const FORMAT_SOURCE = await fs.readFile(new URL('../ui/js/format/ui-format.js', import.meta.url), 'utf8');
 const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/view/render.js', import.meta.url), 'utf8');
 
 function loadRenderLayer() {
@@ -16,7 +19,8 @@ function loadRenderLayer() {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   // eslint-disable-next-line no-new-func
-  const factory = new Function(`${RENDER_SOURCE}
+  const factory = new Function(`${FORMAT_SOURCE}
+${RENDER_SOURCE}
 ;return { renderAddressBook: renderAddressBook };`);
   return factory();
 }

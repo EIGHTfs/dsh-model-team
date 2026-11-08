@@ -9,7 +9,7 @@
 //   ③ 定义了但全库无人调用的死代码 —— 上一条的伴生现象（那份函数在旧文件里成了死代码）。
 //
 // 判据（每条都能红）：
-//   A. docs/14 里出现的反引号路径，若形如源码路径（src/ lib/ ui/ scripts/ test/），必须真实存在。
+//   A. docs/16 里出现的反引号路径，若形如源码路径（src/ lib/ ui/ scripts/ test/），必须真实存在。
 //   B. 真实目录（src/gateway 下每个子目录、ui/js 下每个子目录）必须在文档里被提到。
 //   C. 每个 .js 文件里，调用形如 foo(...) 的标识符必须能解析到：本文件函数声明 / const / let /
 //      var / class / import / 参数 / 全局白名单。解析不到即可疑（保守起见只报"未定义"不猜"死代码"）。
@@ -20,7 +20,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const LAYOUT_DOC = path.join(PROJECT_ROOT, 'docs', '14-目录结构.md');
+const LAYOUT_DOC = path.join(PROJECT_ROOT, 'docs', '16-目录结构.md');
 
 // 文档里允许出现、但不必真实存在的路径（示意/示例/产物/被忽略目录）
 const PATH_ALLOWLIST = [
@@ -69,7 +69,7 @@ function checkDocumentedPaths(docText) {
   for (const candidate of explicitPaths) {
     if (PATH_ALLOWLIST.some((allowed) => candidate === allowed || candidate.startsWith(`${allowed}/`))) continue;
     if (!fs.existsSync(path.join(PROJECT_ROOT, candidate))) {
-      problems.push(`docs/14 提到的路径不存在：${candidate}（结构改了没同步文档，或文档写错了）`);
+      problems.push(`docs/16 提到的路径不存在：${candidate}（结构改了没同步文档，或文档写错了）`);
     }
   }
   return { problems, documentedCount: explicitPaths.size };
@@ -89,7 +89,7 @@ function checkUndocumentedDirectories(docText) {
       // 只要文档里出现过 "<name>/"，就认为这个目录被记录了（父目录已在标题里体现）。
       const namePattern = new RegExp(`(^|[\\s\\u2500-\\u257f|])${entry.name}/`, 'm');
       if (!namePattern.test(docText)) {
-        problems.push(`目录存在但 docs/14 没提：${relative}/（新增目录必须写进目录文档）`);
+        problems.push(`目录存在但 docs/16 没提：${relative}/（新增目录必须写进目录文档）`);
       }
     }
   }
@@ -257,7 +257,7 @@ function checkReverseBoundary() {
 function main() {
   const problems = [];
   if (!fs.existsSync(LAYOUT_DOC)) {
-    console.error('❌ 缺少 docs/14-目录结构.md（结构文档是这套门禁的基准，不能删）');
+    console.error('❌ 缺少 docs/16-目录结构.md（结构文档是这套门禁的基准，不能删）');
     return 1;
   }
   const docText = fs.readFileSync(LAYOUT_DOC, 'utf8');

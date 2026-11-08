@@ -32,11 +32,14 @@ import { writeConfig } from '../src/gateway/config/config.js';
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
 const RENDER_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/view/render.js');
+// 展示口径函数住在 ui-format.js，它们要调用 render.js 的 escapeHtml——真实 bundle 里两者同作用域
+// （build.cjs 的 UI_PARTS 顺序 format → render），所以这里也必须拼成一个作用域再执行。
+const FORMAT_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/format/ui-format.js');
 
 // 只有显式给了 DMT_BACKEND 才连真实部署；否则用下面的进程内 fixture
 const EXPLICIT_BACKEND = (process.env.DMT_BACKEND || '').replace(/\/+$/, '');
 const REQUEST_TIMEOUT_MS = 8000;
-const FIXTURE_API_KEY_ENV = 'DMT_RENDER_FIXTURE_KEY';
+const FIXTURE_API_KEY_ENV = 'DMT_RENDER_FIXTURE_KEY'; // dsh-skip-sensitive
 
 const EXIT_OK = 0;
 const EXIT_MISMATCH = 1;
@@ -48,12 +51,12 @@ const EXIT_MISMATCH = 1;
  * view/render.js 的函数在调用时才碰全局（escapeHtml 等都在同文件内定义），空沙箱足够。
  */
 function loadRenderLayer() {
-  const source = fs.readFileSync(RENDER_SOURCE_PATH, 'utf8');
+  const source = `${fs.readFileSync(FORMAT_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(RENDER_SOURCE_PATH, 'utf8')}`;
   const sandbox = vm.createContext({ console });
   const exported = vm.runInContext(
     `${source}\n;({ renderGroupList: renderGroupList, renderChat: renderChat })`,
     sandbox,
-    { filename: 'ui/js/view/render.js' },
+    { filename: 'ui-format.js + render.js（同一作用域）' },
   );
   return exported;
 }

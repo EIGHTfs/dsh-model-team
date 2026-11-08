@@ -72,10 +72,36 @@ function defaultTheme(repoRoot, configPath) {
   };
 }
 
+// TSX 主题源码段（docs/22 §7.1）：与 legacy 的 html/styles 二选一，同时配就是配置冲突。
+// 为什么冲突必须失败：两条渲染路径同时生效时，界面上会一半新一半旧，
+// 而且「看起来能用」会让人以为迁移完成了 —— 这种状态最难发现、最难回退。
+function resolveThemeSource(theme, { repoRoot, configPath }) {
+  const hasLegacyPath = theme.html !== undefined || theme.styles !== undefined;
+  if (typeof theme.source !== "string" || theme.source.trim().length === 0) {
+    throw new Error(`[theme] ${configPath} 里的 theme.source 必须是非空字符串（TSX 主题路径）`);
+  }
+  if (hasLegacyPath) {
+    throw new Error(`[theme] ${configPath} 同时配了 theme.source 与 theme.html/theme.styles：`
+      + "主题配置冲突，TSX 路径与 legacy 路径只能选一条");
+  }
+  const themeSourcePath = resolveFromRepoRoot(repoRoot, theme.source.trim());
+  if (!fs.existsSync(themeSourcePath)) {
+    throw new Error(`[theme] ${configPath} 指定的 TSX 主题不存在：${themeSourcePath}`);
+  }
+  return { themeSourcePath, source: "tsx", configPath };
+}
+
 // 把 theme 段校验并解析成绝对路径。形状不对一律失败（配了就必须有效）
 function resolveThemeFromConfig(theme, { repoRoot, configPath }) {
   if (typeof theme !== "object" || theme === null || Array.isArray(theme)) {
     throw new Error(`[theme] ${configPath} 里的 theme 必须是对象：{"html": "...", "styles": ["..."]}`);
+  }
+  if (theme.source !== undefined) {
+    const resolvedSource = resolveThemeSource(theme, { repoRoot, configPath });
+    // legacy 字段在 TSX 路径下不参与构建，但 apply 目前仍按 legacy 骨架挂载（M7 才切换渲染器），
+    // 所以这里给出缺省的骨架与样式路径，构建产物保持可加载。
+    const fallback = defaultTheme(repoRoot, configPath);
+    return { ...resolvedSource, htmlPath: fallback.htmlPath, stylePaths: fallback.stylePaths };
   }
   if (typeof theme.html !== "string" || theme.html.trim().length === 0) {
     throw new Error(`[theme] ${configPath} 里的 theme.html 必须是非空字符串（HTML 骨架路径）`);

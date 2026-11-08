@@ -12,25 +12,14 @@ const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/view/render.js', impor
 const CLIENT_SOURCE = await fs.readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 const FLOAT_SOURCE = await fs.readFile(new URL('../ui/js/float/float.js', import.meta.url), 'utf8');
 
-// 球内标记已搬到 ui-format.js；它调用 render.js 的 renderAvatar（同一 bundle 作用域），
-// 单测里按同名垫片注入，保证测的是真实拼装逻辑而不是复制品。
+// 球内标记在 ui-format.js、群列表在 render.js，真实 bundle 里两者**同一个作用域**
+// （build.cjs 的 UI_PARTS 顺序 format → render，另有 assertPartOrder 守着）。
+// 单测按同样的方式拼成一个作用域执行：既贴近产物，也不会出现「函数在另一个分片里」的缺依赖。
 function loadRenderLayer() {
-  globalThis.escapeHtml = (value) => String(value ?? '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  globalThis.renderAvatar = (avatarText, fallbackName) => {
-    const rawValue = String(avatarText == null ? '' : avatarText).trim();
-    const isImageUrl = /^https?:\/\//i.test(rawValue) || /^data:/i.test(rawValue);
-    const initial = String(fallbackName == null ? '' : fallbackName).trim().charAt(0).toUpperCase() || '?';
-    if (isImageUrl) return `<img class="avatar-img" src="${globalThis.escapeHtml(rawValue)}" alt="" data-fallback="${initial}">`;
-    return globalThis.escapeHtml(rawValue || initial);
-  };
   // eslint-disable-next-line no-new-func
-  const formatFactory = new Function(`${FORMAT_SOURCE}
-;return { renderFloatTargetMarkup: renderFloatTargetMarkup };`);
-  // eslint-disable-next-line no-new-func
-  const renderFactory = new Function(`${RENDER_SOURCE}
-;return { renderGroupList: renderGroupList };`);
-  return Object.assign({}, formatFactory(), renderFactory());
+  return new Function(`${FORMAT_SOURCE}
+${RENDER_SOURCE}
+;return { renderFloatTargetMarkup: renderFloatTargetMarkup, renderGroupList: renderGroupList };`)();
 }
 
 test('G6-A：有 URL 头像 → 只有 <img>，不出现任何文字（模型名/首字母都不许露出来）', () => {

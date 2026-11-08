@@ -23,8 +23,14 @@ import { ERROR_CODES, GatewayError } from '../errors.js';
 export const GROUP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export const MAX_GROUP_ID_LENGTH = 64;
 
-// 摘要渲染失败时的降级值（INV-08：不报错、不阻断列表）
+// 摘要渲染**失败**时的降级值（INV-08：不报错、不阻断列表）。
+// 注意它只用于「驱动抛错」，不用于「驱动没声明」（见 SUMMARY_NOT_DECLARED）。
 export const GROUP_SUMMARY_FALLBACK = '—';
+
+// 摘要**未声明**时的返回值：空字符串（docs/02 §3.9）。
+// 前端拿到空串就不渲染副标题行；这里绝不能拿 '—' 顶替，
+// 否则「没声明」会被伪装成「有一个值为 — 的副标题」，契约里那条规则永远触发不到。
+export const SUMMARY_NOT_DECLARED = '';
 
 // 配置型驱动的标识：它必须给 baseURL，否则拿不到上游
 const CONFIG_DRIVEN_DRIVER_ID = 'openai-compatible';
@@ -230,11 +236,17 @@ export function findGroup(config, groupId) {
   return (config?.groups ?? []).find((group) => group.id === groupId) ?? null;
 }
 
-// 渲染单个群的摘要：驱动缺失/凭证缺失/驱动抛错都降级
+// 渲染单个群的摘要：**「声明缺失」与「渲染失败」必须分开**（docs/02 §3.9）。
+//   · 声明缺失（驱动没实现 fetchSummary / 驱动不存在 / 驱动返回空串）
+//     → 返回空字符串。契约明写「不再用「官方接入」或「—」兜底」，
+//       空串才能让前端「不显示副标题」这条规则真正生效。
+//   · 渲染失败（驱动抛错）
+//     → 保留 '—'。这是异常状态，用户需要知道"本该有摘要但渲染挂了"，
+//       和"没声明"是两回事，不能混成一个占位符。
 export async function renderGroupSummary(group, { dataRoot, logger = defaultLogger, fetchImpl } = {}) {
   const driver = getDriver(group.driver);
   if (!driver || typeof driver.fetchSummary !== 'function') {
-    return GROUP_SUMMARY_FALLBACK;
+    return SUMMARY_NOT_DECLARED;
   }
   try {
     // 账号型驱动的凭据由驱动自己按账号引用取，不能当 API Key 解析
@@ -249,7 +261,8 @@ export async function renderGroupSummary(group, { dataRoot, logger = defaultLogg
       // 与 validateAuth 同理：账号型驱动的凭据按 dataRoot 解析
       dataRoot,
     });
-    return typeof summaryText === 'string' && summaryText.length > 0 ? summaryText : GROUP_SUMMARY_FALLBACK;
+    // 声明了但渲染出空串 = 没有副标题可显示，按契约给空串（不能拿 '—' 顶替）
+    return typeof summaryText === 'string' ? summaryText : SUMMARY_NOT_DECLARED;
   } catch (summaryError) {
     logger.warn(`群 ${group.id} 摘要渲染失败，已降级：${describeFailure(summaryError)}`);
     return GROUP_SUMMARY_FALLBACK;

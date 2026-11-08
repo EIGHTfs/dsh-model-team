@@ -111,7 +111,7 @@ function renderGroupList(groups, currentGroupId, filterText, options) {
       <span class="avatar">${renderAvatar(group.avatar, group.name)}</span>
       <div class="group-main">
         <div class="group-line"><span class="group-name">${escapeHtml(group.name)}</span></div>
-        <div class="group-summary">${escapeHtml(group.summary)}</div>
+        ${renderGroupSummaryLine(group.summary)}
       </div>
       <div class="group-right">
         ${timeText ? `<span class="group-time">${escapeHtml(timeText)}</span>` : ''}
@@ -167,7 +167,7 @@ function renderChat(group, models, messages, platform, modelsStatus) {
     <header class="view-head chat-head">
       <button class="btn-back" id="btnChatBack" type="button">&lt; 返回</button>
       <span class="head-title">${escapeHtml(group.name)}</span>
-      <span class="group-tag">[群友: ${modelsStatus === undefined || modelsStatus === 'loaded' ? models.length : '—'}]</span>
+      <span class="group-tag">[群友: ${formatMemberCount(models, modelsStatus)}]</span>
       <span class="head-sub">群友 = 模型 · 消息 = 请求记录</span>
     </header>
     <div class="chat-stream" id="chatStream">${streamHtml}</div>
@@ -374,7 +374,7 @@ function renderModelCatalog(catalog) {
 
   const rows = models.map(function (model, index) {
     return `<div class="model-row" data-model-index="${index}">
-      <input type="text" data-model-id="${index}" value="${escapeHtml(model.id || '')}" placeholder="例如 agnes-3.0-flash">
+      <input type="text" data-model-id="${index}" value="${escapeHtml(model.id || '')}" placeholder="例如 model-id">
       <input type="text" data-model-name="${index}" value="${escapeHtml(model.name || '')}" placeholder="可空，默认用 id">
       <button type="button" class="model-remove" data-model-remove="${index}" title="删除这一行">×</button>
     </div>`;

@@ -20,6 +20,9 @@ const STORE_SOURCE = (await Promise.all(STORE_MODULE_FILES.map(
   (fileName) => fs.readFile(new URL(`../ui/js/${fileName}`, import.meta.url), 'utf8'),
 ))).join('\n');
 const API_SOURCE = await fs.readFile(new URL('../lib/client-parts/foundation/api.js', import.meta.url), 'utf8');
+// ui-format.js 的展示口径函数要调用 render.js 的 escapeHtml——真实 bundle 里同作用域，
+// 所以这里把两个分片按 build.cjs 的 UI_PARTS 顺序（format → render）拼起来执行。
+const FORMAT_SOURCE = await fs.readFile(new URL('../ui/js/format/ui-format.js', import.meta.url), 'utf8');
 const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/view/render.js', import.meta.url), 'utf8');
 
 const THREE_GROUPS = [
@@ -105,7 +108,8 @@ test('回归②：apiJson 三类失败都要上报原因（HTTP / JSON / 网络�
 
 test('回归③：群列表空 + 有失败原因 → 渲染"加载失败"，不许显示"0 个群"', () => {
   // eslint-disable-next-line no-new-func
-  const factory = new Function(`${RENDER_SOURCE}
+  const factory = new Function(`${FORMAT_SOURCE}
+${RENDER_SOURCE}
 ;return { renderGroupList: renderGroupList };`);
   const render = factory();
 
@@ -166,15 +170,17 @@ ${STORE_SOURCE}
 
 test('G-B：群友数区分「未加载」与「确实 0 个」（未加载显示 —，加载后 0 就显示 0）', () => {
   // eslint-disable-next-line no-new-func
-  const render = new Function(`${RENDER_SOURCE}
+  const render = new Function(`${FORMAT_SOURCE}
+${RENDER_SOURCE}
 ;return { renderChat: renderChat };`)();
   const group = { id: 'agnes', name: 'agnes' };
 
-  // 未加载 / 加载失败：必须显示 —（否则"未知"被当成 0，就是 G-13 那个坑）
+  // 群友数三态（docs/24 §八 D-3，2026-11-09 决）：
+  //   loading → —（未知，不能显示成 0 —— G-13/G-21 那个坑）
+  //   error   → 加载失败（失败 ≠ 未知，要让用户知道该重试）
+  //   loaded  → N（已加载且确实 0 个就显示 0，不能显示 —）
   assert.match(render.renderChat(group, [], [], null, 'loading'), /\[群友: —\]/);
-  assert.match(render.renderChat(group, [], [], null, 'error'), /\[群友: —\]/);
-
-  // 已加载且确实 0 个：显示 0
+  assert.match(render.renderChat(group, [], [], null, 'error'), /\[群友: 加载失败\]/);
   assert.match(render.renderChat(group, [], [], null, 'loaded'), /\[群友: 0\]/);
 
   // 已加载 N 个：显示 N
