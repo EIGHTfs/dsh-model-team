@@ -23,13 +23,9 @@ const DRIVERS_MODULE_TYPE_CONTENT = '{\n  "type": "module"\n}\n';
 // 目录不存在的错误码：区分"还没放驱动"和"目录读不了"
 const DIRECTORY_NOT_FOUND_CODE = 'ENOENT';
 
-// 驱动的认证形态：配置型驱动用 API Key 引用，账号型驱动用 account:<platformId>/<accountId> 引用。
-// ⚠️ 这些**值是对外契约的一部分**（已存的群配置与驱动描述符里就是这些字面量）：
-//    重命名常量可以，改值等于破坏存量配置与前端判别，必须有迁移方案。
-export const AUTH_KINDS = Object.freeze({
-  API_KEY: 'api-key',
-  REVERSE_ACCOUNT: 'reverse-account',
-});
+// 认证形态常量：真源在 auth-kinds.js（避免驱动 ↔ 注册表循环依赖），这里再导出并本地使用
+import { AUTH_KINDS } from './auth-kinds.js';
+export { AUTH_KINDS };
 
 import { registerStreamErrorClaimer } from './stream-error-claimers.js';
 
@@ -285,7 +281,9 @@ function toDriverMeta(driver) {
     driverMeta.avatar = driver.avatar;
   }
   // 界面判别标记：只透传，网关不解释含义（反代账号选择器靠它们渲染）
-  if (typeof driver.authKind === 'string' && driver.authKind.length > 0) {
+  // api-key 是缺省形态，公开元数据里不重复声明（保持既有 /_team/drivers 形状不变）；
+  // 其它形态（如账号型）必须透传，前端据此切换「账号区 / API Key 输入」。
+  if (typeof driver.authKind === 'string' && driver.authKind.length > 0 && driver.authKind !== AUTH_KINDS.API_KEY) {
     driverMeta.authKind = driver.authKind;
   }
   if (typeof driver.platformId === 'string' && driver.platformId.length > 0) {

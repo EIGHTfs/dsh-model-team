@@ -9,6 +9,7 @@ import { DEFAULT_MODELS_ENDPOINT_PATH, DEFAULT_USER_AGENT } from '../config/cons
 import { defaultLogger, describeFailure } from '../logger.js';
 import { normalizeContextLength, normalizeMaxOutputTokens } from '../model/capacity.js';
 import { CREDENTIALS_API_KEY_FIELD } from '../config/credentials.js';
+import { AUTH_KINDS } from './auth-kinds.js';
 
 // 字段映射与 usage 解析拆到 mapping.js：配置型驱动与统计层共用同一份实现
 import {
@@ -390,6 +391,8 @@ export const openAiCompatibleDriver = Object.freeze({
   streamErrorClaimersBase: import.meta.url,
   name: OPENAI_COMPATIBLE_DRIVER_NAME,
   accessMode: ACCESS_MODE_OFFICIAL,
+  // 认证形态显式声明（配置型驱动用 API Key 引用）；写入后"缺省即 api-key"只用于兼容存量外挂驱动
+  authKind: AUTH_KINDS.API_KEY,
   authSchema: OPENAI_COMPATIBLE_AUTH_SCHEMA,
   validateAuth,
   fetchModels,

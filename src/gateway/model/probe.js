@@ -5,7 +5,7 @@
 //          只给安全文案，不回传上游原始响应体（可能含敏感信息）。
 
 import { DEFAULT_MODELS_ENDPOINT_PATH } from '../config/constants.js';
-import { getDriver } from '../drivers/index.js';
+import { AUTH_KINDS, getDriver } from '../drivers/index.js';
 import { safeFetchModels } from '../group/models.js';
 import { normalizeModelList } from './catalog.js';
 import { CREDENTIALS_API_KEY_FIELD, resolveApiKeyRef } from '../config/credentials.js';
@@ -23,14 +23,28 @@ const TIMEOUT_ERROR_PATTERN = /timeout|timedout|abort/i;
 // 驱动在压根没拿到 Key 时给的错误码（status=0，请求没发出去）
 const MISSING_CREDENTIAL_CODE = 'MISSING_CREDENTIAL';
 
-// 上游失败 → 契约里的安全错误分类（不携带上游原文）
-function toProbeError(modelsResult) {
+// 上游失败 → 契约里的安全错误分类（不携带上游原文）。
+// authKind 决定文案口径：非 api-key 驱动（如账号型反代）没有"API Key"这回事，
+// 不能把它的鉴权失败说成"凭证无效，请检查 API Key"。
+function toProbeError(modelsResult, { authKind = AUTH_KINDS.API_KEY } = {}) {
+  const usesApiKey = authKind === AUTH_KINDS.API_KEY;
   const upstreamStatus = modelsResult.error?.upstreamStatus;
   const upstreamCode = String(modelsResult.error?.code ?? '');
 
   if (upstreamCode === MISSING_CREDENTIAL_CODE) {
+    if (!usesApiKey) {
+      // 账号型驱动：凭据由驱动自己取，缺的是"登录"而不是"API Key"
+      return new GatewayError(ERROR_CODES.PROBE_FAILED, '该平台暂无可用的账号凭据', {
+        hint: '该平台不需要密钥：先在加群页完成登录，或确认账号已存在',
+      });
+    }
     return new GatewayError(ERROR_CODES.PROBE_UNAUTHORIZED, '缺少可用凭证', {
       hint: '提供 apiKey 或 apiKeyRef 后再探测',
+    });
+  }
+  if (UNAUTHORIZED_STATUS_CODES.includes(upstreamStatus) && !usesApiKey) {
+    return new GatewayError(ERROR_CODES.PROBE_FAILED, '该平台账号未就绪或没有模型列表权限', {
+      hint: '该平台不需要密钥：检查账号是否已登录、是否过期',
     });
   }
   if (UNAUTHORIZED_STATUS_CODES.includes(upstreamStatus)) {
@@ -97,12 +111,21 @@ export async function probeModels({ body = {}, dataRoot, logger = defaultLogger,
     });
   }
 
-  const { credentials, apiKeyRef } = await resolveProbeCredentials({
-    apiKey: body.apiKey,
-    apiKeyRef: body.apiKeyRef,
-    dataRoot,
-    logger,
-  });
+  // 认证类型由驱动声明：缺省视为 api-key（兼容存量驱动，旧行为不变）
+  const authKind = driver.authKind ?? AUTH_KINDS.API_KEY;
+  const usesApiKey = authKind === AUTH_KINDS.API_KEY;
+  const { credentials, apiKeyRef } = usesApiKey
+    ? await resolveProbeCredentials({
+      apiKey: body.apiKey,
+      apiKeyRef: body.apiKeyRef,
+      dataRoot,
+      logger,
+    })
+    // 账号型驱动：不解析、不要求 Key，引用原样交给驱动，由它自己取账号
+    : {
+      credentials: null,
+      apiKeyRef: typeof body.apiKeyRef === 'string' && body.apiKeyRef.trim().length > 0 ? body.apiKeyRef.trim() : null,
+    };
 
   // 临时群对象：只存在于本次调用的内存里，不写盘
   const probeGroup = {
@@ -121,7 +144,7 @@ export async function probeModels({ body = {}, dataRoot, logger = defaultLogger,
     logger,
   });
   if (!modelsResult.ok) {
-    throw toProbeError(modelsResult);
+    throw toProbeError(modelsResult, { authKind });
   }
 
   const models = normalizeModelList(modelsResult.models, { logger });
