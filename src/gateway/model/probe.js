@@ -95,11 +95,6 @@ export async function probeModels({ body = {}, dataRoot, logger = defaultLogger,
     ? body.driverId.trim()
     : DEFAULT_PROBE_DRIVER_ID;
   const baseURL = typeof body.baseURL === 'string' ? body.baseURL.trim() : '';
-  if (baseURL.length === 0) {
-    throw new GatewayError(ERROR_CODES.INVALID_REQUEST, '缺少 baseURL', {
-      hint: '形如 { "baseURL": "https://api.example.com/v1" }',
-    });
-  }
   const modelsEndpoint = typeof body.modelsEndpoint === 'string' && body.modelsEndpoint.trim().length > 0
     ? body.modelsEndpoint.trim()
     : DEFAULT_MODELS_ENDPOINT_PATH;
@@ -114,6 +109,16 @@ export async function probeModels({ body = {}, dataRoot, logger = defaultLogger,
   // 认证类型由驱动声明：缺省视为 api-key（兼容存量驱动，旧行为不变）
   const authKind = driver.authKind ?? AUTH_KINDS.API_KEY;
   const usesApiKey = authKind === AUTH_KINDS.API_KEY;
+
+  // baseURL 只有「HTTP 探测型」驱动才需要：它决定去哪个主机拉 /models。
+  // 账号型驱动（如反代）的模型清单由驱动按自己的目录返回，与 baseURL 无关；
+  // 加群页对这类平台本来就不显示地址输入框，硬要求它会让人「永远探测失败」。
+  if (usesApiKey && baseURL.length === 0) {
+    throw new GatewayError(ERROR_CODES.INVALID_REQUEST, '缺少 baseURL', {
+      hint: '形如 { "baseURL": "https://api.example.com/v1" }',
+    });
+  }
+
   const { credentials, apiKeyRef } = usesApiKey
     ? await resolveProbeCredentials({
       apiKey: body.apiKey,
