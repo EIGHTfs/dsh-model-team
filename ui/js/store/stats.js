@@ -23,7 +23,9 @@ function createStatsLoaders(deps) {
   }
 
   function loadStats() {
-    return api.getGlobalStats().then(function (stats) {
+    // 速率按「当前群聊」统计：把群 id 传给服务端，由服务端按群筛行后算值
+    // （不传就会把别的群的 token 与耗时也算进来，面板数字与标题对不上）
+    return api.getGlobalStats({ groupId: state.currentGroupId }).then(function (stats) {
       state.rate = stats && stats.sessionRate ? stats.sessionRate : RATE_PLACEHOLDER_TEXT;
       state.global = {
         requests: stats && typeof stats.totalRows === 'number' ? stats.totalRows : 0,

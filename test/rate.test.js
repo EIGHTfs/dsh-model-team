@@ -1,18 +1,16 @@
-// rate.js 单测：直接执行 ui/js/format/rate.js 文本（UMD 挂 globalThis），不依赖任何框架与 DOM。
+// 速率公式单测：直接 import 共享模块 lib/shared/rate.mjs（纯 JS、零依赖、可拷给别的项目）。
 //
-// 公式口径（与解码段公式对齐，docs/02 §5.1）：
+// 公式口径：
 //   精确值 = completionTokens / 解码段时长（首字 → 结束），分母不含首字等待；
 //   退化值 = completionTokens / 整步耗时（含首字等待），只能当下界，必须标 exact=false。
 // 断言写法约定：期望值一律由输入常量推导（不手抄结果数字），改公式时这些断言会跟着一起变，
 // 下一个改公式的人能立刻看出哪条用例受哪个字段影响。
+//
+// 分工：**本文件只测公式（值）**；单位与「≈」属于显示层，由客户端用例覆盖。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
 
-const rateSource = await fs.readFile(new URL('../ui/js/format/rate.js', import.meta.url), 'utf8');
-// eslint-disable-next-line no-new-func
-new Function(rateSource)();
-const rate = globalThis.ModelTeamRate;
+import * as rate from '../lib/shared/rate.mjs';
 
 const MS_PER_SECOND = 1000;
 

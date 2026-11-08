@@ -37,7 +37,9 @@ const UI_PARTS = [
   // format（纯函数）→ view 的 messages → float/target-source → store 各工厂 → store 装配
   // → view 的 model-catalog → interaction/session-bridge → float/dock-state → view/render
   // → friend-group 三层 → interaction/chat → view/admin → float/float → app 入口
-  "js/format/rate.js", "js/view/messages.js", "js/float/target-source.js", "js/format/ui-format.js",
+  // 速率不再有客户端分片：公式在 lib/shared/rate.mjs（可拷复用的纯模块），
+  // 由服务端按声明动态加载后算出 { tps, exact }，客户端只做显示（单位与 ≈）。
+  "js/view/messages.js", "js/float/target-source.js", "js/format/ui-format.js",
   "js/store/state.js", "js/store/persist.js", "js/store/events.js",
   "js/store/groups.js", "js/store/chat.js", "js/store/stats.js",
   "js/store/session.js", "js/store/dispatch.js", "js/store/index.js",
@@ -148,7 +150,7 @@ const requiredSnippets = [
   ["var UI_SKELETON_HTML = ", "ui/index.html 骨架内联"],
   [".req-bubble", "ui/css/views.css 特征选择器"],
   ["function renderChat", "ui/js/render.js"],
-  ["ModelTeamRate", "ui/js/rate.js（速率唯一实现）"],
+  ["function apiFormatSessionRate", "foundation/api.js（速率显示：值来自服务端）"],
   ["function targetSourceHintOf", "ui/js/target-source.js（来源文案唯一口径）"],
   ["function renderFloatTargetMarkup", "ui/js/ui-format.js（跨视图展示口径）"],
   ["function createPersistencePort", "ui/js/store-persist.js（持久化端口）"],

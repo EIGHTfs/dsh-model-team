@@ -15,6 +15,7 @@ import {
   writeSessionTarget,
 } from '../session/store.js';
 import { buildGlobalStats, readRequestRows, toPublicRequestRow } from '../stats/index.js';
+import { computeSessionRate } from '../stats/rate-formula.js';
 import { buildModelListResponse, fetchGroupModels, handleChatCompletions, resolveVirtualModelId } from '../transport/router.js';
 import {
   deleteFriendGroup,
@@ -56,8 +57,12 @@ async function handleSessionStatsRoute(context) {
     groupId: parseGroupId(context.incomingRequest),
     limit: parseLimit(context.incomingRequest),
   });
+  // 速率由声明式加载的公式模块计算（见 stats/rate-formula.js）：
+  // 行已按上面的 groupId 口径筛过，所以「按群看速率」不需要在这里再过滤一次。
+  // 公式不可用 → null，界面显示占位，不编造数值。
+  const sessionRate = await computeSessionRate(rows, { logger: context.logger });
   // §10 出参裁剪：startedAtMs / usage 是内部字段，只留契约里的字段 + sessionId
-  return { status: HTTP_OK, body: { rows: rows.map(toPublicRequestRow) } };
+  return { status: HTTP_OK, body: { rows: rows.map(toPublicRequestRow), sessionRate } };
 }
 
 async function handleGlobalStatsRoute(context) {

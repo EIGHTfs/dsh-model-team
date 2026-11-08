@@ -43,6 +43,7 @@
   "files": [
     "src",
     "lib/client.js",
+    "lib/shared",
     "config",
     "cordis.patch.yml",
     "README.md"
