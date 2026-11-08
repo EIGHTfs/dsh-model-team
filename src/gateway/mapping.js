@@ -93,6 +93,19 @@ function pickCachedTokens(rawUsage) {
   );
 }
 
+// 输入 token 的**真实分母**：命中率要用「输入总量」，而不同平台对 prompt_tokens 的含法不同。
+//   · 多数平台：prompt_tokens 已含缓存部分（cached 是它的子集）→ 分母就是 prompt_tokens
+//   · 另一些平台：prompt_tokens 只报"未命中部分"，缓存另计 → 分母必须是 prompt + cached
+// 判据：**缓存不可能超过输入总量**。一旦 cached > prompt，就说明该平台用的是后一种口径。
+// 这个函数被「写入侧归一化」和「读出侧格式化」共用，保证新旧行同一个口径。
+export function resolvePromptTotal(promptTokens, cachedTokens) {
+  if (typeof promptTokens !== 'number' || !Number.isFinite(promptTokens)) return null;
+  // 0 表示上游没报输入量：没有可用分母，命中率应显示占位而不是算成 100%
+  if (promptTokens <= 0) return null;
+  if (typeof cachedTokens !== 'number' || !Number.isFinite(cachedTokens) || cachedTokens <= 0) return promptTokens;
+  return cachedTokens > promptTokens ? promptTokens + cachedTokens : promptTokens;
+}
+
 // usage 归一化：蛇形字段 → 契约驼峰字段；上游没给 total_tokens 时用两项相加兜底。
 // 只有真拿到缓存数才写 cacheHit —— 缺失写成 0 会让"没有数据"看起来像"命中率 0%"
 export function extractUsage(responseBody, usagePath = DEFAULT_USAGE_PATH) {
@@ -101,14 +114,16 @@ export function extractUsage(responseBody, usagePath = DEFAULT_USAGE_PATH) {
     return null;
   }
 
-  const promptTokens = pickPromptTokens(rawUsage);
+  const rawPromptTokens = pickPromptTokens(rawUsage);
   const completionTokens = pickCompletionTokens(rawUsage);
+  const cachedTokens = pickCachedTokens(rawUsage);
+  // 归一化到「输入总量」：两种上游口径在这里被拉到同一口径（见 resolvePromptTotal）
+  const promptTokens = resolvePromptTotal(rawPromptTokens, cachedTokens) ?? rawPromptTokens;
   const usage = {
     promptTokens,
     completionTokens,
     totalTokens: pickTotalTokens(rawUsage, promptTokens, completionTokens),
   };
-  const cachedTokens = pickCachedTokens(rawUsage);
   if (cachedTokens !== null) {
     usage.cacheHit = cachedTokens;
   }

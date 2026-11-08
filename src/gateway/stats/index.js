@@ -9,6 +9,7 @@ import fs from 'node:fs/promises';
 import { getDataRoot, getRequestRowsPath, getStatsDirectory } from '../config/paths.js';
 import { defaultLogger, describeFailure } from '../logger.js';
 import { formatClockTime, formatIsoWithOffset, formatLatency } from '../clock.js';
+import { resolvePromptTotal } from '../mapping.js';
 
 // 环形截断阈值缺省值（docs/09 §8：config.stats.maxRows）
 export const DEFAULT_MAX_REQUEST_ROWS = 5000;
@@ -79,14 +80,17 @@ export function formatTokens(usage) {
   return String(totalTokens);
 }
 
-// 命中率字段：cached / prompt 的百分比；缺数据或分母为 0 给 —
+// 命中率字段：cached / 输入总量 的百分比；缺数据或分母为 0 给 —
+// 分母统一走 resolvePromptTotal：不同上游对 prompt_tokens 是否含缓存有两种口径，
+// 老请求行是按旧口径存下的，这里再算一次才能保证历史行与新行显示一致（否则会出现 >100%）。
 export function formatCacheHit(usage) {
   const cachedTokens = usage?.cacheHit;
   const promptTokens = usage?.promptTokens;
-  if (typeof cachedTokens !== 'number' || typeof promptTokens !== 'number' || promptTokens <= 0) {
+  const promptTotal = resolvePromptTotal(promptTokens, cachedTokens);
+  if (typeof cachedTokens !== 'number' || promptTotal === null || promptTotal <= 0) {
     return MISSING_FIELD_PLACEHOLDER;
   }
-  const hitRatio = (cachedTokens / promptTokens) * PERCENT_SCALE;
+  const hitRatio = (cachedTokens / promptTotal) * PERCENT_SCALE;
   return `${hitRatio.toFixed(PERCENT_DECIMAL_PLACES)}${PERCENT_SUFFIX}`;
 }
 
@@ -330,14 +334,13 @@ export function buildGlobalStats(requestRows) {
     if (typeof rowUsage.totalTokens === 'number') {
       totalTokens += rowUsage.totalTokens;
     }
-    // 只有上游确实回了缓存字段才计入：否则会把"没有数据"算成"命中率 0%"，等于编造结论
-    if (
-      typeof rowUsage.cacheHit === 'number'
-      && typeof rowUsage.promptTokens === 'number'
-      && rowUsage.promptTokens > 0
-    ) {
+    // 只有上游确实回了缓存字段才计入：否则会把"没有数据"算成"命中率 0%"，等于编造结论。
+    // 分母逐行用 resolvePromptTotal 归一：历史行按旧口径存过（prompt 只含未命中部分），
+    // 直接累加会把全局命中率抬到 100% 以上。
+    const rowPromptTotal = resolvePromptTotal(rowUsage.promptTokens, rowUsage.cacheHit);
+    if (typeof rowUsage.cacheHit === 'number' && rowPromptTotal !== null) {
       totalCachedTokens += rowUsage.cacheHit;
-      cacheablePromptTokens += rowUsage.promptTokens;
+      cacheablePromptTokens += rowPromptTotal;
       hasCacheHitData = true;
     }
     if (typeof requestRow.startedAtMs === 'number') {
