@@ -13,6 +13,8 @@ import fs from 'node:fs/promises';
 // 所以这里把两个分片按 build.cjs 的 UI_PARTS 顺序（format → render）拼起来执行。
 const FORMAT_SOURCE = await fs.readFile(new URL('../ui/js/format/ui-format.js', import.meta.url), 'utf8');
 const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/view/render.js', import.meta.url), 'utf8');
+// 列表规则已搬到 format/list-rules.js（单一实现）：真实 bundle 里与 render 同作用域，这里也拼起来
+const LIST_RULES_SOURCE = await fs.readFile(new URL('../ui/js/format/list-rules.js', import.meta.url), 'utf8');
 
 function loadRenderLayer() {
   globalThis.escapeHtml = (value) => String(value ?? '')
@@ -20,6 +22,7 @@ function loadRenderLayer() {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   // eslint-disable-next-line no-new-func
   const factory = new Function(`${FORMAT_SOURCE}
+${LIST_RULES_SOURCE}
 ${RENDER_SOURCE}
 ;return { renderAddressBook: renderAddressBook };`);
   return factory();

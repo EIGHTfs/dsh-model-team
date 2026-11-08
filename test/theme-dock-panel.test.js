@@ -14,6 +14,7 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 import { compileTheme } from '../scripts/build-theme.mjs';
+import { loadHostGlobals } from './helpers/host-globals.js';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // 几何/文案口径现在住在 SDK（主题只负责画）：单测直接打 SDK 的纯函数
@@ -42,6 +43,7 @@ async function loadDockModule() {
   const compiled = await compileTheme({ sourceText, resolveDir: path.dirname(DOCK_SOURCE_PATH), sourcefile: 'dock-geometry.ts' });
   assert.ok(compiled.bundleCode.length > 0, 'dock.tsx 的编译产物为空');
   const sandboxModule = { exports: {} };
+  // SDK 只是转调宿主实现：先把宿主分片跑进同一沙箱（真实加载顺序也是宿主在前）
   vm.runInNewContext(compiled.bundleCode, {
     module: sandboxModule,
     exports: sandboxModule.exports,
@@ -52,6 +54,7 @@ async function loadDockModule() {
     },
     window: undefined,
     console,
+    ...(await loadHostGlobals()),
   }, { filename: 'dock.cjs' });
   return sandboxModule.exports;
 }
@@ -60,6 +63,7 @@ async function loadDockModule() {
 async function loadLegacyFunctions() {
   const floatSource = await fs.readFile(LEGACY_FLOAT_SOURCE_PATH, 'utf8');
   const targetSource = await fs.readFile(LEGACY_TARGET_SOURCE_PATH, 'utf8');
+  const geometrySource = await fs.readFile(path.join(PROJECT_ROOT, 'ui', 'js', 'float', 'geometry.js'), 'utf8');
   const sandbox = vm.createContext({
     console,
     warnOnce: () => {},
@@ -68,6 +72,7 @@ async function loadLegacyFunctions() {
     getDockState: () => ({ anchor: null, openDir: 'down-left', visible: false, shape: 'ball' }),
     setDockOpenDir: () => {},
   });
+  vm.runInContext(geometrySource, sandbox, { filename: 'geometry.js' });
   vm.runInContext(targetSource, sandbox, { filename: 'target-source.js' });
   const exported = vm.runInContext(
     `${floatSource}\n;({ buildPanelFieldTexts: buildPanelFieldTexts, formatSessionLabel: formatSessionLabel })`,

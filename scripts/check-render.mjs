@@ -35,6 +35,10 @@ const RENDER_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/view/render.js');
 // 展示口径函数住在 ui-format.js，它们要调用 render.js 的 escapeHtml——真实 bundle 里两者同作用域
 // （build.cjs 的 UI_PARTS 顺序 format → render），所以这里也必须拼成一个作用域再执行。
 const FORMAT_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/format/ui-format.js');
+// 列表规则（过滤/三态/计数/时间/行数据）已搬到 format/list-rules.js（单一实现，render 只调用）
+const LIST_RULES_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/format/list-rules.js');
+// float.js 的几何函数已搬到 float/geometry.js（单一实现）
+const GEOMETRY_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/float/geometry.js');
 
 // 只有显式给了 DMT_BACKEND 才连真实部署；否则用下面的进程内 fixture
 const EXPLICIT_BACKEND = (process.env.DMT_BACKEND || '').replace(/\/+$/, '');
@@ -51,7 +55,7 @@ const EXIT_MISMATCH = 1;
  * view/render.js 的函数在调用时才碰全局（escapeHtml 等都在同文件内定义），空沙箱足够。
  */
 function loadRenderLayer() {
-  const source = `${fs.readFileSync(FORMAT_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(RENDER_SOURCE_PATH, 'utf8')}`;
+  const source = `${fs.readFileSync(FORMAT_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(LIST_RULES_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(RENDER_SOURCE_PATH, 'utf8')}`;
   const sandbox = vm.createContext({ console });
   const exported = vm.runInContext(
     `${source}\n;({ renderGroupList: renderGroupList, renderChat: renderChat })`,
@@ -69,7 +73,7 @@ function loadRenderLayer() {
  * 与运行时用的是同一份代码，不是复制品。
  */
 function loadFloatPanelTexts() {
-  const source = fs.readFileSync(path.join(PROJECT_ROOT, 'ui/js/float/float.js'), 'utf8');
+  const source = `${fs.readFileSync(GEOMETRY_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(path.join(PROJECT_ROOT, 'ui/js/float/float.js'), 'utf8')}`;
   const sandbox = vm.createContext({ console });
   return vm.runInContext(
     `${source}\n;({ buildPanelFieldTexts: buildPanelFieldTexts })`,

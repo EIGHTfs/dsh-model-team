@@ -112,13 +112,8 @@ function platformOf(group) {
 function targetLabel() {
   const current = ensureState();
   const target = current && (current.effectiveTarget || current.target);
-  if (!target) return '—';
-  if (target.type === 'group') {
-    const matched = current.friendGroups.filter(function (friendGroup) { return friendGroup.id === target.id; })[0];
-    return '@' + (matched ? matched.name : target.id);
-  }
-  const modelId = String(target.id || target.model || '').replace(/^global:/, '');
-  return modelId || '—';
+  // 文案口径在 ui-format.js（唯一实现）
+  return formatTargetLabel(target, current ? current.friendGroups : []);
 }
 
 // 来源提示：只有「本会话没显式绑定、由后端回落」时才显示（浅色小字，跟在目标名后面）。
@@ -149,12 +144,8 @@ function renderApp(nextState, options) {
   }
 
   if (current.view === 'list') {
-    const keyword = (viewState.groupFilter || '').trim().toLowerCase();
-    const visibleGroups = keyword
-      ? current.groups.filter(function (group) {
-        return [group.name, group.summary, group.driver, group.id].join(' ').toLowerCase().indexOf(keyword) >= 0;
-      })
-      : current.groups;
+    // 过滤口径在 list-rules.js（name/summary/driver/id 任一命中，大小写不敏感）
+    const visibleGroups = filterGroups(current.groups, viewState.groupFilter);
 
     // 焦点只在"本来就在搜索框里"时恢复：不能无条件 focus，
     // 否则每次进群聊界面都会把焦点塞进搜索框（移动端直接弹键盘）。

@@ -9,8 +9,12 @@ import fs from 'node:fs/promises';
 
 const FORMAT_SOURCE = await fs.readFile(new URL('../ui/js/format/ui-format.js', import.meta.url), 'utf8');
 const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/view/render.js', import.meta.url), 'utf8');
+// 列表规则已搬到 format/list-rules.js（单一实现）：真实 bundle 里与 render 同作用域，这里也拼起来
+const LIST_RULES_SOURCE = await fs.readFile(new URL('../ui/js/format/list-rules.js', import.meta.url), 'utf8');
 const CLIENT_SOURCE = await fs.readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 const FLOAT_SOURCE = await fs.readFile(new URL('../ui/js/float/float.js', import.meta.url), 'utf8');
+// float.js 的几何函数住在 float/geometry.js（单一实现），拼接顺序必须是 geometry → float
+const GEOMETRY_SOURCE = await fs.readFile(new URL('../ui/js/float/geometry.js', import.meta.url), 'utf8');
 
 // 球内标记在 ui-format.js、群列表在 render.js，真实 bundle 里两者**同一个作用域**
 // （build.cjs 的 UI_PARTS 顺序 format → render，另有 assertPartOrder 守着）。
@@ -18,6 +22,7 @@ const FLOAT_SOURCE = await fs.readFile(new URL('../ui/js/float/float.js', import
 function loadRenderLayer() {
   // eslint-disable-next-line no-new-func
   return new Function(`${FORMAT_SOURCE}
+${LIST_RULES_SOURCE}
 ${RENDER_SOURCE}
 ;return { renderFloatTargetMarkup: renderFloatTargetMarkup, renderGroupList: renderGroupList };`)();
 }

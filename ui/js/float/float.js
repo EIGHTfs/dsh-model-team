@@ -3,60 +3,22 @@
 // 拖动：球用 transform 单帧跟随（rAF 合并，不重排），松手才落 left/top 并持久化锚点；
 //       面板标题条拖动仍直接改 left/top（面板位置不持久化）。
 
-const PANEL_GAP_PX = 12;             // 面板与球的间距
-const VIEWPORT_MARGIN_PX = 12;       // 面板离视口边缘的最小距离
-const DRAG_THRESHOLD_PX = 4;         // 位移超过它才算拖动，否则视为点击
-const BALL_FALLBACK_SIZE_PX = 56;    // 取不到球实际尺寸时的兜底（与样式里的球径一致）
-const PANEL_FALLBACK_WIDTH = 384;    // 面板未渲染完成时的兜底尺寸
-const PANEL_FALLBACK_HEIGHT = 210;
+// 几何常量与纯函数都在 geometry.js（单一实现）；本文件只管 DOM 落地与交互
 
 let dragState = null;                // 当前拖动上下文（球或面板）
 let dragFrameId = 0;                 // rAF 句柄：同一帧只写一次 transform
 let dragPendingPosition = null;      // 等待写入的位置
 let dockElement = null;              // 缓存球容器，拖动中不逐帧 querySelector
 
-// 位置夹取：**唯一入口**（拖动每帧、松手落位、落盘、恢复锚点、resize、面板定位全走它）。
-// 语义：**整块留在视口内**（min=0，max=max(0, 视口 - 尺寸)）。
-// 为什么不是"至少留 8px 可抓"：那样球能被拖到只剩一条边露在外面，松手/刷新再被夹回，
-// 用户看到的是"被拉出去又跳回固定位置"。整块在内既不会丢，也不需要事后纠正。
-// 视口比控件还小时 max 会小于 min：此时按 0 处理（贴左上角，至少能看见一部分）。
-// 纯函数：不读全局状态，viewSize 缺省才用 window（单测里直接传）。
-function clampDockPosition(left, top, size, viewSize) {
-  const targetSize = size || { width: BALL_FALLBACK_SIZE_PX, height: BALL_FALLBACK_SIZE_PX };
-  const view = viewSize || {
-    width: typeof window === 'undefined' ? 0 : window.innerWidth,
-    height: typeof window === 'undefined' ? 0 : window.innerHeight,
-  };
-  const maxLeft = Math.max(0, Number(view.width || 0) - Number(targetSize.width || 0));
-  const maxTop = Math.max(0, Number(view.height || 0) - Number(targetSize.height || 0));
-  return {
-    left: Math.min(Math.max(Number(left) || 0, 0), maxLeft),
-    top: Math.min(Math.max(Number(top) || 0, 0), maxTop),
-  };
-}
+// 位置夹取走 geometry.js 的 clampDockPosition（唯一实现，见该文件顶部注释）。
 
-// 取球的实际尺寸（取不到就用兜底值）：夹取需要它算"至少留 8px"的下界
+// 取球的实际尺寸（取不到就用兜底值）
 function readDockSize() {
   const floatDock = dockElement || findElement('#floatDock');
-  const rect = floatDock ? floatDock.getBoundingClientRect() : null;
-  if (!rect || !rect.width || !rect.height) {
-    return { width: BALL_FALLBACK_SIZE_PX, height: BALL_FALLBACK_SIZE_PX };
-  }
-  return { width: rect.width, height: rect.height };
+  return measureSize(floatDock, { width: BALL_FALLBACK_SIZE_PX, height: BALL_FALLBACK_SIZE_PX });
 }
 
-// 展开方向：锚点中心相对视口中心决定象限（照 ModelStage 的 placeForForm 口径）。
-//   openLeft = 球在右半边 → 面板向左长、文本在球的左侧（朝视口内侧）
-//   openUp   = 球在下半边 → 面板向上长
-// 拖动松手、resize、恢复锚点后都要重算，否则拖到另一半屏后方向还是旧的。
-function computeOpenDir(rect, viewSize) {
-  const view = viewSize || { width: window.innerWidth, height: window.innerHeight };
-  const centerX = rect.left + rect.width / 2;
-  const centerY = rect.top + rect.height / 2;
-  const openLeft = centerX >= view.width / 2;
-  const openUp = centerY >= view.height / 2;
-  return (openUp ? 'up' : 'down') + '-' + (openLeft ? 'left' : 'right');
-}
+// 展开方向走 geometry.js 的 computeOpenDir（唯一实现）。
 
 // 把方向写到 DOM：CSS 用 [data-open-dir$="right"] 决定文本在球的哪一侧
 function applyOpenDir(openDir) {
@@ -76,10 +38,7 @@ function refreshOpenDir() {
 
 // 面板尺寸：优先取实际渲染尺寸，取不到用兜底常量（夹取要按"当前形态"的尺寸算）
 function readPanelSize() {
-  const floatPanel = findElement('#floatPanel');
-  const width = floatPanel && floatPanel.offsetWidth ? floatPanel.offsetWidth : PANEL_FALLBACK_WIDTH;
-  const height = floatPanel && floatPanel.offsetHeight ? floatPanel.offsetHeight : PANEL_FALLBACK_HEIGHT;
-  return { width, height };
+  return measureSize(findElement('#floatPanel'), PANEL_FALLBACK_SIZE);
 }
 
 // 面板相对球展开：**永远朝视口中心方向长**——
@@ -92,11 +51,11 @@ function positionPanel() {
   const dockRect = floatDock.getBoundingClientRect();
   const panelSize = readPanelSize();
   const openDir = (typeof getDockState === 'function' && getDockState().openDir) || computeOpenDir(dockRect);
-  const openLeftwards = openDir.indexOf('left') >= 0;
-  const openUpwards = openDir.indexOf('up') >= 0;
-  const rawLeft = openLeftwards ? dockRect.right - panelSize.width : dockRect.left;
-  const rawTop = openUpwards ? dockRect.top - panelSize.height - PANEL_GAP_PX : dockRect.bottom + PANEL_GAP_PX;
-  const clamped = clampDockPosition(rawLeft, rawTop, panelSize);
+  const clamped = computePanelPosition(
+    { left: dockRect.left, top: dockRect.top, width: dockRect.width, height: dockRect.height },
+    panelSize,
+    openDir
+  );
   floatPanel.style.left = clamped.left + 'px';
   floatPanel.style.top = clamped.top + 'px';
 }
@@ -255,7 +214,7 @@ function initDrag() {
     const deltaX = event.clientX - dragState.startX;
     const deltaY = event.clientY - dragState.startY;
     if (!dragState.moved) {
-      if (Math.abs(deltaX) + Math.abs(deltaY) <= DRAG_THRESHOLD_PX) return;
+      if (!shouldStartDrag(deltaX, deltaY)) return;
       dragState.moved = true;
       floatDock.classList.add('is-dragging');
       // 真正进入拖动才收起面板：球动而面板停在原地会显得"拖不动"
@@ -412,14 +371,18 @@ function buildPanelFieldTexts(values) {
   };
 }
 
-// 会话行：有标题显示「标题（短 id）」，没标题只显示短 id，没有会话显示 —
-// 短 id 取「去掉 session- 前缀后的前 8 位」——直接取原串前 8 位会永远是 "session-"，无法区分会话
+// 会话行文案走 ui-format.js 的 formatSessionLine（唯一实现，docs/03 条款 5）
 function formatSessionLabel(current) {
-  const sessionId = current && current.sessionId;
-  if (!sessionId) return FLOAT_PLACEHOLDER;
-  const shortId = String(sessionId).replace(/^session-/, '').slice(0, 8);
-  const title = current.sessionTitle;
-  return title ? title + '（' + shortId + '）' : shortId;
+  return formatSessionLine(current && current.sessionId, current && current.sessionTitle).text;
+}
+
+// 完整 sessionId 要放进 title 属性（条款 5 D-6）：截断显示可读，悬停仍能拿到全量 id
+function applySessionTitle(current) {
+  const sessionNode = findElement('#fpSession');
+  if (!sessionNode) return;
+  const sessionLine = formatSessionLine(current && current.sessionId, current && current.sessionTitle);
+  if (sessionLine.title) sessionNode.setAttribute('title', sessionLine.title);
+  else sessionNode.removeAttribute('title');
 }
 
 // ≈ 前缀是"下界"的唯一信号：光看数字看不出为什么偏低，补一条 title 说明分母口径。
@@ -469,6 +432,7 @@ function renderFloat(current, activePlatform) {
   });
   setFloatText('#fpGroup', panelFieldTexts.fpGroup);
   setFloatText('#fpSession', panelFieldTexts.fpSession);
+  applySessionTitle(current);
   setFloatTarget('#fpTarget', panelFieldTexts.fpTarget, targetSourceHint());
   setFloatText('#fpRate', panelFieldTexts.fpRate);
   applyRateHint(panelFieldTexts.fpRate);

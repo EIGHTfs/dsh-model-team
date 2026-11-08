@@ -24,6 +24,8 @@ const API_SOURCE = await fs.readFile(new URL('../lib/client-parts/foundation/api
 // 所以这里把两个分片按 build.cjs 的 UI_PARTS 顺序（format → render）拼起来执行。
 const FORMAT_SOURCE = await fs.readFile(new URL('../ui/js/format/ui-format.js', import.meta.url), 'utf8');
 const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/view/render.js', import.meta.url), 'utf8');
+// 列表规则已搬到 format/list-rules.js（单一实现）：真实 bundle 里与 render 同作用域，这里也拼起来
+const LIST_RULES_SOURCE = await fs.readFile(new URL('../ui/js/format/list-rules.js', import.meta.url), 'utf8');
 
 const THREE_GROUPS = [
   { id: 'agnes', name: 'agnes', driver: 'openai-compatible', summary: '官方接入' },
@@ -109,6 +111,7 @@ test('回归②：apiJson 三类失败都要上报原因（HTTP / JSON / 网络�
 test('回归③：群列表空 + 有失败原因 → 渲染"加载失败"，不许显示"0 个群"', () => {
   // eslint-disable-next-line no-new-func
   const factory = new Function(`${FORMAT_SOURCE}
+${LIST_RULES_SOURCE}
 ${RENDER_SOURCE}
 ;return { renderGroupList: renderGroupList };`);
   const render = factory();
@@ -171,6 +174,7 @@ ${STORE_SOURCE}
 test('G-B：群友数区分「未加载」与「确实 0 个」（未加载显示 —，加载后 0 就显示 0）', () => {
   // eslint-disable-next-line no-new-func
   const render = new Function(`${FORMAT_SOURCE}
+${LIST_RULES_SOURCE}
 ${RENDER_SOURCE}
 ;return { renderChat: renderChat };`)();
   const group = { id: 'agnes', name: 'agnes' };

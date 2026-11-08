@@ -29,6 +29,11 @@ export async function loadClassicListHelpers() {
   const buildTheme = await import('../build-theme.mjs');
   const sourceText = fs.readFileSync(LIST_SOURCE_PATH, 'utf8');
   const compiled = await buildTheme.compileTheme({ sourceText, resolveDir: path.dirname(LIST_SOURCE_PATH), sourcefile: 'list-rules.ts' });
+  // SDK 只转调宿主实现：把宿主四个纯函数分片先跑进同一沙箱（与真实加载顺序一致）
+  const hostSandbox = vm.createContext({ console, warnOnce: () => {}, escapeHtml: (value) => String(value == null ? '' : value), renderAvatar: () => '?' });
+  for (const relativePath of ['ui/js/float/geometry.js', 'ui/js/format/ui-format.js', 'ui/js/float/target-source.js', 'ui/js/format/list-rules.js']) {
+    vm.runInContext(fs.readFileSync(path.join(PROJECT_ROOT, relativePath), 'utf8'), hostSandbox, { filename: relativePath });
+  }
   const sandboxModule = { exports: {} };
   vm.runInNewContext(compiled.bundleCode, {
     module: sandboxModule,
@@ -41,6 +46,10 @@ export async function loadClassicListHelpers() {
     },
     console,
     window: undefined,
+    dshHostGeometry: hostSandbox.dshHostGeometry,
+    dshHostUiFormat: hostSandbox.dshHostUiFormat,
+    dshHostTargetSource: hostSandbox.dshHostTargetSource,
+    dshHostListRules: hostSandbox.dshHostListRules,
   }, { filename: 'classic-list.cjs' });
   return sandboxModule.exports;
 }

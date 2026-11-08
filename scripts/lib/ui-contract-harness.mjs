@@ -23,6 +23,8 @@ export const PROJECT_ROOT = path.resolve(SCRIPT_DIRECTORY, '..', '..');
 export const PATHS = {
   renderSource: path.join(PROJECT_ROOT, 'ui/js/view/render.js'),
   formatSource: path.join(PROJECT_ROOT, 'ui/js/format/ui-format.js'),
+  // 列表规则已搬到 format/list-rules.js（单一实现）：render 只调用，沙箱里必须同作用域
+  listRulesSource: path.join(PROJECT_ROOT, 'ui/js/format/list-rules.js'),
   mockServer: path.join(PROJECT_ROOT, 'scripts/mock-team-server.mjs'),
   platformPreset: path.join(PROJECT_ROOT, 'config/platforms.json'),
   reversePlatforms: path.join(PROJECT_ROOT, 'src/reverse/platforms'),
@@ -79,7 +81,7 @@ export function collectUiSourceFiles() {
  * 展示口径函数住在 ui-format.js 且要调用 render.js 的 escapeHtml，所以必须拼起来再执行。
  */
 export const readSources = () => ({
-  renderSourceText: `${readTextFile(PATHS.formatSource)}\n${readTextFile(PATHS.renderSource)}`,
+  renderSourceText: `${readTextFile(PATHS.formatSource)}\n${readTextFile(PATHS.listRulesSource)}\n${readTextFile(PATHS.renderSource)}`,
   uiFiles: collectUiSourceFiles(),
 });
 

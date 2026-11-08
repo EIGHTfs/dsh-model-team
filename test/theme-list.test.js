@@ -15,6 +15,7 @@ import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 import { compileTheme } from '../scripts/build-theme.mjs';
+import { loadHostGlobals } from './helpers/host-globals.js';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // 列表与 tab 的口径住在 SDK（主题只负责画）
@@ -47,6 +48,7 @@ async function compileModule(sourcePath) {
     },
     console,
     window: undefined,
+    ...(await loadHostGlobals()),
   }, { filename: path.basename(sourcePath) });
   return sandboxModule.exports;
 }

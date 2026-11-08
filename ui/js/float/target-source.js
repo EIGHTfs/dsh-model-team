@@ -26,3 +26,8 @@ function renderTargetSourceBadge(targetSource) {
   if (!hint) return "";
   return '<span class="req-source">' + escapeHtml(hint) + "</span>";
 }
+
+// 主题 SDK（formatTargetSourceHint / targetSourceHint）转调这里（唯一实现）
+if (typeof globalThis !== 'undefined') {
+  globalThis.dshHostTargetSource = { targetSourceHint: targetSourceHintOf, TARGET_SOURCE_HINTS: TARGET_SOURCE_HINTS };
+}

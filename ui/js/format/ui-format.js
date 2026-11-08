@@ -50,3 +50,37 @@ function formatMemberCount(models, modelsStatus) {
   if (modelsStatus === undefined || modelsStatus === 'loaded') return String(models.length);
   return '—';
 }
+
+// 会话行（docs/03 条款 5，D-6）：有标题 →「标题（短 id）」；无标题 →「未命名会话」；
+// 完整 id 交给调用方放进 title 属性；草稿（无 id）→ —。
+// 短 id 取「去掉 session- 前缀后的前 8 位」——直接取原串前 8 位永远是 "session-"。
+function formatSessionLine(sessionId, sessionTitle) {
+  const rawId = typeof sessionId === 'string' ? sessionId.trim() : '';
+  if (!rawId) return { text: '—', title: '' };
+  const shortId = rawId.replace(/^session-/, '').slice(0, 8);
+  const title = typeof sessionTitle === 'string' ? sessionTitle.trim() : '';
+  if (!title) return { text: '未命名会话', title: rawId };
+  return { text: title + '（' + shortId + '）', title: rawId };
+}
+
+// 目标文案：分组 → @分组名（名字取好友分组，取不到回落 id）；单模型 → 去 global: 前缀；空 → —
+function formatTargetLabel(effectiveTarget, friendGroups) {
+  const target = effectiveTarget;
+  if (!target || typeof target !== 'object') return '—';
+  if (target.type === 'group') {
+    const groups = Array.isArray(friendGroups) ? friendGroups : [];
+    const matched = groups.filter(function (friendGroup) { return String(friendGroup.id) === String(target.id); })[0];
+    const matchedName = matched && typeof matched.name === 'string' ? matched.name.trim() : '';
+    return '@' + (matchedName || String(target.id || ''));
+  }
+  const modelId = String(target.id || target.model || '').replace(/^global:/, '').trim();
+  return modelId || '—';
+}
+
+// 主题 SDK 转调入口（唯一实现在这里/配套文件，SDK 不再各写一份）
+if (typeof globalThis !== 'undefined') {
+  globalThis.dshHostUiFormat = {
+    formatSessionLine: formatSessionLine,
+    formatTargetLabel: formatTargetLabel,
+  };
+}

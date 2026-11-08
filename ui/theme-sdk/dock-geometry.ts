@@ -1,13 +1,12 @@
-// dock-geometry.ts —— 悬浮件（球 + 面板）的几何与文案口径：两套主题必须完全一致的那部分。
+// dock-geometry.ts —— 悬浮件几何与文案口径的**转调层**（薄壳，不持有实现）。
 //
-// 为什么这些必须在 SDK 而不是主题里：位置夹取、展开象限、开合阈值、五行政文
-// 都是「换个皮肤不能变」的行为。放进主题意味着两套各写一遍，S-3（功能一致）就只能靠人肉维持。
-// 主题只负责把它们算好的值画出来。
+// 单一实现住在宿主 `ui/js/float/geometry.js` 与 `ui/js/format/*`：宿主是常驻层，主题可增删，
+// **主题不能成为宿主的依赖**，所以规则只能从宿主流向主题，不能反过来。
+// 本文件按名字从 `globalThis.dshHostGeometry` / `dshHostUiFormat` / `dshHostTargetSource`
+// 取实现，exports 名保持不变（主题代码无需改动）。
 //
-// 迁自 ui/js/float/float.js 与 dock-state.js，逐条对应历史缺陷：
-//   · 整块留视口内（G-dock2：拖出去跳回）—— clampDockPosition 是唯一入口；
-//   · 象限决定展开方向（靠右向左、靠下向上）；
-//   · 位移 > 4px 才算拖动（否则算点击，F-01：只能开不能关）。
+// 常量在这里再声明一次是**类型需要**（主题直接引用数字）；值必须与宿主一致，
+// 由 test/ui-geometry.test.js 逐值比对（两处表达 ⇒ 门禁钉死）。
 
 export const DRAG_THRESHOLD_PX = 4;
 export const PANEL_GAP_PX = 12;
@@ -15,7 +14,6 @@ export const BALL_FALLBACK_SIZE_PX = 56;
 export const PANEL_FALLBACK_SIZE = { width: 384, height: 210 } as const;
 export const PLACEHOLDER = '—';
 export const RATE_PLACEHOLDER = '— tok/s';
-/** 默认锚点：右下角往内缩 24px、纵向落在视口 58% 处（数值取自旧实现，改它首帧位置就变） */
 export const DEFAULT_ANCHOR_INSET_PX = 24;
 export const DEFAULT_ANCHOR_VERTICAL_RATIO = 0.58;
 
@@ -44,85 +42,63 @@ export interface PanelField {
   hint?: string;
 }
 
-/** 夹取：整块留在视口内。视口比控件还小时按 0（贴左上角，至少看得见一部分） */
-export function clampDockPosition(left: number, top: number, size: Size, viewSize: Size): Point {
-  const maxLeft = Math.max(0, Number(viewSize.width || 0) - Number(size.width || 0));
-  const maxTop = Math.max(0, Number(viewSize.height || 0) - Number(size.height || 0));
-  return {
-    left: Math.min(Math.max(Number(left) || 0, 0), maxLeft),
-    top: Math.min(Math.max(Number(top) || 0, 0), maxTop),
-  };
+interface HostGeometry {
+  clampDockPosition(left: number, top: number, size: Size, viewSize: Size): Point;
+  computeOpenDir(rect: Rect, viewSize: Size): OpenDirection;
+  computePanelPosition(dockRect: Rect, panelSize: Size, openDir: OpenDirection, viewSize: Size): Point;
+  measureSize(element: { getBoundingClientRect(): { width: number; height: number } } | null, fallback: Size): Size;
+  defaultAnchor(ballSize: Size, viewSize: Size): Point;
+  shouldStartDrag(deltaX: number, deltaY: number): boolean;
 }
 
-/** 象限方向：球在右半屏 → 面板向左；球在下半屏 → 面板向上（永远朝视口内侧长） */
-export function computeOpenDir(rect: Rect, viewSize: Size): OpenDirection {
-  const centerX = rect.left + rect.width / 2;
-  const centerY = rect.top + rect.height / 2;
-  const openLeft = centerX >= viewSize.width / 2;
-  const openUp = centerY >= viewSize.height / 2;
-  return `${openUp ? 'up' : 'down'}-${openLeft ? 'left' : 'right'}` as OpenDirection;
-}
-
-/** 面板位置 = 锚点 + 面板尺寸 + 展开方向，最后一次夹取（与球同一口径） */
-export function computePanelPosition(dockRect: Rect, panelSize: Size, openDir: OpenDirection, viewSize: Size): Point {
-  const openLeftwards = openDir.indexOf('left') >= 0;
-  const openUpwards = openDir.indexOf('up') >= 0;
-  const rawLeft = openLeftwards ? dockRect.left + dockRect.width - panelSize.width : dockRect.left;
-  const rawTop = openUpwards ? dockRect.top - panelSize.height - PANEL_GAP_PX : dockRect.top + dockRect.height + PANEL_GAP_PX;
-  return clampDockPosition(rawLeft, rawTop, panelSize, viewSize);
-}
-
-/** 拖动判定：曼哈顿距离（与旧实现一致；欧氏距离会让斜向轻微移动更迟钝） */
-export function shouldStartDrag(deltaX: number, deltaY: number): boolean {
-  return Math.abs(deltaX) + Math.abs(deltaY) > DRAG_THRESHOLD_PX;
-}
-
-/**
- * 会话行文案（D-6）：有标题 → `标题（id 前 8 位）`；无标题 → `未命名会话`；
- * 完整 id 进 title 属性（可追溯）；草稿会话（没有 id）→ `—`。
- */
-export function formatSessionLine(sessionId: unknown, sessionTitle: unknown): { text: string; title: string } {
-  const rawId = typeof sessionId === 'string' ? sessionId.trim() : '';
-  if (!rawId) return { text: PLACEHOLDER, title: '' };
-  const shortId = rawId.replace(/^session-/, '').slice(0, 8);
-  const title = typeof sessionTitle === 'string' ? sessionTitle.trim() : '';
-  if (!title) return { text: '未命名会话', title: rawId };
-  return { text: `${title}（${shortId}）`, title: rawId };
-}
-
-/**
- * 当前目标文案（与 ui/js/app.js:112 targetLabel 对齐）：
- * group → `@分组名`（名字取好友分组，取不到回落 id）；model → 去掉 `global:` 前缀的 id；无 → `—`。
- */
-export function formatTargetLabel(effectiveTarget: unknown, friendGroups: ReadonlyArray<{ id?: unknown; name?: unknown }> = []): string {
-  const target = effectiveTarget as { type?: string; id?: string; model?: string } | null;
-  if (!target || typeof target !== 'object') return PLACEHOLDER;
-  if (target.type === 'group') {
-    const matchedGroup = friendGroups.find((friendGroup) => String(friendGroup.id || '') === String(target.id || ''));
-    const groupName = matchedGroup && typeof matchedGroup.name === 'string' ? matchedGroup.name.trim() : '';
-    return `@${groupName || String(target.id || '')}`;
-  }
-  const modelId = String(target.id || target.model || '').replace(/^global:/, '').trim();
-  return modelId || PLACEHOLDER;
-}
-
-/**
- * 目标来源提示：只有三种「后端回落」来源要提示；空值 = 显式绑定（不提示），未知值 = 不渲染。
- * 文案与 ui/js/float/target-source.js 逐字一致，由 test/theme-dock-panel.test.js 比对（同一事实两处表达 ⇒ 门禁）。
- */
-export const TARGET_SOURCE_HINTS: Record<string, string> = {
-  'last-session': '（继承上一会话）',
-  parent: '（继承父会话）',
-  'fallback-group': '（兜底群默认）',
+const hostGeometry = (): HostGeometry => {
+  const host = (globalThis as { dshHostGeometry?: HostGeometry }).dshHostGeometry;
+  if (!host) throw new Error('宿主几何实现未加载：ui/js/float/geometry.js 必须先于主题执行');
+  return host;
 };
 
-export function targetSourceHint(targetSource: unknown): string {
-  if (typeof targetSource !== 'string' || !targetSource) return '';
-  return TARGET_SOURCE_HINTS[targetSource] || '';
-}
+const hostUiFormat = () => {
+  const host = (globalThis as {
+    dshHostUiFormat?: {
+      formatSessionLine(sessionId: unknown, sessionTitle: unknown): { text: string; title: string };
+      formatTargetLabel(effectiveTarget: unknown, friendGroups: ReadonlyArray<{ id?: unknown; name?: unknown }>): string;
+    };
+  }).dshHostUiFormat;
+  if (!host) throw new Error('宿主文案口径未加载：ui/js/format/ui-format.js 必须先于主题执行');
+  return host;
+};
 
-const trimmedText = (value: unknown): string => (value == null ? '' : String(value).trim());
+const hostTargetSource = () => {
+  const host = (globalThis as { dshHostTargetSource?: { targetSourceHint(targetSource: unknown): string } }).dshHostTargetSource;
+  if (!host) throw new Error('宿主来源提示未加载：ui/js/float/target-source.js 必须先于主题执行');
+  return host;
+};
 
+/** 夹取：整块留在视口内（实现在宿主） */
+export const clampDockPosition = (left: number, top: number, size: Size, viewSize: Size): Point => hostGeometry().clampDockPosition(left, top, size, viewSize);
+
+/** 象限方向（实现在宿主） */
+export const computeOpenDir = (rect: Rect, viewSize: Size): OpenDirection => hostGeometry().computeOpenDir(rect, viewSize);
+
+/** 面板位置 = 锚点 + 面板尺寸 + 展开方向，最后一次夹取（实现在宿主） */
+export const computePanelPosition = (dockRect: Rect, panelSize: Size, openDir: OpenDirection, viewSize: Size): Point => hostGeometry().computePanelPosition(dockRect, panelSize, openDir, viewSize);
+
+/** 拖动判定（实现在宿主） */
+export const shouldStartDrag = (deltaX: number, deltaY: number): boolean => hostGeometry().shouldStartDrag(deltaX, deltaY);
+
+/** 会话行文案（实现在宿主） */
+export const formatSessionLine = (sessionId: unknown, sessionTitle: unknown): { text: string; title: string } => hostUiFormat().formatSessionLine(sessionId, sessionTitle);
+
+/** 当前目标文案（实现在宿主） */
+export const formatTargetLabel = (effectiveTarget: unknown, friendGroups: ReadonlyArray<{ id?: unknown; name?: unknown }> = []): string => hostUiFormat().formatTargetLabel(effectiveTarget, friendGroups);
+
+/** 目标来源提示（实现在宿主；未知值由宿主告警一次并不渲染） */
+export const targetSourceHint = (targetSource: unknown): string => hostTargetSource().targetSourceHint(targetSource);
+
+/**
+ * 面板五行文案：顺序与占位规则见 docs/03 条款 3；**这里保留组装**（面板专属排版，
+ * 宿主那份是 DOM 写入路径，两者不共用字符串拼接）。
+ */
 export interface PanelFieldValues {
   groupName?: unknown;
   sessionText?: unknown;
@@ -133,11 +109,8 @@ export interface PanelFieldValues {
   globalText?: unknown;
 }
 
-/**
- * 面板五行的最终文案（与 ui/js/float/float.js:401 buildPanelFieldTexts 逐字等价）。
- * 顺序固定：当前群聊 → 会话 → 当前目标 → 速率 → 全局（docs/03 条款 3）；任何一行都不许是空串。
- * 来源提示走 hint（独立浅色小字），不拼进 value —— 拼进去就没法单独换样式。
- */
+const trimmedText = (value: unknown): string => (value == null ? '' : String(value).trim());
+
 export function buildPanelFields(values: PanelFieldValues): PanelField[] {
   return [
     { key: 'fpGroup', label: '当前群聊：', value: trimmedText(values.groupName) || PLACEHOLDER },
@@ -148,23 +121,14 @@ export function buildPanelFields(values: PanelFieldValues): PanelField[] {
   ];
 }
 
+/** 尺寸测量（实现在宿主） */
+export const measureSize = (element: unknown, fallback: Size): Size => hostGeometry().measureSize(element as { getBoundingClientRect(): { width: number; height: number } } | null, fallback);
+
+/** 视口尺寸：只有这一处需要 window，主题也可以自己传（tests 直接给值） */
 export function readViewSize(): Size {
   if (typeof window === 'undefined') return { width: 0, height: 0 };
   return { width: window.innerWidth, height: window.innerHeight };
 }
 
-export function measureSize(element: HTMLElement | null, fallback: Size): Size {
-  const rect = element ? element.getBoundingClientRect() : null;
-  if (!rect || !rect.width || !rect.height) return fallback;
-  return { width: rect.width, height: rect.height };
-}
-
-/** 没定过位时的默认锚点：右下角往里缩一点（与旧实现一致） */
-export function defaultAnchor(ballSize: Size, viewSize: Size): Point {
-  return clampDockPosition(
-    viewSize.width - ballSize.width - DEFAULT_ANCHOR_INSET_PX,
-    viewSize.height * DEFAULT_ANCHOR_VERTICAL_RATIO,
-    ballSize,
-    viewSize,
-  );
-}
+/** 默认锚点（实现在宿主） */
+export const defaultAnchor = (ballSize: Size, viewSize: Size): Point => hostGeometry().defaultAnchor(ballSize, viewSize);

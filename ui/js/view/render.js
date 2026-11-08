@@ -68,25 +68,7 @@ function requestRow(row, index, isExpanded, platform) {
 
 // 球内标记 / 窗口格式化这类跨视图口径搬到 ui-format.js（render.js 保持只做本视图的骨架）。
 
-// 群列表时间：当天 HH:mm、昨天显示「昨天」、更早 MM-DD；lastUpdated 缺失/非法 → 空
-function formatGroupTime(isoText) {
-  if (!isoText) return '';
-  const when = new Date(isoText);
-  if (isNaN(when.getTime())) return '';
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000;
-  const stamp = when.getTime();
-  if (stamp >= startOfToday) {
-    const hours = String(when.getHours()).padStart(2, '0');
-    const minutes = String(when.getMinutes()).padStart(2, '0');
-    return hours + ':' + minutes;
-  }
-  if (stamp >= startOfYesterday) return '昨天';
-  const month = String(when.getMonth() + 1).padStart(2, '0');
-  const day = String(when.getDate()).padStart(2, '0');
-  return month + '-' + day;
-}
+// 群列表时间 / 摘要 / 计数 / 行数据都走 list-rules.js（单一实现，可单测）。
 
 // 头像渲染：http(s) / data: URL 用 <img>，其余按文本占位（空则用名称首字母）。
 // 图片 404 等加载失败由 app.js 的全局 error 捕获降级为文本，不会留下破图。
@@ -106,24 +88,25 @@ function renderAvatar(avatarText, fallbackName) {
 function renderGroupList(groups, currentGroupId, filterText, options) {
   const loadError = options && options.loadError ? String(options.loadError) : '';
   const itemsHtml = groups.map(function (group) {
-    const timeText = formatGroupTime(group.lastUpdated);
-    return `<li class="group-item${group.id === currentGroupId ? ' active' : ''}" data-group-id="${escapeHtml(group.id)}" tabindex="0">
-      <span class="avatar">${renderAvatar(group.avatar, group.name)}</span>
+    const itemView = buildListItemView(group, currentGroupId);
+    return `<li class="group-item${itemView.active ? ' active' : ''}" data-group-id="${escapeHtml(group.id)}" tabindex="0">
+      <span class="avatar">${renderAvatar(itemView.avatar, itemView.title)}</span>
       <div class="group-main">
-        <div class="group-line"><span class="group-name">${escapeHtml(group.name)}</span></div>
-        ${renderGroupSummaryLine(group.summary)}
+        <div class="group-line"><span class="group-name">${escapeHtml(itemView.title)}</span></div>
+        ${itemView.subtitle ? renderGroupSummaryLine(itemView.subtitle) : ''}
       </div>
       <div class="group-right">
-        ${timeText ? `<span class="group-time">${escapeHtml(timeText)}</span>` : ''}
+        ${itemView.meta ? `<span class="group-time">${escapeHtml(itemView.meta)}</span>` : ''}
         <span class="group-driver">${escapeHtml(group.driver)}</span>
       </div>
     </li>`;
   }).join('');
 
-  const isLoadFailure = groups.length === 0 && loadError !== '';
+  const listStatus = resolveListStatus(groups, loadError);
+  const isLoadFailure = listStatus === 'load-failed';
   const countHtml = isLoadFailure
-    ? '<span class="list-count list-count-error">加载失败</span>'
-    : `<span class="list-count">${groups.length} 个群 · 每个群 = 一个平台账号</span>`;
+    ? `<span class="list-count list-count-error">${resolveCountText(listStatus, groups.length)}</span>`
+    : `<span class="list-count">${resolveCountText(listStatus, groups.length)}</span>`;
   const listHtml = isLoadFailure
     ? `<div class="list-error" role="alert">
          <div class="list-error-title">群列表加载失败</div>
