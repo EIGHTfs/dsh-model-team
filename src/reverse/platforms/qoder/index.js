@@ -8,6 +8,7 @@ import { buildCosyHeaders, REQUEST_KINDS } from './headers.js';
 import { unwrapEnvelope } from './envelope.js';
 import { pollDeviceLogin, startDeviceLogin } from './oauth.js';
 import { isQoderWasmAvailable } from './wasm-path.js';
+import { deriveFingerprint, mergeFingerprint } from './fingerprint.js';
 import { displayNameFor, isKnownCatalogKey, listCatalogKeys } from './catalog.js';
 
 // 未实现的网络方法统一抛这个错误：M1 不允许"悄悄发请求"
@@ -131,6 +132,9 @@ export const platform = {
       pollDeviceLogin({ pollContext, fetchImpl }) {
         return pollDeviceLogin({ pollContext, fetchImpl });
       },
+      // 设备指纹：登录成功时由 uid 派生；老账号已有值优先（只补不覆盖）
+      deriveFingerprint(userId) { return deriveFingerprint(userId ?? ''); },
+      mergeFingerprint(existingCredential, derived) { return mergeFingerprint(existingCredential, derived); },
       // 续期是 M4 的范围
       refreshCredential() { throw notImplemented('refreshCredential'); },
       // 取模型清单需要网络（M2/M3）

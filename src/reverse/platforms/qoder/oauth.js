@@ -16,6 +16,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import { resolveMachineId } from './machine-id.js';
+import { deriveFingerprint, mergeFingerprint } from './fingerprint.js';
 
 // PKCE 字符集：RFC 7636 的 unreserved（66 个字符），与参考实现一致
 const PKCE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
@@ -220,6 +221,8 @@ export async function pollDeviceLogin({ pollContext, fetchImpl }) {
   // 两个都没有就让它缺——由存储层按铁律 8「缺身份只新增不去重」处理，这里不编造
   const userId = userInfo.userId ?? tokenPayload.userId ?? null;
   const nickname = userInfo.nickname ?? tokenPayload.nickname ?? null;
+  // 设备指纹由 uid 派生（同一账号恒等）：随机值等于每次登录换一台新设备，容易触发风控
+  const derivedFingerprint = deriveFingerprint(userId ?? '');
 
   return {
     status: 'granted',
@@ -230,8 +233,8 @@ export async function pollDeviceLogin({ pollContext, fetchImpl }) {
       ...(userId ? { userId } : {}),
       ...(nickname ? { nickname } : {}),
       machineId,
-      machineType,
-      machineToken,
+      machineType: derivedFingerprint.machineType,
+      machineToken: derivedFingerprint.machineToken,
       domain: new URL(endpoints.openApiBase).host,
     },
   };

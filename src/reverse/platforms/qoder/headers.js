@@ -27,7 +27,22 @@ export const COSY_HEADERS = Object.freeze({
 export const COSY_CLIENT_TYPE = 'qoder';
 
 // UA 必须是官方客户端形状：默认 UA（node）是最容易触发风控的特征之一
-export const QODER_USER_AGENT = 'Qoder/1.0 (dsh-model-team; reverse)';
+// UA 与 Python 参考实现一致：默认 `undici`（qoder_sign.py:528 的 COSY_USER_AGENT 默认值，
+// 官方 CLI 的推理请求本身不带 UA，由 undici 补默认值）。**不要**改成带项目名的 UA：
+// 那是一条每个请求都出现、极易被聚类的「网关特征」。需要覆盖时用
+// DSH_MODEL_TEAM_QODER_UA 环境变量（真实客户端身份可原样搬过来验证）。
+export const DEFAULT_QODER_USER_AGENT = 'undici';
+export const QODER_USER_AGENT_ENV_VAR = 'DSH_MODEL_TEAM_QODER_UA';
+
+export function resolveUserAgent(environment = process.env) {
+  const configured = typeof environment?.[QODER_USER_AGENT_ENV_VAR] === 'string'
+    ? environment[QODER_USER_AGENT_ENV_VAR].trim()
+    : '';
+  return configured.length > 0 ? configured : DEFAULT_QODER_USER_AGENT;
+}
+
+// 兼容既有引用：默认值（可被 resolveUserAgent 覆盖）
+export const QODER_USER_AGENT = DEFAULT_QODER_USER_AGENT;
 
 export const REQUEST_KINDS = Object.freeze({ chat: 'chat', stream: 'stream' });
 
@@ -77,7 +92,7 @@ export function buildCosyHeaders({ credential, requestKind = REQUEST_KINDS.chat 
     [COSY_HEADERS.machineToken]: machineToken,
     [COSY_HEADERS.machineType]: machineType,
     [COSY_HEADERS.clientType]: COSY_CLIENT_TYPE,
-    [COSY_HEADERS.userAgent]: QODER_USER_AGENT,
+    [COSY_HEADERS.userAgent]: resolveUserAgent(),
   };
   if (requestKind === REQUEST_KINDS.stream) {
     headers[COSY_HEADERS.accept] = 'text/event-stream';

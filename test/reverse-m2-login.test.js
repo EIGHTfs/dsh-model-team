@@ -7,6 +7,7 @@ import http from 'node:http';
 import path from 'node:path';
 
 import { createAccountStore } from '../src/reverse/core/account-store.js';
+import { deriveMachineType } from '../src/reverse/platforms/qoder/fingerprint.js';
 import { createLoginSessionManager, LOGIN_STATUS } from '../src/reverse/core/login-session.js';
 import {
   buildAuthUrl,
@@ -254,7 +255,9 @@ test('qoder oauth：404 继续 pending，拿到 token 后补 userinfo 得到 use
   assert.equal(granted.credential.refreshToken, 'stub-refresh-token');
   assert.equal(granted.credential.userId, 'user-42', '判重键取自 userinfo');
   assert.equal(granted.credential.nickname, '测试账号');
-  assert.equal(granted.credential.machineType, 'mac-arm64');
+  // 契约变更（防封）：machineType/machineToken 改由 userId 派生（同一账号恒等），
+  // 不再是登录参数的静态值；此处断言与派生函数一致
+  assert.equal(granted.credential.machineType, deriveMachineType('user-42'));
   assert.equal(typeof granted.credential.machineToken, 'string');
   assert.equal(granted.credential.machineToken.length > 0, true, 'machineToken 由登录生成，不能用 machineId 顶替');
   assert.notEqual(granted.credential.machineToken, granted.credential.machineId);

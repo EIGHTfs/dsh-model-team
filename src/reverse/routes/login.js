@@ -132,8 +132,23 @@ export async function handleReverseLoginStartRoute(context) {
 async function claimGrantedAccount(session, sessionId, credential) {
   if (!session.savedAccount) {
     const accountStore = createAccountStore({ dataRoot: session.dataRoot, logger: session.logger });
+    // 设备指纹：派生值只补缺，不覆盖老账号已有值（避免存量账号"换设备"）
+    let mergedCredential = credential;
+    try {
+      const platformEntry = getPlatform(session.platformId);
+      const platformImpl = platformEntry?.createPlatform ? platformEntry.createPlatform({}) : null;
+      if (platformImpl?.mergeFingerprint && credential.userId) {
+        const existing = (await accountStore.listAccounts(session.platformId))
+          .find((account) => account.credential?.userId === credential.userId);
+        const derived = platformImpl.deriveFingerprint(credential.userId);
+        const merged = platformImpl.mergeFingerprint(existing?.credential, derived);
+        mergedCredential = { ...credential, machineToken: merged.machineToken, machineType: merged.machineType };
+      }
+    } catch (fingerprintError) {
+      session.logger?.warn?.(`设备指纹合并失败（沿用登录返回值）：${fingerprintError?.message ?? fingerprintError}`);
+    }
     const saved = await accountStore.upsertByUserId(session.platformId, {
-      ...credential,
+      ...mergedCredential,
       origin: 'login',
       refreshable: true,
     });
