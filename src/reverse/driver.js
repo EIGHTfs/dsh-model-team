@@ -69,8 +69,12 @@ export function createReverseDriver({ platform, logger = defaultLogger }) {
       optionsSource: 'reverse-accounts',
     }],
     async validateAuth(context = {}) {
+      // 契约：驱动返回**布尔值**（网关用 `isValid === true` 判定）。
+      // 曾返回 {ok:true} 对象，导致账号存在也一律报「鉴权无效」。
       const credential = await resolveGroupReverseCredential(context.group, { dataRoot: context.dataRoot, logger });
-      return credential ? { ok: true } : { ok: false, message: '未登录：请先执行 node scripts/reverse-login.mjs --platform ' + platform.id };
+      if (credential) return true;
+      logger?.info?.(`反代平台 ${platform.id} 尚无可用账号（群 ${context.group?.id ?? ''}）：先登录或走凭据导入`);
+      return false;
     },
     // 模型清单来自平台目录（加密链路的模型 key 是目录 key，不额外请求上游）
     async fetchModels() {

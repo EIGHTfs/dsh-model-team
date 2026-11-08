@@ -4,6 +4,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 
+// 与 adapter 消费驱动事件时用的是同一个解析器：反代输出必须能被它读懂
+import { parseSseJsonData } from '../src/gateway/transport/sse.js';
+
 import { createReverseHttpClient, REVERSE_HTTP_ERROR_CODES } from '../src/reverse/platforms/qoder/http-client.js';
 import { INFER_ERROR_CODES, decodeChunkStream, openInferenceStream } from '../src/reverse/platforms/qoder/infer.js';
 import { createAccountStore } from '../src/reverse/core/account-store.js';
@@ -77,8 +80,15 @@ test('infer：带信封的 SSE → 标准 chunk 序列与拼接文本正确', as
     platform: buildPlatform(stub.origin),
   });
 
+  // 驱动契约：chunks 是 SSE 事件（{data:'<JSON>'} … 末尾 [DONE]），上层按 event.data 解析。
+  // 这里用与 adapter 相同的解析器消费，顺带钉住「反代输出能被公共解析器读懂」。
   const collected = [];
-  for await (const chunk of chunks) collected.push(chunk);
+  for await (const sseEvent of chunks) {
+    const parsed = parseSseJsonData(sseEvent);
+    if (parsed.done) break;
+    assert.equal(parsed.invalid, false, '每个事件都必须是可解析的 JSON 文本');
+    if (parsed.payload) collected.push(parsed.payload);
+  }
   const text = collected.map((chunk) => chunk.choices?.[0]?.delta?.content ?? '').join('');
 
   assert.equal(collected.length, 2, '两帧内容 = 两个 chunk（[DONE] 不产出 chunk）');
@@ -205,8 +215,13 @@ test('驱动：有账号（account:<platform>/<id> 引用）→ 走通并返回�
   );
 
   assert.equal(result.ok, true);
+  // 驱动对外交付的是 SSE 事件；用公共解析器消费，等价于 adapter 的真实读法
   const texts = [];
-  for await (const chunk of result.events) texts.push(chunk.choices[0].delta.content);
+  for await (const sseEvent of result.events) {
+    const parsed = parseSseJsonData(sseEvent);
+    if (parsed.done) break;
+    if (parsed.payload) texts.push(parsed.payload.choices[0].delta.content);
+  }
   assert.deepEqual(texts, ['驱动回复']);
 });
 

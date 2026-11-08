@@ -74,7 +74,18 @@ export async function openInferenceStream({
     throw inferError(INFER_ERROR_CODES.STREAM_FAILED, `加密端点未按流式返回（content-type: ${contentType}）：${rawText.slice(0, 200)}`);
   }
 
-  return { status: response.status, chunks: decodeChunkStream(response.body) };
+  return { status: response.status, chunks: toSseEventStream(decodeChunkStream(response.body)) };
+}
+
+// 驱动契约要求 `events` 是 **SSE 事件**（每项形如 { data: '<JSON 文本>' }，结束时 data 为 '[DONE]'）。
+// 反代内部解析出的是对象，这里只做形状转换，不改变解析逻辑——
+// 否则上层（adapter/网关）按 event.data 读取时会拿到 undefined，整轮对话取不到任何内容。
+export async function* toSseEventStream(parsedChunkStream) {
+  for await (const parsedChunk of parsedChunkStream) {
+    yield { data: JSON.stringify(parsedChunk) };
+  }
+  // 结束标记：官方驱动同样以 [DONE] 收尾，上层据此判定流正常结束
+  yield { data: '[DONE]' };
 }
 
 // 把 SSE 字节流解成标准 chunk：每帧剥信封；[DONE] 结束；坏帧跳过（不抛、不中断整条流）

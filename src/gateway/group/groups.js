@@ -238,12 +238,17 @@ export async function renderGroupSummary(group, { dataRoot, logger = defaultLogg
     return GROUP_SUMMARY_FALLBACK;
   }
   try {
-    const credentialResult = await resolveGroupCredentials(group, { dataRoot });
+    // 账号型驱动的凭据由驱动自己按账号引用取，不能当 API Key 解析
+    const credentialResult = driver.authKind === ACCOUNT_AUTH_KIND
+      ? { ok: true, credentials: null, error: null }
+      : await resolveGroupCredentials(group, { dataRoot });
     const summaryText = await driver.fetchSummary({
       group,
       credentials: credentialResult.credentials,
       logger,
       fetchImpl,
+      // 与 validateAuth 同理：账号型驱动的凭据按 dataRoot 解析
+      dataRoot,
     });
     return typeof summaryText === 'string' && summaryText.length > 0 ? summaryText : GROUP_SUMMARY_FALLBACK;
   } catch (summaryError) {
@@ -449,13 +454,20 @@ export async function verifyGroup(group, { dataRoot, logger = defaultLogger, fet
   if (!driver || typeof driver.validateAuth !== 'function') {
     return { ok: false, detail: `驱动不支持鉴权校验：${group.driver}` };
   }
-  const credentialResult = await resolveGroupCredentials(group, { dataRoot });
+  // 账号型驱动：鉴权由驱动自己按账号引用判定（validateAuth 内部查账号存储），
+  // 这里不能先用 API Key 解析把请求挡死，否则校验永远返回「不支持的 apiKeyRef 前缀」。
+  const credentialResult = driver.authKind === ACCOUNT_AUTH_KIND
+    ? { ok: true, credentials: null, error: null }
+    : await resolveGroupCredentials(group, { dataRoot });
   try {
     const isValid = await driver.validateAuth({
       group,
       credentials: credentialResult.credentials,
       logger,
       fetchImpl,
+      // 账号型驱动要按 dataRoot 去账号存储取凭据：不传就会落到进程默认值，
+      // 与插件实际数据根不一致时表现为「账号明明在却报鉴权无效」
+      dataRoot,
     });
     return {
       ok: isValid === true,
