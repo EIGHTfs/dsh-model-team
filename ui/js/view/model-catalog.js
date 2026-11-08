@@ -2,11 +2,14 @@
 // 「获取可用模型」探测接线（POST /_team/models/probe）、错误文案映射。
 // 目录只存在 viewState.modelCatalog（不进全局 store）：它是表单草稿，不是会话级真相。
 
-// 探测失败文案：优先按后端 error.code 给固定措辞，hint 作为补充
+// 探测失败文案：优先按后端 error.code 给固定措辞，hint 作为补充。
+// 'probe-failed' 覆盖「非密钥型平台」（如反代账号）：那些平台没有 API Key 概念，
+// 文案里不能出现「API Key」，否则用户会去找一个根本不存在的填写框。
 const PROBE_ERROR_TEXT = {
   'probe-unauthorized': '凭证无效或缺失，请检查 API Key',
   'probe-not-found': '接口地址不对（找不到 /models）',
-  'probe-timeout': '请求超时，检查网络或地址'
+  'probe-timeout': '请求超时，检查网络或地址',
+  'probe-failed': '该平台无需密钥，请确认账号已登录'
 };
 
 function probeErrorMessage(errorPayload) {
