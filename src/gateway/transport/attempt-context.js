@@ -34,6 +34,13 @@ export async function resolveAttemptContext({ attempt, config, dataRoot, logger 
     };
   }
 
+  // 账号型驱动（如反代）的凭据不是 API Key：它自己按 auth.apiKeyRef 去账号存储取。
+  // 这里若继续走 resolveGroupCredentials 会把它当 API Key 解析（UNSUPPORTED_API_KEY_REF_SCHEME），
+  // 导致反代群永远到不了驱动。判定依据是驱动声明，不在网关写平台名。
+  if (driver.authKind === 'reverse-account') {
+    return { ok: true, group, driver, credentials: null, error: null };
+  }
+
   const credentialResult = await resolveGroupCredentials(group, { dataRoot });
   if (!credentialResult.ok) {
     logger.warn(`群 ${group.id} 凭证不可用：${credentialResult.error.message}`);

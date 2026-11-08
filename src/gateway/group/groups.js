@@ -35,6 +35,11 @@ const PLAINTEXT_CREDENTIAL_FIELDS = Object.freeze(['apiKey', 'api_key', 'token',
 // 引用前缀：与 credentials.js 的约定保持一致
 const CREDENTIAL_REF_PREFIXES = Object.freeze(['env:', 'file:']);
 
+// 账号型驱动的引用前缀：反代等驱动的凭据是「账号文件」而不是 API Key。
+// 前缀由驱动自己声明（authKind），网关只按声明放行——不在这里写任何平台名。
+const ACCOUNT_REF_PREFIX = 'account:';
+const ACCOUNT_AUTH_KIND = 'reverse-account';
+
 // 校验并归一化一份群配置；非法直接抛 GatewayError（调用方转 400/409）
 // 由群名称派生 id：小写、空白转连字符、剔除非法字符，超长截断。
 // 只用于"调用方没给 id"的情况；给了 id 就按原样校验，不做静默改写。
@@ -160,11 +165,26 @@ function assertGroupRequest(groupPayload) {
   }
 }
 
-// 凭据引用：只收 env:/file: 两种前缀，明文 Key 一律拒（本项目只存引用）
+// 凭据引用：配置型驱动只收 env:/file:；账号型驱动（如反代）收 account:<platformId>/<accountId>。
+// 明文 Key 一律拒。判定依据是**驱动自己的声明**（authKind），不在这里写平台名。
 function assertCredentialRef(groupPayload) {
   const apiKeyRef = groupPayload.auth?.apiKeyRef;
   if (apiKeyRef === undefined || apiKeyRef === null) return;
-  if (typeof apiKeyRef !== 'string' || !CREDENTIAL_REF_PREFIXES.some((prefix) => apiKeyRef.startsWith(prefix))) {
+  if (typeof apiKeyRef !== 'string' || apiKeyRef.length === 0) {
+    throw new GatewayError(ERROR_CODES.INVALID_REQUEST, 'apiKeyRef 必须是非空字符串引用', {
+      hint: '本项目只存引用，不接收明文 Key',
+    });
+  }
+  const driver = getDriver(groupPayload.driver);
+  const acceptsAccountRef = driver?.authKind === ACCOUNT_AUTH_KIND;
+  if (acceptsAccountRef && apiKeyRef.startsWith(ACCOUNT_REF_PREFIX)) {
+    // 账号引用只校验形状：具体账号存在与否由驱动在发请求时判定（拿不到就明确报「未登录」）
+    if (!/^account:[^/]+\/[^/]+$/.test(apiKeyRef)) {
+      throw new GatewayError(ERROR_CODES.INVALID_REQUEST, 'account 引用格式应为 account:<platformId>/<accountId>');
+    }
+    return;
+  }
+  if (!CREDENTIAL_REF_PREFIXES.some((prefix) => apiKeyRef.startsWith(prefix))) {
     throw new GatewayError(ERROR_CODES.INVALID_REQUEST, 'apiKeyRef 必须是 env:<NAME> 或 file:<相对路径> 引用', {
       hint: '本项目只存引用，不接收明文 Key',
     });

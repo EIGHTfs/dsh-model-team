@@ -37,7 +37,10 @@ export async function fetchGroupModels(group, { dataRoot, logger = defaultLogger
   if (!driver) {
     throw new GatewayError(ERROR_CODES.DRIVER_NOT_FOUND, `驱动未加载：${group.driver}`);
   }
-  const credentialResult = await resolveGroupCredentials(group, { dataRoot });
+  // 账号型驱动（如反代）：凭据由驱动按账号引用自己取，这里不能当 API Key 解析
+  const credentialResult = driver.authKind === 'reverse-account'
+    ? { ok: true, credentials: null, error: null }
+    : await resolveGroupCredentials(group, { dataRoot });
   if (!credentialResult.ok) {
     throw new GatewayError(ERROR_CODES.DRIVER_FAILED, `群 ${group.id} 凭证不可用：${credentialResult.error.message}`, {
       hint: '检查 apiKeyRef 指向的环境变量或凭证文件',
