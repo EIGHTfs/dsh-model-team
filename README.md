@@ -87,6 +87,10 @@ curl -s -X POST http://<host>:<port>/_team/groups \
 # {"group":{"id":"…","name":"示例群","driver":"openai-compatible", …}}
 ```
 
+## 状态
+
+界面准备重新设计，方案见 [`docs/22-TSX主题架构设计.md`](docs/22-TSX主题架构设计.md)；悬浮窗存在已知问题，待重设计后一并修复。
+
 ## 文档索引
 
 - [`docs/00-索引.md`](docs/00-索引.md) — 文档入口与铁律
