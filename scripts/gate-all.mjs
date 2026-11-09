@@ -30,16 +30,31 @@ function parseArgs(argv) {
   return args;
 }
 
-function run(command, commandArgs, cwd) {
+// 单道门禁的总超时：某道子进程卡住时不能无限等（真实事故：成员跑到 15 分钟还在等，
+// 因为门禁没有时限，卡在某个用例的等待里对外表现为"门禁一直在跑"）。
+// 超时即判该道失败，并把已产生的输出与超时值一并回报——那是排查线索，不是"再等等"。
+const GATE_TIMEOUT_MS = Number(process.env.DSH_GATE_TIMEOUT_MS || 240_000);
+
+function run(command, commandArgs, cwd, timeoutMs = GATE_TIMEOUT_MS) {
   return new Promise((resolve) => {
     const startedAt = Date.now();
-    execFile(command, commandArgs, { cwd, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
-      resolve({
-        ok: !error,
-        output: `${stdout || ''}${stderr || ''}`.trim(),
-        durationMs: Date.now() - startedAt,
-      });
-    });
+    execFile(
+      command,
+      commandArgs,
+      { cwd, maxBuffer: 8 * 1024 * 1024, timeout: timeoutMs, killSignal: 'SIGTERM' },
+      (error, stdout, stderr) => {
+        const timedOut = Boolean(error) && (error.killed === true || error.signal === 'SIGTERM');
+        const collected = `${stdout || ''}${stderr || ''}`.trim();
+        resolve({
+          ok: !error,
+          timedOut,
+          output: timedOut
+            ? `${collected}\n[gate-all] 该道超过 ${timeoutMs}ms 未结束，已终止子进程。\n[gate-all] 排查方向：门禁里是否有"等事件"却没有失败分支的等待；单跑该门禁看它卡在哪一步。`.trim()
+            : collected,
+          durationMs: Date.now() - startedAt,
+        });
+      },
+    );
   });
 }
 

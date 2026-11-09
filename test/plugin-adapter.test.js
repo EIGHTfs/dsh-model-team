@@ -2,6 +2,10 @@
 // 不 import 宿主包：createModelTimAdapter 的基类/错误类都是注入的，这正是本项目零依赖的口径。
 
 import test from 'node:test';
+
+// 测试必须自带超时（超时 = 失败），不许让门禁陪着无限等：
+// 流式用例一旦"结束事件永不到来"，这里会以超时报错并指出是哪个用例，而不是把 gate-all 卡住。
+const STREAM_TEST_TIMEOUT_MS = 15_000;
 import assert from 'node:assert/strict';
 import { buildOpenAiRequestBody, createModelTimAdapter, toOpenAiMessages } from '../src/plugin/adapter/adapter.js';
 import { createFixedClock } from '../src/gateway/clock.js';
@@ -81,7 +85,7 @@ async function collectChunks(streamIterable) {
   return chunks;
 }
 
-test('适配器：providerInfo 与 listModels 恒返回一条虚拟模型（INV-01）', async (t) => {
+test('适配器：providerInfo 与 listModels 恒返回一条虚拟模型（INV-01）', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   const { adapter } = await setupAdapter(t);
 
   assert.equal(adapter.providerInfo('dsh-model-team').name, '模型团队');
@@ -92,7 +96,7 @@ test('适配器：providerInfo 与 listModels 恒返回一条虚拟模型（INV-
   assert.equal(typeof models[0].name, 'string');
 });
 
-test('INV-13：好友分组不会出现在 listModels 里（分组不是模型）', async (t) => {
+test('INV-13：好友分组不会出现在 listModels 里（分组不是模型）', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   const { adapter } = await setupAdapter(t, {
     configOverrides: {
       friendGroups: [
@@ -112,7 +116,7 @@ test('INV-13：好友分组不会出现在 listModels 里（分组不是模型�
   assert.equal(models.some((modelInfo) => modelInfo.id === 'ha-group'), false);
 });
 
-test('适配器：按 sessionId 查映射改写模型，并把上游事件转成 StreamChunk', async (t) => {
+test('适配器：按 sessionId 查映射改写模型，并把上游事件转成 StreamChunk', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   const sseEvents = [
     { id: 'chatcmpl-a', choices: [{ index: 0, delta: { role: 'assistant', content: '你' } }] },
     { id: 'chatcmpl-a', choices: [{ index: 0, delta: { content: '好' } }] },
@@ -148,7 +152,7 @@ test('适配器：按 sessionId 查映射改写模型，并把上游事件转成
   assert.equal(upstreamBody.stream, true);
 });
 
-test('适配器：文本 + tool-call + 文本 的块索引严格配对', async (t) => {
+test('适配器：文本 + tool-call + 文本 的块索引严格配对', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   const sseEvents = [
     { choices: [{ index: 0, delta: { content: '先查一下' } }] },
     { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'call_1', function: { name: 'search', arguments: '{"q"' } }] } }] },
@@ -184,7 +188,7 @@ test('适配器：文本 + tool-call + 文本 的块索引严格配对', async (
   assert.equal(chunks[chunks.length - 1].reason.kind, 'tool-calls');
 });
 
-test('适配器：purpose=compaction 也走同一套会话映射（次要路径不绕开）', async (t) => {
+test('适配器：purpose=compaction 也走同一套会话映射（次要路径不绕开）', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   const sseEvents = [{ choices: [{ index: 0, delta: { content: '压缩' }, finish_reason: 'stop' }] }];
   const { adapter, dataRoot, stubUpstream } = await setupAdapter(t, {
     routes: { 'POST /v1/chat/completions': buildSseRoute(sseEvents) },
@@ -201,7 +205,7 @@ test('适配器：purpose=compaction 也走同一套会话映射（次要路径�
   assert.equal(JSON.parse(stubUpstream.requests[0].bodyText).model, 'agnes-2.5-flash');
 });
 
-test('适配器：未切换过模型的会话走兜底群 defaultModel', async (t) => {
+test('适配器：未切换过模型的会话走兜底群 defaultModel', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   const sseEvents = [{ choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] }];
   const { adapter, stubUpstream } = await setupAdapter(t, {
     routes: { 'POST /v1/chat/completions': buildSseRoute(sseEvents) },
@@ -214,7 +218,7 @@ test('适配器：未切换过模型的会话走兜底群 defaultModel', async (
   assert.equal(JSON.parse(stubUpstream.requests[0].bodyText).model, 'agnes-2.5-flash');
 });
 
-test('适配器：没有映射也没有兜底群 → LlmError(MODEL_UNRESOLVED)，不发上游请求', async (t) => {
+test('适配器：没有映射也没有兜底群 → LlmError(MODEL_UNRESOLVED)，不发上游请求', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   const { adapter, stubUpstream } = await setupAdapter(t, { routes: {} });
 
   await assert.rejects(
@@ -224,7 +228,7 @@ test('适配器：没有映射也没有兜底群 → LlmError(MODEL_UNRESOLVED)�
   assert.equal(stubUpstream.requests.length, 0);
 });
 
-test('适配器：上游 401/429 抛带分类的 LlmError（AUTH / RATE_LIMIT）', async (t) => {
+test('适配器：上游 401/429 抛带分类的 LlmError（AUTH / RATE_LIMIT）', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   for (const [upstreamStatus, expectedCode] of [[401, 'AUTH'], [429, 'RATE_LIMIT']]) {
     const { adapter, dataRoot } = await setupAdapter(t, {
       routes: {
@@ -240,7 +244,7 @@ test('适配器：上游 401/429 抛带分类的 LlmError（AUTH / RATE_LIMIT）
   }
 });
 
-test('适配器：上游已给 finish_reason 后调用方才 abort → 不得记成中断', async (t) => {
+test('适配器：上游已给 finish_reason 后调用方才 abort → 不得记成中断', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   const finishThenHangRoute = async ({ outgoingResponse }) => {
     outgoingResponse.writeHead(200, { 'content-type': 'text/event-stream' });
     // 只发一条"带 finish_reason + usage"的事件，之后故意保持连接（模拟上游还没关流）
@@ -277,7 +281,7 @@ test('适配器：上游已给 finish_reason 后调用方才 abort → 不得记
   assert.equal(writtenRows[0].status, 200);
 });
 
-test('适配器：调用方 abort → LlmError(ABORTED)，请求行记中断', async (t) => {
+test('适配器：调用方 abort → LlmError(ABORTED)，请求行记中断', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   const slowSseRoute = async ({ outgoingResponse }) => {
     outgoingResponse.writeHead(200, { 'content-type': 'text/event-stream' });
     for (let chunkIndex = 0; chunkIndex < 5; chunkIndex += 1) {
@@ -321,7 +325,7 @@ test('适配器：调用方 abort → LlmError(ABORTED)，请求行记中断', a
   assert.equal(writtenRows[0].status, 0);
 });
 
-test('适配器：请求行与 HTTP 路径同口径（ua/ip/model/status）', async (t) => {
+test('适配器：请求行与 HTTP 路径同口径（ua/ip/model/status）', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   const sseEvents = [{ choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] }];
   const { adapter, dataRoot } = await setupAdapter(t, {
     routes: { 'POST /v1/chat/completions': buildSseRoute(sseEvents) },
@@ -372,7 +376,7 @@ test('适配器：消息/请求体转换（system 前置、tools、采样参数�
   assert.equal(requestBody.tools[0].function.name, 'search');
 });
 
-test('适配器：上游业务错误帧被认领 → 抛错且请求行记失败（不出现假成功）', async (t) => {
+test('适配器：上游业务错误帧被认领 → 抛错且请求行记失败（不出现假成功）', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   resetStreamErrorClaimersForTest();
   const disposeClaimer = registerStreamErrorClaimer({ id: 'test#quota', claim: qoderClaimers[0].claim });
   t.after(() => { disposeClaimer(); resetStreamErrorClaimersForTest(); });
@@ -396,7 +400,7 @@ test('适配器：上游业务错误帧被认领 → 抛错且请求行记失败
   assert.equal(rows[0].completionTokens, null);
 });
 
-test('适配器：订阅路径也记首字时刻（请求行 decodeMs 不再是 null）', async (t) => {
+test('适配器：订阅路径也记首字时刻（请求行 decodeMs 不再是 null）', { timeout: STREAM_TEST_TIMEOUT_MS }, async (t) => {
   const { adapter, dataRoot } = await setupAdapter(t, {
     routes: {
       'POST /v1/chat/completions': buildSseRoute([
