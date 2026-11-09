@@ -22,7 +22,7 @@ function createFormActions(deps) {
         payload.apiKeyRef = request.accountRef;
       } else {
         payload.baseURL = request.baseURL || '';
-        payload.modelsEndpoint = '/models';
+        payload.modelsEndpoint = request.modelsEndpoint || '/models';
         payload.apiKey = request.apiKey || '';
       }
       return api.probeModels(payload);
@@ -36,6 +36,11 @@ function createFormActions(deps) {
     // 发起设备码登录：回 { loginUrl, sessionId, reused }
     startReverseLogin: function (platformId) { return api.startReverseLogin(platformId); },
     // 按平台轮询：回 { ok, status, body }（要区分 404/5xx，所以不能走 apiJson）
-    pollReverseLogin: function (platformId) { return api.getReverseLoginStatusRaw(platformId); }
+    pollReverseLogin: function (platformId) { return api.getReverseLoginStatusRaw(platformId); },
+    // 好友分组：保存（同 id 覆盖）与删除。删除被引用时后端回 409，message 原样抛给界面
+    saveFriendGroup: function (payload) { return api.createFriendGroup(payload); },
+    deleteFriendGroup: function (groupId) { return api.deleteFriendGroup(groupId); },
+    // 某个群（平台账号）的可用模型：分组编辑里"平台 → 模型"两级选择用
+    loadGroupModels: function (groupId) { return api.getGroupModels(groupId); }
   };
 }

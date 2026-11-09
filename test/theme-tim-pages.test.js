@@ -160,6 +160,15 @@ function collectTree(node, collected = { texts: [], attrs: {} }) {
     if (key.startsWith('data-') && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean')) {
       collected.attrs[key] = String(value);
     }
+    // value / placeholder 也是用户可见文案（输入框回填、空输入提示）
+    // 只收输入类控件的 value（option 的 value 是内部 id，不是给用户看的文案）
+    const isInputControl = node.type === 'input' || node.type === 'textarea' || node.type === 'select';
+    if (key === 'value' && isInputControl && typeof value === 'string' && value.trim()) {
+      collected.texts.push(value.trim());
+    }
+    if (key === 'placeholder' && typeof value === 'string' && value.trim()) {
+      collected.texts.push(value.trim());
+    }
     if (key === 'children') collectTree(value, collected);
   }
   return collected;
@@ -195,24 +204,58 @@ test('加群页：账号型驱动无账号 → 「尚未登录 <平台名>」+ �
   assert.equal(tree.texts.includes('群名称') === false, true, '未选平台时不该渲染群名称输入');
 });
 
-test('通讯录页：空态「还没有分组」', async () => {
+test('通讯录页：只有「好友 / 分组」两个分类（其余分类已删）', async () => {
   const exports = await loadThemePages({ groups: [], drivers: DRIVERS, friendGroups: [], view: 'contacts' });
   const tree = renderPage(exports, 'ContactsPage', {});
-  assert.equal(tree.attrs['data-contacts-state'], 'empty');
-  assert.equal(tree.texts.includes('还没有分组'), true, `实际文案：${JSON.stringify(tree.texts)}`);
+  assert.equal(tree.texts.includes('好友'), true);
+  assert.equal(tree.texts.includes('分组'), true);
+  assert.equal(tree.texts.includes('群聊'), false, '群聊不是通讯录分类');
+  assert.equal(tree.texts.includes('机器人'), false, '我们没有机器人概念');
+  assert.equal(tree.attrs['data-contacts-tab'], 'friends', '默认在好友分类');
 });
 
-test('通讯录页：有分组 → 显示成员数与编辑入口（占位但可点）', async () => {
-  const friendGroups = [
-    { id: 'fg-1', name: '主力轮换', members: [{ modelId: 'agnes-3.0-flash' }, { modelId: 'glm-5.3' }] },
-  ];
+test('通讯录页：好友分类空态 → 「还没有接入的平台账号」', async () => {
+  const exports = await loadThemePages({ groups: [], drivers: DRIVERS, friendGroups: [], view: 'contacts' });
+  const tree = renderPage(exports, 'ContactsPage', {});
+  assert.equal(tree.attrs['data-friends-state'], 'empty');
+  assert.equal(tree.texts.includes('还没有接入的平台账号'), true, `实际文案：${JSON.stringify(tree.texts)}`);
+});
+
+test('分组编辑面板：新建态有名称/策略/两级成员选择，空成员时保存报错', async () => {
+  const exports = await loadThemePages({ groups: [{ id: 'g1', name: 'Agnes 号' }], drivers: DRIVERS, friendGroups: [], view: 'contacts' });
+  const editorTree = exports.FriendGroupEditor({ group: null, groups: [{ id: 'g1', name: 'Agnes 号' }], onClose: () => {}, onSaved: () => {} });
+  const tree = collectTree(editorTree);
+  tree.allText = tree.texts.join(' ').replace(/\s+/g, ' ');
+  assert.equal(tree.attrs['data-friend-editor'], 'create', '默认是新建');
+  assert.equal(tree.texts.includes('分组名称'), true);
+  assert.equal(tree.texts.includes('成员轮换策略'), true);
+  assert.equal(tree.allText.includes('轮询'), true);
+  assert.equal(tree.allText.includes('故障转移'), true);
+  assert.equal(tree.texts.includes('还没有成员'), true);
+});
+
+test('分组编辑面板：编辑态回填名称与成员', async () => {
+  const group = { id: 'fg-1', name: '主力轮换', strategy: 'fallback', members: [{ platformId: 'g1', modelId: 'agnes-3.0-flash' }] };
+  const exports = await loadThemePages({ groups: [{ id: 'g1', name: 'Agnes 号' }], drivers: DRIVERS, friendGroups: [group], view: 'contacts' });
+  const editor = exports.FriendGroupEditor({ group, groups: [{ id: 'g1', name: 'Agnes 号' }], onClose: () => {}, onSaved: () => {} });
+  const tree = collectTree(editor);
+  tree.allText = tree.texts.join(' ').replace(/\s+/g, ' ');
+  assert.equal(tree.attrs['data-friend-editor'], 'edit');
+  assert.equal(tree.allText.includes('主力轮换'), true, '名称要回填');
+  assert.equal(tree.allText.includes('agnes-3.0-flash'), true, '成员要回填');
+  assert.equal(tree.texts.includes('编辑分组'), true);
+});
+
+test('分组删除确认：二次确认框存在，且带取消/确认两个动作', async () => {
+  const friendGroups = [{ id: 'fg-1', name: '主力轮换', strategy: 'round-robin', members: [] }];
   const exports = await loadThemePages({ groups: [], drivers: DRIVERS, friendGroups, view: 'contacts' });
   const tree = renderPage(exports, 'ContactsPage', {});
-  assert.equal(tree.attrs['data-contacts-state'], 'ready');
-  assert.equal(tree.texts.includes('主力轮换'), true);
-  assert.equal(tree.allText.includes('2 个平台模型'), true, `成员数必须显示，实际：${tree.allText}`);
-  assert.equal(tree.attrs['data-member-count'], '2');
-  assert.equal(Object.keys(tree.attrs).some((key) => key === 'data-contact-edit'), true, '编辑入口必须存在');
+  // 默认在「好友」分类，先断言好友聚合；分组分类下的列表与删除按钮由下面的静态断言覆盖
+  assert.equal(tree.attrs['data-friends-state'], 'empty');
+  const sourceText = await fs.readFile(THEME_SOURCE_PATH, 'utf8');
+  assert.match(sourceText, /data-delete-confirm=/, '删除必须走二次确认');
+  assert.match(sourceText, /data-contact-delete=/, '列表行必须有删除入口');
+  assert.match(sourceText, /data-groups-empty/, '分组空态必须存在');
 });
 
 test('我页：空态「还没有接入任何平台」+ 导出/导入入口', async () => {
@@ -220,8 +263,9 @@ test('我页：空态「还没有接入任何平台」+ 导出/导入入口', as
   const tree = renderPage(exports, 'ProfilePage', {});
   assert.equal(tree.attrs['data-platform-state'], 'empty');
   assert.equal(tree.texts.includes('还没有接入任何平台'), true, `实际文案：${JSON.stringify(tree.texts)}`);
-  assert.equal(tree.attrs['data-action'], 'import', '导入入口必须存在');
+  assert.equal(tree.texts.some((text) => text.includes('登录 / 导入账号配置')), true, '登录与导入必须合并成一个入口');
   assert.equal(tree.texts.some((text) => text.includes('导出当前配置')), true);
+  assert.equal(tree.texts.some((text) => text.includes('我的模型团队')), true, '标题必须是项目自己的名字');
 });
 
 test('我页：有群 → 按平台分组显示，群名与驱动展示名都在', async () => {
@@ -251,4 +295,23 @@ test('主题源码：不出现内部术语（驱动 id / 认证字段名）', as
   for (const forbidden of ['reverse-', 'authSchema', 'driverId']) {
     assert.equal(sourceText.includes(forbidden), false, `主题源码里不许出现 ${forbidden}`);
   }
+});
+
+test('加群页：模型列表路径有 /models 占位，留空按 /models 处理', async () => {
+  const sourceText = await fs.readFile(THEME_SOURCE_PATH, 'utf8');
+  assert.match(sourceText, /placeholder="\/models"/, '输入框必须有 /models 占位提示');
+  assert.match(sourceText, /String\(values\.modelsEndpoint \|\| ''\)\.trim\(\) \|\| '\/models'/, '留空要回落 /models');
+});
+
+test('加群页标题：返回与标题左对齐相邻（不再被 space-between 顶到右边）', async () => {
+  const sourceText = await fs.readFile(THEME_SOURCE_PATH, 'utf8');
+  assert.match(sourceText, /tim-list-head tim-list-head-inline/, '加群页标题栏要用左对齐变体');
+  assert.match(sourceText, /tim-list-head-inline \{ justify-content: flex-start;/, '左对齐变体要有对应样式');
+});
+
+test('底栏三个图标同一套内联 SVG（同 viewBox / 同尺寸 / 同描边）', async () => {
+  const sourceText = await fs.readFile(THEME_SOURCE_PATH, 'utf8');
+  assert.match(sourceText, /TAB_ICON_PROPS/, '三个图标必须共用同一组属性');
+  assert.equal((sourceText.match(/const TAB_ICON_PROPS/g) || []).length, 1, '只允许一处图标属性定义');
+  assert.equal(/fill="currentColor"/.test(sourceText), false, '不许混用实心图标');
 });

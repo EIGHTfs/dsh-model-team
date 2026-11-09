@@ -16,7 +16,7 @@ function credentialFieldsOf(driver) {
   var declared = driver && Array.isArray(driver.authSchema) ? driver.authSchema : [];
   return declared.filter(function (field) {
     var type = String((field && field.type) || 'text');
-    return type === 'text' || type === 'password' || type === 'select';
+    return type === 'text' || type === 'password' || type === 'select' || type === 'textarea';
   });
 }
 

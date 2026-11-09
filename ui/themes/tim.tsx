@@ -1,4 +1,4 @@
-// tim.tsx —— TIM 主题：**一个文件就是一套完整界面**（结构 + 视觉 + styles）。
+// tim.tsx —— 竖版即时通讯风主题：**一个文件就是一套完整界面**（结构 + 视觉 + styles）。
 //
 // 来源：参考项目/1.html（366 行）逐段翻成 React JSX，不是重新设计（转译契约见 docs/24 §5.5.2.1）。
 // 1.html 里属于「手机 demo 外壳」的东西没有搬：400×800 手机边框、顶部状态栏（时间/5G/电池）、
@@ -82,14 +82,17 @@ function MetricsLine({ row }: { row: Record<string, unknown> }) {
   );
 }
 
+// 底栏三个图标：同一套内联 SVG（同 viewBox、同尺寸、同描边粗细），选中态由 currentColor 决定
+const TAB_ICON_PROPS = { viewBox: '0 0 24 24', width: 24, height: 24, fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, 'aria-hidden': true } as const;
+
 const ChatIcon = () => (
-  <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z" /></svg>
+  <svg {...TAB_ICON_PROPS}><path strokeLinecap="round" strokeLinejoin="round" d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" /></svg>
 );
 const ContactsIcon = () => (
-  <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" /></svg>
+  <svg {...TAB_ICON_PROPS}><path strokeLinecap="round" strokeLinejoin="round" d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9.5 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16.5 3.13a4 4 0 0 1 0 7.75" /></svg>
 );
 const ProfileIcon = () => (
-  <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+  <svg {...TAB_ICON_PROPS}><path strokeLinecap="round" strokeLinejoin="round" d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" /></svg>
 );
 
 // ---------------------------------------------------------------- 群聊页
@@ -285,7 +288,7 @@ interface AccountLike { accountId?: unknown; nickname?: unknown }
 
 function AddPage() {
   const drivers = useDrivers() as DriverLike[];
-  const [driverKey, setDriverId] = useState('');
+  const [driverKey, setDriverKey] = useState('');
   const [groupName, setGroupName] = useState('');
   const [values, setValues] = useState<Record<string, string>>({});
   const [accounts, setAccounts] = useState<AccountLike[]>([]);
@@ -304,8 +307,8 @@ function AddPage() {
   const credentialFields = credentialFieldsOf(driver);
 
   // 切平台：账号区与模型目录都要重置（上一家的账号/模型不能带过来）
-  const selectDriver = (nextDriverId: string) => {
-    setDriverId(nextDriverId);
+  const selectDriver = (nextDriverKey: string) => {
+    setDriverKey(nextDriverKey);
     setValues({});
     setAccounts([]);
     setAccountId('');
@@ -378,18 +381,17 @@ function AddPage() {
 
   const runProbe = () => {
     setProbeError('');
-    const payload: Record<string, unknown> = { driverKey: driverKey };
+    const modelsEndpoint = String(values.modelsEndpoint || '').trim() || '/models';
+    let probeInput: { driver: string; accountRef?: string; baseURL?: string; apiKey?: string; modelsEndpoint?: string };
     if (accountDriver) {
       if (!platformId || !accountId) { setProbeError('尚未登录 ' + driverName); return; }
-      payload.apiKeyRef = 'account:' + platformId + '/' + accountId;
+      probeInput = { driver: driverKey, accountRef: 'account:' + platformId + '/' + accountId };
     } else {
       const baseURL = String(values.baseURL || '').trim();
       if (!baseURL) { setProbeError('请先填写接口地址'); return; }
-      payload.baseURL = baseURL;
-      payload.modelsEndpoint = '/models';
-      payload.apiKey = String(values.apiKey || '');
+      probeInput = { driver: driverKey, baseURL, apiKey: String(values.apiKey || ''), modelsEndpoint };
     }
-    Promise.resolve(actions.probeModels(payload) as Promise<{ models?: Array<{ id?: unknown; name?: unknown }>; error?: { message?: string } }>)
+    Promise.resolve(actions.probeModels(probeInput) as Promise<{ models?: Array<{ id?: unknown; name?: unknown }>; error?: { message?: string } }>)
       .then((result) => {
         if (result && Array.isArray(result.models)) { setModels(result.models); return; }
         // 失败文案只用服务端给的 message，不自己编
@@ -409,7 +411,9 @@ function AddPage() {
       name: groupName.trim(),
       driver: driverKey,
       baseURL: String(values.baseURL || '').trim(),
-      models: models.length > 0 ? { static: models } : { endpoint: '/models' },
+      models: models.length > 0
+        ? { static: models }
+        : { endpoint: String(values.modelsEndpoint || '').trim() || '/models' },
       avatar: '',
     };
     if (accountDriver) {
@@ -425,7 +429,7 @@ function AddPage() {
 
   return (
     <section className="tim-view tim-addpage" data-view="add" data-add-state={driver ? 'ready' : 'no-platform'}>
-      <div className="tim-list-head">
+      <div className="tim-list-head tim-list-head-inline">
         <button type="button" className="tim-back" onClick={() => actions.openView('list')} aria-label="返回">‹</button>
         <h1 className="tim-page-title">加群</h1>
       </div>
@@ -487,22 +491,72 @@ function AddPage() {
                 {credentialFields.map((field) => {
                   const fieldKey = String(field.key || '');
                   const fieldType = String(field.type || 'text');
+                  const fieldValue = values[fieldKey] || '';
+                  const setFieldValue = (nextValue: string) => setValues((previous) => ({ ...previous, [fieldKey]: nextValue }));
+                  // 条件字段（如「手动填写」才出现的模型名）：条件不满足就不渲染
+                  const condition = field.showWhen as { key?: unknown; value?: unknown } | undefined;
+                  if (condition && String(values[String(condition.key || '')] || '') !== String(condition.value || '')) return null;
+                  const label = String(field.label || fieldKey);
+                  if (fieldType === 'select') {
+                    const options = Array.isArray(field.options) ? field.options as Array<{ value?: unknown; label?: unknown }> : [];
+                    return (
+                      <div key={fieldKey} className="tim-form-field">
+                        <label className="tim-form-label" htmlFor={'timField-' + fieldKey}>{label}</label>
+                        <select
+                          id={'timField-' + fieldKey}
+                          className="tim-form-input"
+                          value={fieldValue}
+                          onChange={(event) => setFieldValue(event.target.value)}
+                        >
+                          {options.map((option) => (
+                            <option key={String(option.value)} value={String(option.value)}>{String(option.label || option.value || '')}</option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  }
+                  if (fieldType === 'textarea') {
+                    return (
+                      <div key={fieldKey} className="tim-form-field">
+                        <label className="tim-form-label" htmlFor={'timField-' + fieldKey}>{label}</label>
+                        <textarea
+                          id={'timField-' + fieldKey}
+                          className="tim-form-textarea"
+                          placeholder={field.placeholder ? String(field.placeholder) : ''}
+                          value={fieldValue}
+                          onChange={(event) => setFieldValue(event.target.value)}
+                        />
+                      </div>
+                    );
+                  }
                   return (
                     <div key={fieldKey} className="tim-form-field">
-                      <label className="tim-form-label" htmlFor={'timField-' + fieldKey}>{String(field.label || fieldKey)}</label>
+                      <label className="tim-form-label" htmlFor={'timField-' + fieldKey}>{label}</label>
                       <input
                         id={'timField-' + fieldKey}
                         className="tim-form-input"
                         type={fieldType === 'password' ? 'password' : 'text'}
                         placeholder={field.placeholder ? String(field.placeholder) : ''}
-                        value={values[fieldKey] || ''}
-                        onChange={(event) => setValues((previous) => ({ ...previous, [fieldKey]: event.target.value }))}
+                        value={fieldValue}
+                        onChange={(event) => setFieldValue(event.target.value)}
                       />
                     </div>
                   );
                 })}
               </div>
             )}
+
+            <div className="tim-form-field">
+              <label className="tim-form-label" htmlFor="timModelsEndpoint">模型列表路径</label>
+              <input
+                id="timModelsEndpoint"
+                className="tim-form-input"
+                type="text"
+                placeholder="/models"
+                value={values.modelsEndpoint || ''}
+                onChange={(event) => setValues((previous) => ({ ...previous, modelsEndpoint: event.target.value }))}
+              />
+            </div>
 
             <div className="tim-form-row">
               <button type="button" className="tim-form-ghost" onClick={runProbe}>获取可用模型</button>
@@ -528,67 +582,252 @@ function AddPage() {
   );
 }
 
-// ---------------------------------------------------------------- 通讯录（折叠分组）
+// ---------------------------------------------------------------- 通讯录（好友 / 分组）
 
-function ContactsPage() {
-  const friendGroups = useFriendGroups() as Array<{ id?: unknown; name?: unknown; strategy?: unknown; members?: Array<Record<string, unknown>> }>;
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [editNotice, setEditNotice] = useState('');
-  // 占位入口的提示：3 秒后自动消失（UI 提示时长，不是等状态变化）
+const STRATEGY_LABELS: Record<string, string> = { 'round-robin': '轮询', fallback: '故障转移' };
+const STRATEGY_OPTIONS = [
+  { value: 'round-robin', label: '轮询（依次轮换）' },
+  { value: 'fallback', label: '故障转移（前面的失败再用下一个）' },
+];
+
+interface FriendGroupLike {
+  id?: unknown;
+  name?: unknown;
+  strategy?: unknown;
+  members?: Array<{ platformId?: unknown; modelId?: unknown }>;
+}
+
+interface GroupLike {
+  id?: unknown;
+  name?: unknown;
+}
+
+interface MemberDraft { platformId: string; modelId: string }
+
+// 分组编辑面板：名称 / 策略 / 成员（平台 → 模型 两级选择）。
+// 校验只做「非空 + 至少一个成员」——与 legacy 的必填口径一致，其余交给服务端。
+function FriendGroupEditor({ group, groups, onClose, onSaved }: {
+  group: FriendGroupLike | null;
+  groups: GroupLike[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(group ? String(group.name || '') : '');
+  const [strategy, setStrategy] = useState(group ? String(group.strategy || 'round-robin') : 'round-robin');
+  const [members, setMembers] = useState<MemberDraft[]>(() => (
+    group && Array.isArray(group.members)
+      ? group.members.map((member) => ({ platformId: String(member.platformId || ''), modelId: String(member.modelId || '') }))
+      : []
+  ));
+  const [pickedPlatformId, setPickedPlatformId] = useState('');
+  const [pickedModelId, setPickedModelId] = useState('');
+  const [models, setModels] = useState<Array<{ id?: unknown; name?: unknown }>>([]);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // 选平台 → 拉该群的模型清单（两级选择的第二级数据来源）
   useEffect(() => {
-    if (!editNotice) return undefined;
-    const timer = setTimeout(() => setEditNotice(''), 3000);
-    return () => clearTimeout(timer);
-  }, [editNotice]);
+    if (!pickedPlatformId) { setModels([]); setPickedModelId(''); return undefined; }
+    let cancelled = false;
+    Promise.resolve(actions.loadGroupModels(pickedPlatformId) as Promise<Array<{ id?: unknown; name?: unknown }>>)
+      .then((list) => {
+        if (cancelled) return;
+        const safeList = Array.isArray(list) ? list : [];
+        setModels(safeList);
+        setPickedModelId(safeList.length > 0 ? String(safeList[0].id || '') : '');
+      })
+      .catch(() => { if (!cancelled) { setModels([]); setPickedModelId(''); } });
+    return () => { cancelled = true; };
+  }, [pickedPlatformId]);
+
+  const addMember = () => {
+    if (!pickedPlatformId || !pickedModelId) { setError('请先选择平台与模型'); return; }
+    const duplicated = members.some((member) => member.platformId === pickedPlatformId && member.modelId === pickedModelId);
+    if (duplicated) { setError('该成员已在列表里'); return; }
+    setError('');
+    setMembers((previous) => [...previous, { platformId: pickedPlatformId, modelId: pickedModelId }]);
+  };
+
+  const save = () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) { setError('请填写分组名称'); return; }
+    if (members.length === 0) { setError('至少要有一个成员'); return; }
+    setSaving(true);
+    setError('');
+    const payload: Record<string, unknown> = {
+      name: trimmedName,
+      strategy,
+      members,
+      ...(group && group.id ? { id: String(group.id) } : {}),
+    };
+    Promise.resolve(actions.saveFriendGroup(payload) as Promise<unknown>)
+      .then(() => { setSaving(false); onSaved(); })
+      .catch((saveError: Error) => { setSaving(false); setError(saveError && saveError.message ? saveError.message : '保存失败'); });
+  };
+
+  const groupNameOf = (platformId: string): string => {
+    const matched = groups.find((candidate) => String(candidate.id || '') === platformId);
+    return matched ? String(matched.name || platformId) : platformId;
+  };
 
   return (
-    <section className="tim-view tim-contacts" data-view="contacts">
-      <div className="tim-list-head"><h1 className="tim-page-title">联系人</h1></div>
-      {/* 1.html L149-194 的分类 tab：只有「好友」有对应数据，其余三个是静态标签（不实现跳转） */}
-      <div className="tim-contact-tabs">
-        <span className="tim-contact-tab tim-contact-tab-active">好友</span>
-        <span className="tim-contact-tab">分组</span>
-        <span className="tim-contact-tab">群聊</span>
-        <span className="tim-contact-tab">机器人</span>
+    <div className="tim-sheet" data-friend-editor={group && group.id ? 'edit' : 'create'}>
+      <div className="tim-sheet-head">
+        <span>{group ? '编辑分组' : '新建分组'}</span>
+        <button type="button" className="tim-sheet-close" onClick={onClose}>关闭</button>
       </div>
-      {editNotice ? <div className="tim-form-note" data-contact-notice>暂未开放（编辑分组将在下一阶段提供）</div> : null}
-      <div className="tim-contacts-body" data-contacts-state={friendGroups.length > 0 ? 'ready' : 'empty'}>
-        {friendGroups.length === 0 ? <div className="tim-empty-inline" data-contacts-empty>还没有分组</div> : null}
-        {friendGroups.map((friendGroup) => {
-          const groupId = String(friendGroup.id || '');
-          const isExpanded = Boolean(expanded[groupId]);
-          const members = Array.isArray(friendGroup.members) ? friendGroup.members : [];
-          return (
-            <div key={groupId} className="tim-contact-group">
-              <button type="button" className="tim-contact-head" onClick={() => setExpanded((previous) => ({ ...previous, [groupId]: !previous[groupId] }))}>
-                <span className={isExpanded ? 'tim-arrow tim-arrow-expanded' : 'tim-arrow'}>›</span>
-                <span className="tim-contact-name">{String(friendGroup.name || groupId)}</span>
-                <span className="tim-contact-count" data-member-count={members.length}>{members.length} 个平台模型</span>
-              </button>
-              {/* 编辑入口本批只占位：点击给出明确提示，不做成点不动的死按钮 */}
+      <div className="tim-sheet-body">
+        <label className="tim-form-label" htmlFor="timFriendName">分组名称</label>
+        <input id="timFriendName" className="tim-form-input" type="text" value={name} placeholder="例如：主力轮换" onChange={(event) => setName(event.target.value)} />
+
+        <label className="tim-form-label" htmlFor="timFriendStrategy">成员轮换策略</label>
+        <select id="timFriendStrategy" className="tim-form-input" value={strategy} onChange={(event) => setStrategy(event.target.value)}>
+          {STRATEGY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+
+        <label className="tim-form-label" htmlFor="timFriendPlatform">成员（平台 → 模型）</label>
+        <select id="timFriendPlatform" className="tim-form-input" value={pickedPlatformId} onChange={(event) => setPickedPlatformId(event.target.value)}>
+          <option value="">选择平台账号</option>
+          {groups.map((candidate) => <option key={String(candidate.id)} value={String(candidate.id)}>{String(candidate.name || candidate.id || '')}</option>)}
+        </select>
+        <select
+          className="tim-form-input"
+          aria-label="选择模型"
+          value={pickedModelId}
+          onChange={(event) => setPickedModelId(event.target.value)}
+          disabled={models.length === 0}
+        >
+          {models.length === 0 ? <option value="">（先选平台账号）</option> : null}
+          {models.map((model) => <option key={String(model.id)} value={String(model.id)}>{String(model.name || model.id || '')}</option>)}
+        </select>
+        <button type="button" className="tim-form-ghost" onClick={addMember}>添加到成员列表</button>
+
+        <ul className="tim-member-list">
+          {members.map((member, index) => (
+            <li key={member.platformId + '::' + member.modelId} className="tim-member-item" data-member-row={index}>
+              <span className="tim-member-name">{groupNameOf(member.platformId)} · {member.modelId}</span>
               <button
                 type="button"
-                className="tim-contact-edit"
-                data-contact-edit={groupId}
-                onClick={() => setEditNotice(groupId)}
+                className="tim-member-remove"
+                onClick={() => setMembers((previous) => previous.filter((_candidate, candidateIndex) => candidateIndex !== index))}
               >
-                编辑
+                移除
               </button>
-              {isExpanded ? (
-                <div className="tim-contact-items">
-                  {members.length === 0 ? <div className="tim-contact-empty">暂无成员</div> : null}
-                  {members.map((member, index) => (
-                    <div key={index} className="tim-contact-item">
-                      <Avatar avatar={null} fallbackName={String(member.modelId || '?')} />
-                      <span>{String(member.modelId || '')}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
+            </li>
+          ))}
+          {members.length === 0 ? <li className="tim-member-empty">还没有成员</li> : null}
+        </ul>
+
+        {error ? <div className="tim-form-error" data-friend-error>{error}</div> : null}
+        <button type="button" className="tim-form-primary" onClick={save} disabled={saving}>{saving ? '保存中…' : '保存分组'}</button>
       </div>
+    </div>
+  );
+}
+
+function ContactsPage() {
+  const groups = useGroups() as GroupLike[];
+  const friendGroups = useFriendGroups() as FriendGroupLike[];
+  const [activeTab, setActiveTab] = useState<'friends' | 'groups'>('friends');
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [editor, setEditor] = useState<{ group: FriendGroupLike | null } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<FriendGroupLike | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+
+  const reload = () => { setEditor(null); setPendingDelete(null); actions.loadGroups(); };
+
+  return (
+    <section className="tim-view tim-contacts" data-view="contacts" data-contacts-tab={activeTab}>
+      <div className="tim-list-head"><h1 className="tim-page-title">联系人</h1></div>
+      {/* 只有两个分类：好友（按平台账号聚合）与分组（轮换分组）——其它分类我们没有对应概念，不放死标签 */}
+      <div className="tim-contact-tabs" role="tablist">
+        <button type="button" role="tab" aria-selected={activeTab === 'friends'} className={activeTab === 'friends' ? 'tim-contact-tab tim-contact-tab-active' : 'tim-contact-tab'} onClick={() => setActiveTab('friends')}>好友</button>
+        <button type="button" role="tab" aria-selected={activeTab === 'groups'} className={activeTab === 'groups' ? 'tim-contact-tab tim-contact-tab-active' : 'tim-contact-tab'} onClick={() => setActiveTab('groups')}>分组</button>
+      </div>
+
+      {activeTab === 'friends' ? (
+        <div className="tim-contacts-body" data-friends-state={groups.length > 0 ? 'ready' : 'empty'}>
+          {groups.length === 0 ? <div className="tim-empty-inline" data-friends-empty>还没有接入的平台账号</div> : null}
+          {groups.map((group) => (
+            <div key={String(group.id)} className="tim-contact-group">
+              <button type="button" className="tim-contact-head" onClick={() => actions.openView('chat', String(group.id))}>
+                <Avatar avatar={null} fallbackName={group.name} />
+                <span className="tim-contact-name">{String(group.name || group.id || '')}</span>
+                <span className="tim-contact-count">进入群聊</span>
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="tim-contacts-body" data-groups-state={friendGroups.length > 0 ? 'ready' : 'empty'}>
+          {friendGroups.length === 0 ? (
+            <div className="tim-empty-inline" data-groups-empty>
+              还没有分组
+              <button type="button" className="tim-form-ghost tim-empty-action" onClick={() => setEditor({ group: null })}>新建分组</button>
+            </div>
+          ) : null}
+          {friendGroups.map((friendGroup) => {
+            const groupId = String(friendGroup.id || '');
+            const isExpanded = Boolean(expanded[groupId]);
+            const members = Array.isArray(friendGroup.members) ? friendGroup.members : [];
+            return (
+              <div key={groupId} className="tim-contact-group" data-friend-group={groupId}>
+                <div className="tim-contact-row">
+                  <button type="button" className="tim-contact-head" onClick={() => setExpanded((previous) => ({ ...previous, [groupId]: !previous[groupId] }))}>
+                    <span className={isExpanded ? 'tim-arrow tim-arrow-expanded' : 'tim-arrow'}>›</span>
+                    <span className="tim-contact-name">{String(friendGroup.name || groupId)}</span>
+                    <span className="tim-contact-strategy">（{STRATEGY_LABELS[String(friendGroup.strategy || '')] || '轮询'}）</span>
+                    <span className="tim-contact-count" data-member-count={members.length}>{members.length} 个成员</span>
+                  </button>
+                  <button type="button" className="tim-contact-edit" data-contact-edit={groupId} onClick={() => setEditor({ group: friendGroup })}>编辑</button>
+                  <button type="button" className="tim-contact-edit" data-contact-delete={groupId} onClick={() => { setDeleteError(''); setPendingDelete(friendGroup); }}>删除</button>
+                </div>
+                {isExpanded ? (
+                  <div className="tim-contact-items">
+                    {members.length === 0 ? <div className="tim-contact-empty">暂无成员</div> : null}
+                    {members.map((member, index) => (
+                      <div key={index} className="tim-contact-item">
+                        <Avatar avatar={null} fallbackName={String(member.modelId || '?')} />
+                        <span>{String(member.modelId || '')}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+          {friendGroups.length > 0 ? (
+            <button type="button" className="tim-form-ghost tim-groups-new" onClick={() => setEditor({ group: null })}>＋ 新建分组</button>
+          ) : null}
+        </div>
+      )}
+
+      {editor ? <FriendGroupEditor group={editor.group} groups={groups} onClose={() => setEditor(null)} onSaved={reload} /> : null}
+
+      {pendingDelete ? (
+        <div className="tim-confirm" data-delete-confirm={String(pendingDelete.id || '')}>
+          <div className="tim-confirm-box">
+            <div className="tim-confirm-title">删除分组「{String(pendingDelete.name || pendingDelete.id || '')}」？</div>
+            <div className="tim-confirm-note">删除后不可恢复；被会话引用的分组会被服务端拒绝。</div>
+            {deleteError ? <div className="tim-form-error" data-delete-error>{deleteError}</div> : null}
+            <div className="tim-confirm-actions">
+              <button type="button" className="tim-form-ghost" onClick={() => setPendingDelete(null)}>取消</button>
+              <button
+                type="button"
+                className="tim-form-primary tim-confirm-danger"
+                data-delete-confirm-ok
+                onClick={() => {
+                  Promise.resolve(actions.deleteFriendGroup(String(pendingDelete.id || '')) as Promise<unknown>)
+                    .then(reload)
+                    .catch((deleteFailure: Error) => setDeleteError(deleteFailure && deleteFailure.message ? deleteFailure.message : '删除失败'));
+                }}
+              >
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -599,6 +838,8 @@ function ProfilePage() {
   const groups = useGroups() as Array<{ id?: unknown; name?: unknown; driver?: unknown }>;
   const drivers = useDrivers() as DriverLike[];
   const [receipt, setReceipt] = useState('');
+  const [importOpen, setImportOpen] = useState(false);
+  const [pasted, setPasted] = useState('');
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -638,28 +879,32 @@ function ProfilePage() {
       .catch((error: Error) => { setBusy(false); setActionError(error && error.message ? error.message : '导出失败'); });
   };
 
-  // 导入：选文件 → 读 JSON → 交服务端 → 只显示服务端回执里的数字（不自己算）
-  const runImport = (file: File | null) => {
-    if (!file) return;
+  // 导入（文本）：交服务端 → 只显示服务端回执里的数字（不自己算）；导入成功即视为该平台已登录
+  const runImportText = (rawText: string) => {
     setActionError('');
     setReceipt('');
+    let parsed: unknown;
+    try { parsed = JSON.parse(rawText); } catch { setActionError('内容不是合法 JSON'); return; }
     setBusy(true);
+    Promise.resolve(actions.importConfig(parsed as Record<string, unknown>) as Promise<{ imported?: number; updated?: number; rejected?: unknown[] }>)
+      .then((result) => {
+        setBusy(false);
+        const imported = result && typeof result.imported === 'number' ? result.imported : 0;
+        const updated = result && typeof result.updated === 'number' ? result.updated : 0;
+        const rejected = result && Array.isArray(result.rejected) ? result.rejected.length : 0;
+        setReceipt('导入完成：新增 ' + imported + ' 条，更新 ' + updated + ' 条，拒绝 ' + rejected + ' 条');
+        setPasted('');
+        actions.loadGroups();
+      })
+      .catch((error: Error) => { setBusy(false); setActionError(error && error.message ? error.message : '导入失败'); });
+  };
+
+  // 导入（文件）：读文本后走同一条路径
+  const runImport = (file: File | null) => {
+    if (!file) return;
     const reader = new FileReader();
-    reader.onerror = () => { setBusy(false); setActionError('读取文件失败'); };
-    reader.onload = () => {
-      let parsed: unknown;
-      try { parsed = JSON.parse(String(reader.result || '')); } catch { setBusy(false); setActionError('文件不是合法 JSON'); return; }
-      Promise.resolve(actions.importConfig(parsed as Record<string, unknown>) as Promise<{ imported?: number; updated?: number; rejected?: unknown[] }>)
-        .then((result) => {
-          setBusy(false);
-          const imported = result && typeof result.imported === 'number' ? result.imported : 0;
-          const updated = result && typeof result.updated === 'number' ? result.updated : 0;
-          const rejected = result && Array.isArray(result.rejected) ? result.rejected.length : 0;
-          setReceipt('导入完成：新增 ' + imported + ' 条，更新 ' + updated + ' 条，拒绝 ' + rejected + ' 条');
-          actions.loadGroups();
-        })
-        .catch((error: Error) => { setBusy(false); setActionError(error && error.message ? error.message : '导入失败'); });
-    };
+    reader.onerror = () => setActionError('读取文件失败');
+    reader.onload = () => runImportText(String(reader.result || ''));
     reader.readAsText(file);
   };
 
@@ -668,27 +913,39 @@ function ProfilePage() {
       <div className="tim-profile-head">
         <span className="tim-profile-avatar">我</span>
         <div>
-          <div className="tim-profile-title">我的 TIM 数据库</div>
+          <div className="tim-profile-title">我的模型团队</div>
           <div className="tim-profile-sub">当前已连接 {groups.length} 个平台</div>
         </div>
       </div>
       <div className="tim-profile-body">
-        <button type="button" className="tim-profile-row" onClick={() => actions.openView('add')}>
-          <span>🔐 登录平台账号</span><span className="tim-chevron">&gt;</span>
+        {/* 登录与导入是同一件事（导入即登录）：合成一个入口，点开再选"选文件"还是"粘贴" */}
+        <button type="button" className="tim-profile-row" data-action="login-import" onClick={() => setImportOpen((open) => !open)} aria-expanded={importOpen}>
+          <span>🔐 登录 / 导入账号配置（JSON）</span><span className="tim-chevron">{importOpen ? '⌄' : '>'}</span>
         </button>
+        {importOpen ? (
+          <div className="tim-import-panel" data-import-panel>
+            <label className="tim-import-pick">
+              <span>选择 JSON 文件</span>
+              <input
+                className="tim-profile-file"
+                type="file"
+                accept="application/json,.json"
+                onChange={(event) => runImport(event.target.files && event.target.files[0] ? event.target.files[0] : null)}
+              />
+            </label>
+            <textarea
+              className="tim-form-textarea"
+              placeholder="或把配置内容粘贴到这里"
+              value={pasted}
+              onChange={(event) => setPasted(event.target.value)}
+            />
+            <button type="button" className="tim-form-primary" disabled={busy || !pasted.trim()} onClick={() => runImportText(pasted)}>导入粘贴的内容</button>
+            <button type="button" className="tim-form-ghost" onClick={() => actions.openView('add')}>还没有配置？去登录页新增平台账号</button>
+          </div>
+        ) : null}
         <button type="button" className="tim-profile-row" data-action="export" onClick={runExport} disabled={busy}>
           <span>📤 导出当前配置</span><span className="tim-chevron">&gt;</span>
         </button>
-        <label className="tim-profile-row" data-action="import">
-          <span>📥 导入配置文件 (JSON)</span>
-          <input
-            className="tim-profile-file"
-            type="file"
-            accept="application/json,.json"
-            onChange={(event) => runImport(event.target.files && event.target.files[0] ? event.target.files[0] : null)}
-          />
-          <span className="tim-chevron">&gt;</span>
-        </label>
         {receipt ? <div className="tim-form-note" data-import-receipt>{receipt}</div> : null}
         {actionError ? <div className="tim-form-error" data-profile-error>{actionError}</div> : null}
 
@@ -875,23 +1132,25 @@ function DockLayer() {
 
 // ---------------------------------------------------------------- styles（1.html 的类名逐一翻成受 [data-theme-root="tim"] 约束的纯 CSS）
 
-const TIM_STYLES = `/* ===== TIM 主题令牌（docs/25 §二）===== */
+const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] {
   --tim-primary: #12B7F5;
   --tim-primary-deep: #0E9FD8;
   --tim-primary-soft: #E7F7FE;
-  --tim-bg-app: #F7F7F7;
+  --tim-bg-app: #f7f7f7;
   --tim-bg-chat: #F3F4F6;
   --tim-bg-card: #FFFFFF;
   --tim-bg-input: #EEF0F2;
   --tim-text-1: #111827;
-  --tim-text-2: #4B5563;
-  --tim-text-3: #9BA1A8;
+  --tim-text-2: #6B7280;
+  --tim-text-3: #9CA3AF;
   --tim-line: #E5E7EB;
   --tim-radius: 8px;
+  --tim-title: 26px;          /* 页面大标题（1.html L106 text-[26px]） */
+  --tim-bubble-tail: 6px;     /* 气泡三角尖边长（1.html L14-17） */
   --tim-avatar: 52px;
-  --tim-tabbar: 56px;
-  /* 窄长比例：1.html 是 400×800 的竖版，TIM 主题沿用这个比例（不是 desktop 的 760×540 横版） */
+  --tim-tabbar: 60px;
+  /* 窄长比例：1.html 是 400×800 的竖版，本主题沿用这个比例（不是 desktop 的 760×540 横版） */
   --tim-window-width: min(400px, 92vw);
   --tim-window-height: min(760px, 86vh);
 }
@@ -931,8 +1190,8 @@ const TIM_STYLES = `/* ===== TIM 主题令牌（docs/25 §二）===== */
 }
 
 [data-theme-root="tim"] .tim-back { border: none; background: transparent; color: #fff; font-size: 20px; cursor: pointer; padding: 0 4px; }
-[data-theme-root="tim"] .tim-chat-title { font-size: 17px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-[data-theme-root="tim"] .tim-badge { font-size: 11px; background: rgba(255, 255, 255, 0.22); padding: 1px 8px; border-radius: 999px; }
+[data-theme-root="tim"] .tim-chat-title { font-size: 18px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-theme-root="tim"] .tim-badge { font-size: 12px; background: rgba(255, 255, 255, 0.2); padding: 1px 8px; border-radius: 999px; }
 
 /* 聊天区点阵背景（1.html 的 .chat-bg 原样搬过来） */
 [data-theme-root="tim"] .tim-chat-bg {
@@ -961,8 +1220,8 @@ const TIM_STYLES = `/* ===== TIM 主题令牌（docs/25 §二）===== */
 
 [data-theme-root="tim"] .tim-card {
   background: var(--tim-bg-card);
-  border: 1px solid var(--tim-line);
-  box-shadow: 0 1px 4px rgba(17, 24, 39, 0.06);
+  border: 1px solid #F3F4F6;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   padding: 10px 12px;
   cursor: pointer;
 }
@@ -972,7 +1231,7 @@ const TIM_STYLES = `/* ===== TIM 主题令牌（docs/25 §二）===== */
   border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-right: 6px solid var(--tim-bg-card);
 }
 
-[data-theme-root="tim"] .tim-card:hover { background: #FAFBFC; }
+[data-theme-root="tim"] .tim-card:hover { background: #FAFAFA; }
 [data-theme-root="tim"] .tim-card-head { display: flex; align-items: center; gap: 8px; }
 [data-theme-root="tim"] .tim-card-model { font-weight: 600; color: var(--tim-text-1); font-family: "JetBrains Mono", Consolas, monospace; font-size: 12.5px; }
 [data-theme-root="tim"] .tim-card-time { margin-left: auto; font-size: 11px; color: var(--tim-text-3); }
@@ -1020,6 +1279,31 @@ const TIM_STYLES = `/* ===== TIM 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-form-model { padding: 7px 10px; border-bottom: 1px solid var(--tim-line); font-size: 12.5px; color: var(--tim-text-1); }
 [data-theme-root="tim"] .tim-contact-edit { align-self: center; margin-right: 14px; padding: 4px 10px; border: 1px solid var(--tim-line); border-radius: 8px; background: #fff; color: var(--tim-text-2); font-size: 11.5px; cursor: pointer; }
 [data-theme-root="tim"] .tim-profile-file { display: none; }
+/* 导入面板 / 分组编辑 / 删除确认：都走同一套底部弹层（竖版窄屏用底部弹层，不用居中模态） */
+[data-theme-root="tim"] .tim-import-panel { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 14px; background: #F7FAFC; border-bottom: 1px solid var(--tim-line); }
+[data-theme-root="tim"] .tim-import-pick { display: inline-flex; align-items: center; justify-content: center; height: 34px; border: 1px dashed var(--tim-primary); border-radius: 8px; color: var(--tim-primary); font-size: 13px; cursor: pointer; }
+[data-theme-root="tim"] .tim-form-textarea { width: 100%; min-height: 88px; padding: 8px 12px; border: 1px solid var(--tim-line); border-radius: 8px; background: #fff; font-size: 13px; color: var(--tim-text-1); font-family: inherit; outline: none; resize: vertical; }
+[data-theme-root="tim"] .tim-sheet { position: absolute; left: 0; right: 0; bottom: 0; max-height: 86%; display: flex; flex-direction: column; background: #fff; border-radius: 14px 14px 0 0; box-shadow: 0 -6px 24px rgba(0,0,0,0.16); z-index: 6; }
+[data-theme-root="tim"] .tim-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--tim-line); font-size: 14px; font-weight: 600; }
+[data-theme-root="tim"] .tim-sheet-close { border: none; background: transparent; color: var(--tim-text-3); font-size: 12.5px; cursor: pointer; }
+[data-theme-root="tim"] .tim-sheet-body { overflow-y: auto; padding: 4px 16px 18px; }
+[data-theme-root="tim"] .tim-member-list { margin: 10px 0 0; padding: 0; list-style: none; }
+[data-theme-root="tim"] .tim-member-item { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--tim-line); font-size: 12.5px; }
+[data-theme-root="tim"] .tim-member-name { color: var(--tim-text-1); }
+[data-theme-root="tim"] .tim-member-remove { border: none; background: transparent; color: var(--tim-status-bad); font-size: 12px; cursor: pointer; }
+[data-theme-root="tim"] .tim-member-empty { padding: 8px 10px; font-size: 12px; color: var(--tim-text-3); }
+[data-theme-root="tim"] .tim-contact-row { display: flex; align-items: center; }
+[data-theme-root="tim"] .tim-contact-row .tim-contact-head { flex: 1; min-width: 0; }
+[data-theme-root="tim"] .tim-contact-strategy { font-size: 11.5px; color: var(--tim-text-3); }
+[data-theme-root="tim"] .tim-groups-new { width: calc(100% - 32px); margin: 12px 16px; }
+[data-theme-root="tim"] .tim-empty-action { margin-top: 10px; }
+[data-theme-root="tim"] .tim-confirm { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0,0,0,0.35); z-index: 7; }
+[data-theme-root="tim"] .tim-confirm-box { width: 100%; padding: 16px; border-radius: 12px; background: #fff; }
+[data-theme-root="tim"] .tim-confirm-title { font-size: 14px; font-weight: 600; }
+[data-theme-root="tim"] .tim-confirm-note { margin-top: 6px; font-size: 12px; color: var(--tim-text-3); }
+[data-theme-root="tim"] .tim-confirm-actions { display: flex; gap: 10px; margin-top: 14px; }
+[data-theme-root="tim"] .tim-confirm-actions > * { flex: 1; }
+[data-theme-root="tim"] .tim-confirm-danger { background: var(--tim-status-bad); }
 [data-theme-root="tim"] .tim-platform-section { padding: 4px 0 2px; }
 [data-theme-root="tim"] .tim-platform-group-name { padding: 6px 16px 2px; font-size: 11.5px; color: var(--tim-text-3); }
 
@@ -1036,7 +1320,10 @@ const TIM_STYLES = `/* ===== TIM 主题令牌（docs/25 §二）===== */
 /* ===== 消息列表 ===== */
 [data-theme-root="tim"] .tim-list { background: var(--tim-bg-app); }
 [data-theme-root="tim"] .tim-list-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 6px; }
-[data-theme-root="tim"] .tim-page-title { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+[data-theme-root="tim"] .tim-page-title { margin: 0; font-size: var(--tim-title); font-weight: 700; letter-spacing: -0.01em; color: var(--tim-text-1); }
+/* 带返回键的标题栏：返回与标题左对齐相邻（默认 space-between 会把标题顶到右边） */
+[data-theme-root="tim"] .tim-list-head-inline { justify-content: flex-start; gap: 6px; }
+[data-theme-root="tim"] .tim-list-head-inline .tim-back { color: var(--tim-text-1); }
 [data-theme-root="tim"] .tim-add-wrap { position: relative; }
 [data-theme-root="tim"] .tim-add { width: 34px; height: 34px; border: none; border-radius: 10px; background: #fff; color: var(--tim-text-1); font-size: 22px; line-height: 1; cursor: pointer; box-shadow: 0 1px 4px rgba(17, 24, 39, 0.1); }
 [data-theme-root="tim"] .tim-add-menu { position: absolute; right: 0; top: 40px; width: 190px; background: #fff; border-radius: 12px; box-shadow: 0 8px 28px rgba(17, 24, 39, 0.16); padding: 6px; z-index: 20; }
@@ -1048,19 +1335,20 @@ const TIM_STYLES = `/* ===== TIM 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-list-meta-line { padding: 6px 16px 8px; font-size: 12.5px; color: var(--tim-text-3); border-bottom: 1px solid rgba(229, 231, 235, 0.7); }
 
 [data-theme-root="tim"] .tim-list-body { flex: 1; min-height: 0; overflow-y: auto; }
-[data-theme-root="tim"] .tim-list-item { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: none; background: transparent; text-align: left; cursor: pointer; }
-[data-theme-root="tim"] .tim-list-item:hover { background: rgba(229, 231, 235, 0.5); }
+[data-theme-root="tim"] .tim-list-item { width: 100%; min-height: 72px; display: flex; align-items: center; gap: 12px; padding: 10px 16px; border: none; background: transparent; text-align: left; cursor: pointer; transition: background 0.15s ease; }
+[data-theme-root="tim"] .tim-list-item:hover { background: rgba(0, 0, 0, 0.03); }
 [data-theme-root="tim"] .tim-list-main { flex: 1; min-width: 0; }
 [data-theme-root="tim"] .tim-list-line { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 [data-theme-root="tim"] .tim-list-name { flex: 1; min-width: 0; font-size: 16px; font-weight: 600; color: var(--tim-text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-[data-theme-root="tim"] .tim-list-time { flex: none; font-size: 11.5px; color: var(--tim-text-3); }
-[data-theme-root="tim"] .tim-list-summary { display: block; margin-top: 2px; font-size: 13.5px; color: var(--tim-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+[data-theme-root="tim"] .tim-list-time { flex: none; font-size: 12px; color: var(--tim-text-3); }
+[data-theme-root="tim"] .tim-list-summary { display: block; margin-top: 2px; font-size: 14px; color: var(--tim-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ===== 通讯录（折叠分组）===== */
-[data-theme-root="tim"] .tim-contacts { background: #fff; }
+[data-theme-root="tim"] .tim-contacts { background: var(--tim-bg-app); }
 [data-theme-root="tim"] .tim-contacts-body { flex: 1; min-height: 0; overflow-y: auto; }
-[data-theme-root="tim"] .tim-contact-tabs { display: flex; gap: 22px; padding: 0 16px 10px; border-bottom: 1px solid #F1F2F4; font-size: 14px; color: var(--tim-text-2); }
-[data-theme-root="tim"] .tim-contact-tab { position: relative; padding-bottom: 4px; }
+[data-theme-root="tim"] .tim-contact-tabs { display: flex; align-items: center; gap: 24px; padding: 0 16px 10px; border-bottom: 1px solid var(--tim-line); font-size: 15px; color: var(--tim-text-2); }
+[data-theme-root="tim"] .tim-contact-tab { position: relative; padding: 0 0 4px; border: none; background: transparent; font-size: 15px; color: var(--tim-text-2); cursor: pointer; }
+[data-theme-root="tim"] .tim-contact-tab:hover { color: var(--tim-text-1); }
 [data-theme-root="tim"] .tim-contact-tab-active { color: var(--tim-text-1); font-weight: 600; }
 [data-theme-root="tim"] .tim-contact-tab-active::after { content: ""; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 16px; height: 2px; border-radius: 2px; background: var(--tim-primary); }
 [data-theme-root="tim"] .tim-contact-group { border-bottom: 1px solid #F1F2F4; }
@@ -1094,15 +1382,16 @@ const TIM_STYLES = `/* ===== TIM 主题令牌（docs/25 §二）===== */
 
 /* ===== 底边栏：56px（classic 是 54px）===== */
 [data-theme-root="tim"] .tim-tabbar { flex: none; height: var(--tim-tabbar); display: flex; align-items: center; justify-content: space-around; background: var(--tim-bg-app); border-top: 1px solid var(--tim-line); }
-[data-theme-root="tim"] .tim-tab { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 72px; padding: 0; border: none; background: transparent; color: var(--tim-text-3); font-size: 10.5px; cursor: pointer; }
+[data-theme-root="tim"] .tim-tab { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 72px; padding: 0; border: none; background: transparent; color: var(--tim-text-2); font-size: 10px; font-weight: 500; cursor: pointer; }
 [data-theme-root="tim"] .tim-tab[aria-selected="true"] { color: var(--tim-primary); font-weight: 600; }
 
 /* ===== 悬浮球：品牌蓝渐变圆球 ===== */
-[data-theme-root="tim"] .tim-ball { position: relative; width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; cursor: grab; touch-action: none; background: linear-gradient(145deg, #4FC9F8, var(--tim-primary) 55%, var(--tim-primary-deep)); box-shadow: 0 10px 24px rgba(18, 183, 245, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.4); transition: transform 0.16s ease, box-shadow 0.16s ease; }
-[data-theme-root="tim"] .tim-ball:hover { transform: translateY(-2px) scale(1.03); }
-[data-theme-root="tim"] .tim-ball-target { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; font-size: 18px; font-weight: 700; }
+/* 悬浮球：深色胶囊（1.html L258：bg-gray-900 + rounded-full + 白字 10px + 右下绿点） */
+[data-theme-root="tim"] .tim-ball { position: relative; min-width: 56px; height: 34px; padding: 0 12px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #fff; font-size: 10px; cursor: grab; touch-action: none; background: #111827; box-shadow: 0 8px 20px rgba(17, 24, 39, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.08); transition: transform 0.16s ease, box-shadow 0.16s ease; }
+[data-theme-root="tim"] .tim-ball:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(17, 24, 39, 0.4); }
+[data-theme-root="tim"] .tim-ball-target { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 700; background: rgba(255, 255, 255, 0.16); }
 [data-theme-root="tim"] .tim-ball-target img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-[data-theme-root="tim"] .tim-ball::after { content: ""; position: absolute; right: 2px; bottom: 2px; width: 11px; height: 11px; border-radius: 50%; background: #22C55E; border: 2px solid #fff; }
+[data-theme-root="tim"] .tim-ball::after { content: ""; position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%; background: #22C55E; border: 2px solid #fff; }
 
 /* ===== 面板：深色标题条（1.html 的 gray-900）===== */
 [data-theme-root="tim"] .tim-panel { width: 320px; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 18px 44px rgba(17, 24, 39, 0.34); border: 1px solid var(--tim-line); font: 13px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", system-ui, sans-serif; color: var(--tim-text-1); }
@@ -1169,8 +1458,8 @@ html[data-dmt-theme] .modal-mask {
 `;
 
 export default defineTheme({
-  meta: { id: 'tim', name: 'TIM 经典蓝', contractVersion: 1 },
-  styles: TIM_STYLES,
+  meta: { id: 'tim', name: '经典蓝（竖版）', contractVersion: 1 },
+  styles: THEME_STYLES,
   Root: function TimRoot() {
     return (
       <div data-theme-root="tim" className="tim-theme-root">
@@ -1183,4 +1472,4 @@ export default defineTheme({
 
 export { attachStore as __attachStore } from '../theme-sdk/index';
 // 三个页面单独导出：只给「渲染出什么」这类断言用（构建产物仍只用 default 的 Root）
-export { AddPage, ContactsPage, ProfilePage };
+export { AddPage, ContactsPage, ProfilePage, FriendGroupEditor };

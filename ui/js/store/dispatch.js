@@ -40,6 +40,9 @@ function createActionHandlers(deps) {
     'reverse-accounts': function (action) { return actions.loadReverseAccounts(action.platformId); },
     'reverse-login-start': function (action) { return actions.startReverseLogin(action.platformId); },
     'reverse-login-poll': function (action) { return actions.pollReverseLogin(action.platformId); },
+    'save-friend-group': function (action) { return actions.saveFriendGroup(action.payload); },
+    'delete-friend-group': function (action) { return actions.deleteFriendGroup(action.groupId); },
+    'group-models': function (action) { return actions.loadGroupModels(action.groupId); },
     'view:rebuilt': function () { renderNow(); return Promise.resolve(); }
   };
 }

@@ -53,7 +53,7 @@ export const actions = {
    * 探测可用模型：只给结构化输入，线格式由宿主组装。
    * accountRef 给账号引用（账号型驱动）；否则用 baseURL + apiKey（配置型驱动）。
    */
-  probeModels(input: { driver: string; accountRef?: string; baseURL?: string; apiKey?: string }): unknown {
+  probeModels(input: { driver: string; accountRef?: string; baseURL?: string; apiKey?: string; modelsEndpoint?: string }): unknown {
     return dispatch({ type: 'probe-models', input });
   },
   /** 导出备份（回完整备份对象，下载由主题触发） */
@@ -75,6 +75,18 @@ export const actions = {
   /** 按平台轮询登录状态：回 { ok, status, body } */
   pollReverseLogin(platformId: string): unknown {
     return dispatch({ type: 'reverse-login-poll', platformId });
+  },
+  /** 保存好友分组（同 id 覆盖）：成功回 { group }，失败 reject（message 为服务端原文） */
+  saveFriendGroup(payload: Record<string, unknown>): unknown {
+    return dispatch({ type: 'save-friend-group', payload });
+  },
+  /** 删除好友分组：被会话引用时后端回 409，message 原样带出 */
+  deleteFriendGroup(groupId: string): unknown {
+    return dispatch({ type: 'delete-friend-group', groupId });
+  },
+  /** 某个群（平台账号）的模型清单：分组编辑的两级选择用 */
+  loadGroupModels(groupId: string): unknown {
+    return dispatch({ type: 'group-models', groupId });
   },
   /** 拖拽后落锚点（悬浮件位置） */
   setDockAnchor(anchor: { left: number; top: number }): unknown {
