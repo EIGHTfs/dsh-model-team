@@ -7,6 +7,10 @@ node_modules/
 package-lock.json
 pnpm-lock.yaml
 
+# 客户端产物：由 build.cjs 从 lib/client-parts/ + ui/ 分片合成，**不入库**
+# （其他插件同样做法：源码入库、产物构建生成；部署与 npm 发布都由 prepack/build 产出）
+lib/client.js
+
 # 运行产物与系统垃圾
 *.log
 *.tmp

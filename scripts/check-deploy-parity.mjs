@@ -28,6 +28,11 @@ const PLUGIN_NAME = 'dsh-model-team';
 const DEPLOYED_DIRECTORIES = ['src', 'config'];
 const DEPLOYED_FILES = ['lib/client.js', 'cordis.patch.yml', 'package.json', 'README.md'];
 
+// 构建产物：不入库，但在部署副本里必须存在且与「本地刚构建出来的那份」一致。
+// 因此它不参与"仓库有、副本没有"的新增判定，也不参与"副本有、仓库没有"的残留判定——
+// 单独按内容比对，本地还没构建时如实报「未核对」而不是假装绿。
+const BUILD_ARTIFACTS = ['lib/client.js'];
+
 // 反向检查（副本多出的文件）只看这两类扩展名：能被宿主加载、或能被当成配置读进去的
 const STALE_FILE_EXTENSIONS = Object.freeze(['.js', '.json']);
 // 豁免：依赖目录、隐藏文件（.DS_Store 等）、运行期产物（日志）
@@ -99,7 +104,8 @@ async function listRepoFiles() {
     await walk(directory);
   }
   for (const fileName of DEPLOYED_FILES) {
-    try { await fs.access(path.join(REPO_ROOT, fileName)); files.push(fileName); } catch { /* 仓库没有就跳过 */ }
+    // 产物不在仓库里也能比：只要本地构建过就在磁盘上；没构建过就跳过（由汇总处报「未核对」）
+    try { await fs.access(path.join(REPO_ROOT, fileName)); files.push(fileName); } catch { /* 本地还没构建就跳过 */ }
   }
   return files;
 }
@@ -127,6 +133,8 @@ async function collectStaleFiles({ deployRoot, repoFileSet }) {
         if (!entry.isFile()) continue;
         if (STALE_IGNORED_SUFFIXES.some((suffix) => entry.name.endsWith(suffix))) continue;
         if (!STALE_FILE_EXTENSIONS.includes(path.extname(entry.name))) continue;
+        // 构建产物由 build 生成，副本里有它是正常的，不算残留
+        if (BUILD_ARTIFACTS.includes(relativePath.split(path.sep).join('/'))) continue;
         if (repoFileSet.has(relativePath)) continue;
         staleFiles.push(relativePath);
       }
@@ -193,6 +201,18 @@ async function main() {
     sortedStaleFiles.forEach((relativePath) => console.error(`   · ${relativePath}（旧布局残留？）`));
     console.error('\n   修法：确认后从副本删除（或移入回收站），并检查是否重构时漏删。');
   }
+  // 构建产物不在仓库里：必须"本地刚构建过"才能核对。缺了就明说未核对并失败——
+  // 判绿等于告诉人「部署与源码一致」，而实际上那份产物根本没被检查过（假绿）。
+  const missingArtifacts = [];
+  for (const artifactPath of BUILD_ARTIFACTS) {
+    try { await fs.access(path.join(REPO_ROOT, artifactPath)); } catch { missingArtifacts.push(artifactPath); }
+  }
+  if (missingArtifacts.length > 0) {
+    console.error(`❌ 构建产物不存在，无法核对：${missingArtifacts.join('、')}`);
+    console.error('   产物不入库（由 build 生成）。先跑 node build.cjs 再核对，或加 --allow-no-deploy 明确表示本项不核对。');
+    return 1;
+  }
+
   if (problems.length || staleFiles.size > 0) return 1;
   console.log(`✅ 部署副本一致：${deployCopies.length} 个副本、${repoFiles.length} 个文件逐字节相同、无残留文件`);
   return 0;
