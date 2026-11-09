@@ -1,8 +1,8 @@
 // tim.tsx —— 竖版即时通讯风主题：**一个文件就是一套完整界面**（结构 + 视觉 + styles）。
 //
-// 来源：参考项目/1.html（366 行）逐段翻成 React JSX，不是重新设计（转译契约见 docs/24 §5.5.2.1）。
-// 1.html 里属于「手机 demo 外壳」的东西没有搬：400×800 手机边框、顶部状态栏（时间/5G/电池）、
-// 硬编码假数据（05:12 / 99+ / 「已连接 3 个网关」）、外部 CDN 与参考稿的框架指令。
+// 默认主题：移动端 IM 风格（控件/尺寸/样式/内部动作用见 docs/03 §7）。
+// 演示外壳部分不做：手机边框、顶部状态栏（时间/信号/电池）、
+// 硬编码假数据（固定时间 / 未读数 / 「已连接 3 个网关」）、外部 CDN 与框架指令。
 // 数据全部来自 ui/theme-sdk 的 hooks；样式是本文件里的纯 CSS 字符串。
 //
 // 与 classic 的差异必须在 5 处以上肉眼可辨（docs/25 §十一 对照表）：
@@ -260,7 +260,7 @@ function ListPage({ onHide }: { onHide: () => void }) {
         <input className="tim-search" type="search" value={keyword} placeholder="🔍 搜索" onChange={(event) => setKeyword(event.target.value)} />
       </div>
 
-      {/* 1.html 这里是「已连接 3 个网关」的硬编码，句式保留、数字换成真实条数（契约 §5.5.2.1） */}
+      {/* 「已连接 N 个网关」：句式保留，数字取真实条数（契约 03 §九） */}
       <div className="tim-list-meta-line">💻 {status === 'load-failed' ? '加载失败' : `已连接 ${groups.length} 个网关`}</div>
 
       {status === 'load-failed' ? (
@@ -1030,11 +1030,11 @@ function TabBar() {
   const activeTab = tabKeyOf(view.view);
   const labels: Record<string, string> = { messages: '消息', contacts: '联系人', profile: '我的' };
   return (
-    <nav className="tim-tabbar" role="tablist">
+    <nav className="tim-tabbar team-tabbar" role="tablist">
       {TAB_ITEMS.map((tab) => {
         const selected = tab.key === activeTab;
         return (
-          <button key={tab.key} type="button" role="tab" className="tim-tab" aria-selected={selected} onClick={() => actions.openView(tab.view as never)}>
+          <button key={tab.key} type="button" role="tab" className="tim-tab team-tab" data-view={tab.view} aria-selected={selected} onClick={() => actions.openView(tab.view as never)}>
             {tab.key === 'messages' ? <ChatIcon /> : tab.key === 'contacts' ? <ContactsIcon /> : <ProfileIcon />}
             <span className="tim-tab-label">{labels[tab.key] || tab.label}</span>
           </button>
@@ -1044,6 +1044,7 @@ function TabBar() {
   );
 }
 
+// 主窗口根同时带 `team-app`：契约钩子（docs/03 §2.2），主题自有类名之外的稳定别名，供门禁/外部定位。
 function MainWindow({ onHide, windowStyle, dragHandlers }: {
   onHide: () => void;
   windowStyle: { left?: number; top?: number; transform?: string };
@@ -1055,7 +1056,7 @@ function MainWindow({ onHide, windowStyle, dragHandlers }: {
 }) {
   const view = useView();
   return (
-    <div className="tim-app tim-app-draggable" style={windowStyle} {...dragHandlers}>
+    <div className="tim-app team-app tim-app-draggable" style={windowStyle} {...dragHandlers}>
       <div className="tim-app-body">
         {view.view === 'list' ? <ListPage onHide={onHide} /> : null}
         {view.view === 'chat' ? <ChatPage groupId={view.currentGroupId} onHide={onHide} /> : null}
@@ -1137,7 +1138,7 @@ function DockLayer({ windowHidden, onExpand }: { windowHidden: boolean; onExpand
 
   return (
     <>
-      {/* 悬浮球：品牌蓝渐变圆球（1.html 的深灰胶囊属于 demo 外壳，25 §3.6 要求蓝渐变） */}
+      {/* 悬浮球：品牌蓝渐变圆球（深灰胶囊属演示外壳，不采用） */}
       <div
         ref={setBallElement}
         className="tim-ball-anchor"
@@ -1164,17 +1165,17 @@ function DockLayer({ windowHidden, onExpand }: { windowHidden: boolean; onExpand
         onPointerUp={finishDrag}
         onPointerCancel={finishDrag}
       >
-        <div className="tim-ball" role="button" tabIndex={0} data-fb-target="" title={accessibleLabel} aria-label={accessibleLabel}
+        <div className="tim-ball" role="button" tabIndex={0} id="floatBall" data-fb-target="" title={accessibleLabel} aria-label={accessibleLabel}
           onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setPanelOpen(true); } }}>
           <span className="tim-ball-target"><Avatar avatar={activeGroup ? activeGroup.avatar : null} fallbackName={platformName} /></span>
         </div>
       </div>
 
       {panelOpen ? (
-        <section ref={setPanelElement} className="tim-panel" role="dialog" aria-label="我的模型团队"
+        <section ref={setPanelElement} className="tim-panel" id="floatPanel" role="dialog" aria-label="我的模型团队"
           style={{ position: 'fixed', left: `${panelPosition.left}px`, top: `${panelPosition.top}px` }}>
-          <header className="tim-panel-head">
-            <button type="button" className="tim-panel-title" onClick={() => { actions.openView('db'); setPanelOpen(false); }}>我的模型团队</button>
+          <header className="tim-panel-head" id="fpHead">
+            <button type="button" className="tim-panel-title" id="fpTitle" onClick={() => { actions.openView('db'); setPanelOpen(false); }}>我的模型团队</button>
             <span className="tim-panel-model">{`模型 ${targetLabel}`}</span>
             <button type="button" className="tim-panel-min" onClick={() => setPanelOpen(false)} aria-label="收起面板" title="收起面板">—</button>
           </header>
@@ -1191,14 +1192,14 @@ function DockLayer({ windowHidden, onExpand }: { windowHidden: boolean; onExpand
             ))}
           </div>
           <div className="tim-panel-sep" />
-          <button type="button" className="tim-panel-enter" onClick={() => { actions.openView('list'); setPanelOpen(false); }}>进入群聊界面 &gt;</button>
+          <button type="button" className="tim-panel-enter" id="fpEnter" onClick={() => { actions.openView('list'); setPanelOpen(false); }}>进入群聊界面 &gt;</button>
         </section>
       ) : null}
     </>
   );
 }
 
-// ---------------------------------------------------------------- styles（1.html 的类名逐一翻成受 [data-theme-root="tim"] 约束的纯 CSS）
+// ---------------------------------------------------------------- styles（受 [data-theme-root="tim"] 约束的纯 CSS）
 
 const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] {
@@ -1214,16 +1215,16 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
   --tim-text-3: #9CA3AF;
   --tim-line: #E5E7EB;
   --tim-radius: 8px;
-  --tim-title: 26px;          /* 页面大标题（1.html L106 text-[26px]） */
-  --tim-bubble-tail: 6px;     /* 气泡三角尖边长（1.html L14-17） */
+  --tim-title: 26px;          /* 页面大标题 */
+  --tim-bubble-tail: 6px;     /* 气泡三角尖边长 */
   --tim-avatar: 52px;
   --tim-tabbar: 60px;
-  /* 窄长比例：1.html 是 400×800 的竖版，本主题沿用这个比例（不是 desktop 的 760×540 横版） */
+  /* 窄长比例：竖版 400×760（不是桌面横版 760×540） */
   --tim-window-width: min(400px, 92vw);
   --tim-window-height: min(760px, 86vh);
 }
 
-/* 主窗口（桌面浮窗，不是 1.html 的手机外壳）。
+/* 主窗口（桌面浮窗，不含演示用的手机外壳）。
    跨宿主层级由宿主容器统一持有（theme-epilogue 把容器放进 app 层）；
    这里的 2 只是容器内部顺序，主题不持任何跨宿主层级数值。 */
 [data-theme-root="tim"] .tim-app {
@@ -1264,7 +1265,7 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-chat-title { font-size: 18px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 [data-theme-root="tim"] .tim-badge { font-size: 12px; background: rgba(255, 255, 255, 0.2); padding: 1px 8px; border-radius: 999px; }
 
-/* 聊天区点阵背景（1.html 的 .chat-bg 原样搬过来） */
+/* 聊天区点阵背景 */
 [data-theme-root="tim"] .tim-chat-bg {
   background-color: var(--tim-bg-chat);
   background-image: radial-gradient(#D1D5DB 1px, transparent 1px);
@@ -1391,7 +1392,7 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-platform-section { padding: 4px 0 2px; }
 [data-theme-root="tim"] .tim-platform-group-name { padding: 6px 16px 2px; font-size: 11.5px; color: var(--tim-text-3); }
 
-/* @ 选择器：底部弹出面板（1.html 的 bottom sheet） */
+/* @ 选择器：底部弹出面板 */
 [data-theme-root="tim"] .tim-mention { position: absolute; left: 0; right: 0; bottom: 54px; max-height: 62%; display: flex; flex-direction: column; background: #fff; border-top: 1px solid var(--tim-line); border-radius: 14px 14px 0 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.12); z-index: 5; }
 [data-theme-root="tim"] .tim-mention-head { display: flex; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--tim-line); font-size: 12px; font-weight: 600; color: var(--tim-text-2); }
 [data-theme-root="tim"] .tim-mention-close { border: none; background: transparent; color: var(--tim-text-3); cursor: pointer; font-size: 12px; }
@@ -1428,14 +1429,14 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-list-summary { display: block; margin-top: 2px; font-size: 14px; color: var(--tim-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ===== 通讯录（折叠分组）===== */
-[data-theme-root="tim"] .tim-contacts { background: #fff; }   /* 参考稿 L104：通讯录是白底（消息/我才是 #f7f7f7） */
+[data-theme-root="tim"] .tim-contacts { background: #fff; }   /* 通讯录为白底（消息/我才是 #f7f7f7） */
 [data-theme-root="tim"] .tim-contacts-body { flex: 1; min-height: 0; overflow-y: auto; }
 [data-theme-root="tim"] .tim-contact-tabs { display: flex; align-items: center; gap: 24px; padding: 0 16px 10px; border-bottom: 1px solid var(--tim-line); font-size: 15px; color: var(--tim-text-2); }
 [data-theme-root="tim"] .tim-contact-tab { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; padding: 0; border: none; background: transparent; font-size: 15px; color: var(--tim-text-2); cursor: pointer; }
 [data-theme-root="tim"] .tim-contact-tab:hover { color: var(--tim-text-1); }
 [data-theme-root="tim"] .tim-contact-tab-active { color: var(--tim-primary); font-weight: 600; }
 /* 选中下划线用真实元素（不是伪元素）：16×2px 圆角品牌蓝，居中——肉眼可辨 */
-/* 参考稿是 16×2px；在 400px 竖版 + 高分屏缩放后 2px 蓝线在截图里不可辨，
+/* 更细的线（16×2px）在 400px 竖版 + 高分屏缩放后不可辨，
    这里放大到 28×4px（仍居中、仍圆角、仍品牌蓝），并让选中文字也用品牌蓝——
    判据是「肉眼能看出选中哪个 tab」，不是像素尺寸逐值相等（docs/03 §十 允许有理由的偏离） */
 [data-theme-root="tim"] .tim-contact-underline { display: block; width: 28px; height: 4px; border-radius: 4px; background: var(--tim-primary); }
@@ -1474,14 +1475,14 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-tab[aria-selected="true"] { color: var(--tim-primary); font-weight: 600; }
 
 /* ===== 悬浮球：品牌蓝渐变圆球 ===== */
-/* 悬浮球：深色胶囊（1.html L258：bg-gray-900 + rounded-full + 白字 10px + 右下绿点） */
+/* 悬浮球：深色胶囊（圆角全满 + 白字 10px + 右下绿点） */
 [data-theme-root="tim"] .tim-ball { position: relative; min-width: 56px; height: 34px; padding: 0 12px; border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 6px; color: #fff; font-size: 10px; cursor: grab; touch-action: none; background: #111827; box-shadow: 0 8px 20px rgba(17, 24, 39, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.08); transition: transform 0.16s ease, box-shadow 0.16s ease; }
 [data-theme-root="tim"] .tim-ball:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(17, 24, 39, 0.4); }
 [data-theme-root="tim"] .tim-ball-target { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; width: 18px; height: 18px; border-radius: 50%; font-size: 11px; font-weight: 700; background: rgba(255, 255, 255, 0.16); }
 [data-theme-root="tim"] .tim-ball-target img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 [data-theme-root="tim"] .tim-ball::after { content: ""; position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%; background: #22C55E; border: 2px solid #fff; }
 
-/* ===== 面板：深色标题条（1.html 的 gray-900）===== */
+/* ===== 面板：深色标题条 ===== */
 [data-theme-root="tim"] .tim-panel { z-index: 3; width: 320px; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 18px 44px rgba(17, 24, 39, 0.34); border: 1px solid var(--tim-line); font: 13px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", system-ui, sans-serif; color: var(--tim-text-1); }
 [data-theme-root="tim"] .tim-panel-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: #111827; color: #fff; }
 [data-theme-root="tim"] .tim-panel-title { border: none; background: transparent; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; padding: 0; }

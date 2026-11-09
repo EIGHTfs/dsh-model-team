@@ -124,10 +124,17 @@ function checkPanelRenderContract() {
   if (!(pluginZIndex('panel') < pluginZIndex('app'))) {
     problems.push(`面板层级不低于主窗口：panel=${pluginZIndex('panel')} app=${pluginZIndex('app')}`);
   }
-  // ④ 五个字段的 DOM 锚点必须在主题骨架里存在（否则运行时 setFloatText 找不到节点）
-  const themeHtml = fs.readFileSync(path.join(PROJECT_ROOT, 'ui/index.html'), 'utf8');
-  for (const fieldName of ['fpGroup', 'fpSession', 'fpTarget', 'fpRate', 'fpTotal', 'fpClose']) {
-    if (!themeHtml.includes(`id="${fieldName}"`)) problems.push(`主题骨架缺少 #${fieldName}`);
+  // ④ 面板锚点必须在**主题源码**里存在（0.4.0 起契约绑主题；legacy 骨架 ui/index.html 不再是基准）。
+  //    面板五字段（#fpGroup/#fpSession/#fpTarget/#fpRate/#fpTotal）与收起/关闭键（#fpMin/#fpClose）
+  //    已在 B14 判定下线（主题面板不展示五行、且条款 8 禁止收起/关闭整窗键），这里只校验保留的锚点。
+  const themesDirectory = path.join(PROJECT_ROOT, 'ui/themes');
+  const themeSources = fs.readdirSync(themesDirectory)
+    .filter((name) => name.endsWith('.tsx'))
+    .map((name) => fs.readFileSync(path.join(themesDirectory, name), 'utf8'));
+  for (const anchorId of ['floatPanel', 'fpHead', 'fpTitle', 'fpEnter']) {
+    if (!themeSources.some((source) => source.includes(`id="${anchorId}"`))) {
+      problems.push(`主题源码缺少 #${anchorId}（浮层/面板锚点，legacy 骨架已不再是基准）`);
+    }
   }
   return problems;
 }

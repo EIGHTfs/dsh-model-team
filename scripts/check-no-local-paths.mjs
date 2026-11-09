@@ -31,6 +31,10 @@ const RULES = [
   { name: '厂商挂载点', pattern: /@appdata|@appstore/ },
   { name: '内网 IP', pattern: /\b(10|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/ },
   { name: '本机设备名/主机名', pattern: /\bsa6400(\.local)?\b/i },
+  // 本机专有参考目录：参考实现要按仓库地址引用；本机目录 clone 到别处就不存在。
+  { name: '本机专有参考目录', pattern: /(^|[\s`（(])(_refs\/|参考项目\/)/ },
+  // 未入库的本地参考稿：从未提交进仓库，别在任何文档/注释里引用它（否则 clone 后指向不存在的文件）
+  { name: '未入库参考稿', pattern: /\b1\.html\b|参考稿/ },
 ];
 
 function listFiles() {
@@ -55,7 +59,10 @@ function listFiles() {
   for (const fileName of SCANNED_FILES) {
     if (fs.existsSync(path.join(PROJECT_ROOT, fileName))) collected.push(fileName);
   }
-  return collected.filter((relativePath) => relativePath !== 'scripts/check-no-local-paths.mjs');
+  // 产物不入库、由 build 生成：它的脱敏由 build-theme 的清洗负责（见 scripts/build-theme.mjs），
+  // 这里不扫，避免"产物比源码晚一拍"导致的假红。
+  return collected.filter((relativePath) => relativePath !== 'scripts/check-no-local-paths.mjs'
+    && relativePath !== 'lib/client.js');
 }
 
 function main() {

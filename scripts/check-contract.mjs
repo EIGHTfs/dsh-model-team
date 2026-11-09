@@ -2,7 +2,8 @@
 //
 // 契约一致性门禁。目前覆盖两项：
 //   ① 端点表：docs/02-契约.md §二 ↔ src/gateway/routes.js 的 ROUTES
-//   ② DOM 钩子：docs/03-UI与主题契约.md §2.1~§2.2 ↔ ui/index.html
+//   ② DOM 钩子：docs/03-UI与主题契约.md §2.1~§2.2 ↔ **主题源码** ui/themes/*.tsx
+//      （0.4.0 起契约绑主题，不再绑 legacy 骨架 ui/index.html；legacy 锚点见 RETIRED_HOOKS）
 //
 // 需求意图：文档与代码的「同一事实两处表达」必须由机器钉死，靠人核对必然复发
 //          （历史上出现过文档写 15 个端点而代码实际 25 个）。
@@ -23,7 +24,8 @@ const REVERSE_MANIFEST_FILE = path.join(PROJECT_ROOT, 'src/reverse/manifest.js')
 const CONSTANTS_FILE = path.join(PROJECT_ROOT, 'src/gateway/config/constants.js');
 const CONTRACT_FILE = path.join(PROJECT_ROOT, 'docs/02-契约.md');
 const UI_SPEC_FILE = path.join(PROJECT_ROOT, 'docs/03-UI与主题契约.md');
-const THEME_HTML_FILE = path.join(PROJECT_ROOT, 'ui/index.html');
+// 契约钩子的校验基准：主题源码目录（扫全部 *.tsx，任一主题实现了就算"主题提供了该锚点"）
+const THEMES_DIR = path.join(PROJECT_ROOT, 'ui/themes');
 
 const EXIT_OK = 0;
 const EXIT_MISMATCH = 1;
@@ -31,6 +33,35 @@ const EXIT_MISMATCH = 1;
 // 状态类由 JS 在运行时添加，不应出现在静态 html 里；校验时必须排除，
 // 否则每次都会误报「主题缺 .hidden」。
 const STATE_ONLY_HOOKS = new Set(['.hidden', '.is-dragging', '[aria-selected="true"]']);
+
+// 0.4.0 起**下线**的钩子：它们是 legacy 骨架专有概念，主题不再实现。
+// 判定依据（B14）：Q1=a「legacy 悬浮件彻底删」，显隐改作用 [data-dmt-theme-host]；
+// 每条都必须写清为什么不再需要，避免"删钩子"变成随手放过。
+const RETIRED_HOOKS = new Map([
+  ['#floatDock', 'legacy 悬浮球外壳 → 由宿主的 [data-dmt-theme-host] 容器取代（显隐落点迁移）'],
+  ['#floatPill', 'legacy 球左侧 pill；主题的球内直接显示目标头像，不再有 pill'],
+  ['.pill-model', 'legacy pill 内的模型文本位，随 #floatPill 一起下线'],
+  ['#fpModel', 'legacy 面板的"模型 <目标>"行，主题面板不展示该行'],
+  ['#fpMin', 'legacy 面板收起键；docs/03 §5.1 条款 8 规定面板不设收起键'],
+  ['#fpClose', 'legacy 面板关闭键；docs/03 §5.1 条款 8 禁止关闭整窗'],
+  ['#fpGroup', 'legacy 面板"群"行，主题面板不展示五行'],
+  ['#fpSession', 'legacy 面板"会话"行，主题面板不展示五行'],
+  ['#fpTarget', 'legacy 面板"目标"行，主题面板不展示五行'],
+  ['#fpRate', 'legacy 面板"速率"行，主题面板不展示五行'],
+  ['#fpTotal', 'legacy 面板"累计"行，主题面板不展示五行'],
+  ['#btnContacts', 'legacy 面板内通讯录快捷入口；主题用底栏「联系人」取代'],
+  ['#floatRecall', 'legacy 召回按钮；docs/03 §5.1 条款 2 规定主题不实现呼出入口'],
+  ['.team-bar', 'legacy 统一顶栏（团队 + 视图名）；主题按页给标题，不再有统一顶栏'],
+  ['#viewName', 'legacy 顶栏视图名；随 .team-bar 一起下线（标题在各页头部）'],
+  ['#viewRoot', 'legacy 单一视图挂载点；主题直接渲染页面组件，不经统一挂载点'],
+]);
+
+/** 读取全部主题源码（用于钩子校验：任一主题实现即算提供） */
+function readThemeSources() {
+  const fileNames = fs.readdirSync(THEMES_DIR).filter((name) => name.endsWith('.tsx'));
+  if (fileNames.length === 0) throw new Error(`主题目录里没有 .tsx 主题：${path.relative(PROJECT_ROOT, THEMES_DIR)}`);
+  return fileNames.map((name) => ({ name, source: fs.readFileSync(path.join(THEMES_DIR, name), 'utf8') }));
+}
 
 /** 从 constants.js 读端点前缀，避免门禁自己再写一份 "/_team" 造成第三处真源 */
 function readApiPrefix() {
@@ -119,7 +150,9 @@ function readRequiredUiHooks() {
   }
   const section = source.slice(sectionStart, sectionEnd);
 
-  const hookPattern = /`([#.][A-Za-z][A-Za-z0-9_-]*)`/g;
+  // 允许钩子后带属性说明（如 `.team-tab[data-view]`）：只取选择器本体参与校验，
+  // 否则这类写法会**静默漏检**（历史遗留：这条本体从没被核对过）。
+  const hookPattern = /`([#.][A-Za-z][A-Za-z0-9_-]*)(?:\[[^\]]*\])?`/g;
   const hooks = new Set();
   let matched;
   while ((matched = hookPattern.exec(section)) !== null) {
@@ -130,11 +163,14 @@ function readRequiredUiHooks() {
   return [...hooks];
 }
 
-/** 在主题 html 里查钩子是否存在：`#x` 查 id="x"，`.x` 查 class 里含 x */
+/** 在主题源码里查钩子是否存在：`#x` 查 id="x"（或 id={`x`}），`.x` 查 class 里含 x */
 function isHookPresentInTheme(themeSource, hook) {
   const name = hook.slice(1);
-  if (hook.startsWith('#')) return new RegExp(`id=["']${name}["']`).test(themeSource);
-  return new RegExp(`class=["'][^"']*\\b${name}\\b`).test(themeSource);
+  if (hook.startsWith('#')) {
+    // 支持 JSX 两种写法：id="x" 与 id={'x'} / id={`x`}
+    return new RegExp(`id=(?:"${name}"|'${name}'|\\{[^}]*["'\`]${name}["'\`][^}]*\\})`).test(themeSource);
+  }
+  return new RegExp(`class(Name)?=(?:"[^"]*\\b${name}\\b|\\{[^}]*["'\`][^"'\`]*\\b${name}\\b)`).test(themeSource);
 }
 
 function difference(left, right) {
@@ -168,17 +204,30 @@ function checkEndpoints() {
 }
 
 function checkUiHooks() {
-  const requiredHooks = readRequiredUiHooks();
-  const themeSource = fs.readFileSync(THEME_HTML_FILE, 'utf8');
-  const missing = requiredHooks.filter((hook) => !isHookPresentInTheme(themeSource, hook));
+  const themeSources = readThemeSources();
+  const retiredInSpec = [];
+  const requiredHooks = readRequiredUiHooks().filter((hook) => {
+    if (!RETIRED_HOOKS.has(hook)) return true;
+    retiredInSpec.push(hook);   // 文档里还写着，但已判定下线：不算缺，只提示
+    return false;
+  });
+  // 任一主题实现了该锚点即视为"主题提供了"（多主题并存时按并集校验）
+  const missing = requiredHooks.filter((hook) => !themeSources.some(({ source }) => isHookPresentInTheme(source, hook)));
+
+  if (retiredInSpec.length > 0) {
+    console.log(`ℹ️ 已下线钩子（文档仍列出，待 docs/03 更新）：${retiredInSpec.join(' ')}`);
+  }
 
   if (missing.length === 0) {
-    console.log(`✅ DOM 钩子齐全：${requiredHooks.length} 个（主题 html 均含）`);
+    console.log(`✅ DOM 钩子齐全：${requiredHooks.length} 个（主题源码均含，基准 ${themeSources.map((item) => item.name).join('/')}）`);
     return true;
   }
 
   console.error('❌ DOM 钩子缺失（主题没实现契约要求的锚点）：');
-  for (const hook of missing) console.error(`    - ${hook}`);
+  for (const hook of missing) {
+    const retiredHint = RETIRED_HOOKS.has(hook) ? '' : '（主题需要在对应元素上加该 id/class）';
+    console.error(`    - ${hook}${retiredHint}`);
+  }
   console.error(`\n  契约要求 ${requiredHooks.length} 个 / 缺失 ${missing.length} 个`);
   return false;
 }
