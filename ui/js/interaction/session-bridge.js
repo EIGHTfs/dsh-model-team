@@ -243,6 +243,7 @@ function createSessionBridgeComponent(reactRuntime) {
   return function SessionBridge(props) {
     const sessionId = (props && props.session && props.session.sessionId) || (props && props.sessionId) || null;
     const sessionTitle = readSessionTitle(props, sessionId);
+    const previousSessionRunningRef = reactRuntime.useRef(false);
 
     // 取值通道由适配层探测（useProjection / session.projections / props 直传 / session 快照）
     const selectionSource = resolveModelSelectionSource(props);
@@ -264,6 +265,23 @@ function createSessionBridgeComponent(reactRuntime) {
     reactRuntime.useEffect(function () {
       pushSession(sessionId, sessionTitle);
     }, [sessionId, sessionTitle]);
+
+    // 一轮请求结束时刷新聊天与统计：宿主会自己翻转 session.running（true → false），
+    // 这是**事件驱动**的信号，不引入任何定时轮询。为什么必须有它：
+    // 群聊页的数据只在"进群聊/切会话/发消息"时加载；模型请求在后台跑完并不会产生 store 事件，
+    // 主题是按事件重渲染的（legacy 每次 onRender 都重画，所以看上去"会更新"）。缺这一下，
+    // 新请求的请求行要等用户切走再回来才出现。
+    const sessionRunning = Boolean(props && props.session && props.session.running);
+    reactRuntime.useEffect(function () {
+      const wasRunning = previousSessionRunningRef.current;
+      previousSessionRunningRef.current = sessionRunning;
+      if (!wasRunning || sessionRunning) return;
+      if (!store) return;
+      const currentState = store.getState();
+      if (currentState.view !== 'chat' || !currentState.currentGroupId) return;
+      store.dispatch({ type: 'load-chat', groupId: currentState.currentGroupId }).catch(function () {});
+      store.dispatch({ type: 'load-stats' }).catch(function () {});
+    }, [sessionRunning]);
 
     // 响应式路径一（渲染驱动）：宿主重渲染时重新取值并下发
     reactRuntime.useEffect(function () {

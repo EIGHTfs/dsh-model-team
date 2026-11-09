@@ -110,7 +110,7 @@ const ProfileIcon = () => (
 
 // ---------------------------------------------------------------- 群聊页
 
-function ChatPage({ groupId }: { groupId: string }) {
+function ChatPage({ groupId, onHide }: { groupId: string; onHide: () => void }) {
   const groups = useGroups() as Array<{ id: string; name: string; avatar?: unknown }>;
   const chat = useChat(groupId) as { messages?: Array<Record<string, unknown>>; models?: Array<Record<string, unknown>>; modelsStatus?: string };
   const friendGroups = useFriendGroups() as Array<{ id?: unknown; name?: unknown }>;
@@ -130,6 +130,7 @@ function ChatPage({ groupId }: { groupId: string }) {
         <button type="button" className="tim-back" onClick={() => actions.openView('list')} aria-label="返回">&lt;</button>
         <span className="tim-chat-title">{group ? group.name : ''}</span>
         <span className="tim-badge">群友: {memberCountText}</span>
+        <WindowHideButton onHide={onHide} />
       </header>
 
       <div className="tim-stream tim-chat-bg">
@@ -222,7 +223,14 @@ function ChatPage({ groupId }: { groupId: string }) {
 
 // ---------------------------------------------------------------- 消息列表
 
-function ListPage() {
+/** 顶部「—」：只收起主窗口（回到悬浮球），不销毁、不退订；再点球展开 */
+function WindowHideButton({ onHide }: { onHide: () => void }) {
+  return (
+    <button type="button" className="tim-window-hide" data-window-hide onClick={onHide} aria-label="收起窗口" title="收起窗口">—</button>
+  );
+}
+
+function ListPage({ onHide }: { onHide: () => void }) {
   const groups = useGroups() as Array<{ id?: unknown; name?: unknown; avatar?: unknown; summary?: unknown; driver?: unknown; lastUpdated?: unknown }>;
   const loadError = useGroupsError();
   const view = useView();
@@ -236,6 +244,7 @@ function ListPage() {
     <section className="tim-view tim-list" data-view="list">
       <div className="tim-list-head">
         <h1 className="tim-page-title">消息</h1>
+        <WindowHideButton onHide={onHide} />
         <div className="tim-add-wrap">
           <button type="button" className="tim-add" onClick={() => setAddMenuOpen((open) => !open)} aria-label="加群">+</button>
           {addMenuOpen ? (
@@ -299,7 +308,7 @@ interface DriverLike {
 
 interface AccountLike { accountId?: unknown; nickname?: unknown }
 
-function AddPage() {
+function AddPage({ onHide }: { onHide: () => void }) {
   const drivers = useDrivers() as DriverLike[];
   const [driverKey, setDriverKey] = useState('');
   const [groupName, setGroupName] = useState('');
@@ -445,6 +454,7 @@ function AddPage() {
       <div className="tim-list-head tim-list-head-inline">
         <button type="button" className="tim-back" onClick={() => actions.openView('list')} aria-label="返回">‹</button>
         <h1 className="tim-page-title">加群</h1>
+        <WindowHideButton onHide={onHide} />
       </div>
 
       <div className="tim-form-body">
@@ -738,7 +748,7 @@ function FriendGroupEditor({ group, groups, onClose, onSaved }: {
   );
 }
 
-function ContactsPage() {
+function ContactsPage({ onHide }: { onHide: () => void }) {
   const groups = useGroups() as GroupLike[];
   const friendGroups = useFriendGroups() as FriendGroupLike[];
   const [activeTab, setActiveTab] = useState<'friends' | 'groups'>('friends');
@@ -751,7 +761,7 @@ function ContactsPage() {
 
   return (
     <section className="tim-view tim-contacts" data-view="contacts" data-contacts-tab={activeTab}>
-      <div className="tim-list-head"><h1 className="tim-page-title">联系人</h1></div>
+      <div className="tim-list-head"><h1 className="tim-page-title">联系人</h1><WindowHideButton onHide={onHide} /></div>
       {/* 只有两个分类：好友（按平台账号聚合）与分组（轮换分组）——其它分类我们没有对应概念，不放死标签 */}
       <div className="tim-contact-tabs" role="tablist">
         <button type="button" role="tab" aria-selected={activeTab === 'friends'} className={activeTab === 'friends' ? 'tim-contact-tab tim-contact-tab-active' : 'tim-contact-tab'} onClick={() => setActiveTab('friends')}>
@@ -853,7 +863,7 @@ function ContactsPage() {
 
 // ---------------------------------------------------------------- 我 / 数据库页
 
-function ProfilePage() {
+function ProfilePage({ onHide }: { onHide: () => void }) {
   const groups = useGroups() as Array<{ id?: unknown; name?: unknown; driver?: unknown }>;
   const drivers = useDrivers() as DriverLike[];
   const [receipt, setReceipt] = useState('');
@@ -930,6 +940,7 @@ function ProfilePage() {
   return (
     <section className="tim-view tim-profile" data-view="profile">
       <div className="tim-profile-head">
+        <WindowHideButton onHide={onHide} />
         <span className="tim-profile-avatar">我</span>
         <div>
           <div className="tim-profile-title">我的模型团队</div>
@@ -1010,16 +1021,16 @@ function TabBar() {
   );
 }
 
-function MainWindow() {
+function MainWindow({ onHide }: { onHide: () => void }) {
   const view = useView();
   return (
     <div className="tim-app">
       <div className="tim-app-body">
-        {view.view === 'list' ? <ListPage /> : null}
-        {view.view === 'chat' ? <ChatPage groupId={view.currentGroupId} /> : null}
-        {view.view === 'contacts' ? <ContactsPage /> : null}
-        {view.view === 'profile' ? <ProfilePage /> : null}
-        {view.view === 'add' ? <AddPage /> : null}
+        {view.view === 'list' ? <ListPage onHide={onHide} /> : null}
+        {view.view === 'chat' ? <ChatPage groupId={view.currentGroupId} onHide={onHide} /> : null}
+        {view.view === 'contacts' ? <ContactsPage onHide={onHide} /> : null}
+        {view.view === 'profile' ? <ProfilePage onHide={onHide} /> : null}
+        {view.view === 'add' ? <AddPage onHide={onHide} /> : null}
         {view.view === 'db' ? <div className="tim-empty-inline">该页面将在下一阶段迁移</div> : null}
       </div>
       <TabBar />
@@ -1029,7 +1040,7 @@ function MainWindow() {
 
 // ---------------------------------------------------------------- L0 球 + L1 面板
 
-function DockLayer() {
+function DockLayer({ windowHidden, onExpand }: { windowHidden: boolean; onExpand: () => void }) {
   const { snapshot, bridge } = useDockState();
   const [panelOpen, setPanelOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -1077,7 +1088,12 @@ function DockLayer() {
     dragContextRef.current = null;
     setDragging(false);
     if (!context) return;
-    if (!context.moved) { setPanelOpen(!context.panelWasOpen); return; }
+    if (!context.moved) {
+      // 窗口收起时，点球 = 重新展开主窗口（不再只是开面板）
+      if (windowHidden) { onExpand(); return; }
+      setPanelOpen(!context.panelWasOpen);
+      return;
+    }
     const rawPosition = dragOffset || { left: context.left, top: context.top };
     const committed = clampDockPosition(rawPosition.left, rawPosition.top, ballSize, readViewSize());
     setDragOffset(null);
@@ -1283,6 +1299,10 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-input { flex: 1; min-width: 0; height: 34px; padding: 0 12px; border: none; border-radius: 8px; background: var(--tim-bg-input); font-size: 13px; color: var(--tim-text-1); outline: none; }
 [data-theme-root="tim"] .tim-send { height: 34px; padding: 0 16px; border: none; border-radius: 8px; background: var(--tim-primary); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
 
+/* 顶部「—」收起键：触屏友好（32×32 命中区），不抢标题视觉 */
+[data-theme-root="tim"] .tim-window-hide { flex: none; width: 32px; height: 32px; margin-left: auto; border: none; border-radius: 8px; background: transparent; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; opacity: 0.72; }
+[data-theme-root="tim"] .tim-window-hide:hover { opacity: 1; background: rgba(0, 0, 0, 0.06); }
+
 /* 加群表单（P4）：竖版窄屏，单列表单控件；字号沿用五档令牌 */
 [data-theme-root="tim"] .tim-addpage { display: flex; flex-direction: column; }
 [data-theme-root="tim"] .tim-form-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 20px; }
@@ -1487,10 +1507,12 @@ export default defineTheme({
   meta: { id: 'tim', name: '经典蓝（竖版）', contractVersion: 1 },
   styles: THEME_STYLES,
   Root: function TimRoot() {
+    // 收起 = 只不渲染主窗口（DOM 与订阅都保留，球还在），再点球展开；不销毁、不退订
+    const [windowHidden, setWindowHidden] = useState(false);
     return (
       <div data-theme-root="tim" className="tim-theme-root">
-        <DockLayer />
-        <MainWindow />
+        <DockLayer windowHidden={windowHidden} onExpand={() => setWindowHidden(false)} />
+        {windowHidden ? null : <MainWindow onHide={() => setWindowHidden(true)} />}
       </div>
     );
   },

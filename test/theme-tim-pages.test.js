@@ -177,7 +177,8 @@ function collectTree(node, collected = { texts: [], attrs: {} }) {
 function renderPage(exports, pageName, fixtures) {
   const page = exports[pageName];
   assert.equal(typeof page, 'function', `主题必须导出页面组件 ${pageName}`);
-  const collected = collectTree(page());
+  // 页面组件现在接宿主注入的 props（收起键回调 / 当前群 id），断言只关心渲染结果
+  const collected = collectTree(page({ onHide: () => {}, groupId: '' }));
   // 相邻文本节点会被拆开（{n} 个平台模型），拼一份归一化全文供"整句"断言用
   collected.allText = collected.texts.join(' ').replace(/\s+/g, ' ');
   return collected;
