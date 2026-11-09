@@ -1333,6 +1333,10 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-input { flex: 1; min-width: 0; height: 34px; padding: 0 12px; border: none; border-radius: 8px; background: var(--tim-bg-input); font-size: 13px; color: var(--tim-text-1); outline: none; }
 [data-theme-root="tim"] .tim-send { height: 34px; padding: 0 16px; border: none; border-radius: 8px; background: var(--tim-primary); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
 
+/* INV-14 显隐落点（0.4.0）：宿主在主题根上写 data-dock-visible，主题据此隐藏悬浮件。
+   球是常驻节点（不销毁，避免丢监听），只切显示。 */
+[data-dmt-theme-host][data-dock-visible="false"] .tim-ball-anchor { display: none; }
+
 /* 主窗口可拖：拖过之后用 left/top 定位（覆盖居中 transform）；顶栏空白处给出抓取光标 */
 [data-theme-root="tim"] .tim-app.tim-app-draggable { touch-action: none; }
 [data-theme-root="tim"] .tim-app-draggable .tim-list-head,
