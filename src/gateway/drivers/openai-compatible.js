@@ -10,6 +10,7 @@ import { defaultLogger, describeFailure } from '../logger.js';
 import { normalizeContextLength, normalizeMaxOutputTokens } from '../model/capacity.js';
 import { CREDENTIALS_API_KEY_FIELD } from '../config/credentials.js';
 import { AUTH_KINDS } from './auth-kinds.js';
+import { createUpstreamClient } from '../transport/upstream-client.js';
 
 // 字段映射与 usage 解析拆到 mapping.js：配置型驱动与统计层共用同一份实现
 import {
@@ -107,6 +108,21 @@ function upstreamFailure(code, message) {
   return { ok: false, status: 0, response: null, usage: null, error: { code, message } };
 }
 
+// 出站传输选择（docs/23 O-1）：
+//   · 默认走自持客户端（UA 由客户端最后合并，宿主覆盖不到）；
+//   · `DSH_MODEL_TEAM_USE_HOST_FETCH=1` 回退到宿主 fetch（保留一个版本，清理留到 0.4.0 之后）；
+//   · 注入的不是全局 fetch（= 测试/部署方的自定义桩）时也走 fetch，保证既有桩用例不用改。
+// 为什么放在驱动层而不是客户端里：客户端是中立层，不读环境变量。
+function resolveUpstreamTransport(context, timeoutMs) {
+  const injectedFetch = context?.fetchImpl;
+  const useHostFetchSwitch = Boolean(process.env?.DSH_MODEL_TEAM_USE_HOST_FETCH === '1');
+  const hasInjectedStub = typeof injectedFetch === 'function' && injectedFetch !== globalThis.fetch;
+  if (useHostFetchSwitch || hasInjectedStub) {
+    return { kind: 'fetch', fetchImpl: injectedFetch ?? globalThis.fetch };
+  }
+  return { kind: 'client', client: createUpstreamClient({ timeoutMs }) };
+}
+
 // 驱动错误：让 fetchModels 的调用方能拿到 code/status 而不是只有一句话
 function createDriverError(code, message, status = 0) {
   const driverError = new Error(message);
@@ -172,6 +188,15 @@ async function readResponseBody(upstreamResponse) {
   }
 }
 
+// 文本 → JSON（解析不了就原样返回文本），与 readResponseBody 同口径
+function parseJsonOrText(rawText) {
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    return rawText;
+  }
+}
+
 // 组装一次上游请求的要素（鉴权、地址、头、超时）：非流式与流式共用，避免两份拼装漂移
 function prepareUpstreamRequest({ context, endpointPath, method }) {
   const logger = context?.logger ?? defaultLogger;
@@ -218,22 +243,37 @@ async function sendJsonRequest({ context, endpointPath, method, requestBody }) {
   }
 
   try {
-    const upstreamResponse = await prepared.fetchImpl(prepared.requestUrl, {
-      method: prepared.method,
-      headers: prepared.requestHeaders,
-      body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
-      signal: AbortSignal.timeout(prepared.timeoutMs),
-    });
-    const responseBody = await readResponseBody(upstreamResponse);
-    const isSuccess = upstreamResponse.status >= HTTP_SUCCESS_MIN && upstreamResponse.status <= HTTP_SUCCESS_MAX;
+    const transport = resolveUpstreamTransport(context, prepared.timeoutMs);
+    let responseStatus;
+    let responseBody;
+    if (transport.kind === 'client') {
+      const clientResponse = await transport.client.requestJson({
+        url: prepared.requestUrl,
+        method: prepared.method,
+        headers: prepared.requestHeaders,
+        body: requestBody === undefined ? null : JSON.stringify(requestBody),
+      });
+      responseStatus = clientResponse.status;
+      responseBody = clientResponse.bodyText.length === 0 ? null : parseJsonOrText(clientResponse.bodyText);
+    } else {
+      const upstreamResponse = await transport.fetchImpl(prepared.requestUrl, {
+        method: prepared.method,
+        headers: prepared.requestHeaders,
+        body: requestBody === undefined ? undefined : JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(prepared.timeoutMs),
+      });
+      responseBody = await readResponseBody(upstreamResponse);
+      responseStatus = upstreamResponse.status;
+    }
+    const isSuccess = responseStatus >= HTTP_SUCCESS_MIN && responseStatus <= HTTP_SUCCESS_MAX;
     if (!isSuccess) {
-      logger.warn(`[${prepared.groupLabel}] 上游返回 ${upstreamResponse.status}，按失败记录请求行`);
+      logger.warn(`[${prepared.groupLabel}] 上游返回 ${responseStatus}，按失败记录请求行`);
     }
     return {
       ok: isSuccess,
-      status: upstreamResponse.status,
+      status: responseStatus,
       response: responseBody,
-      error: isSuccess ? null : { code: 'UPSTREAM_HTTP_ERROR', message: `上游返回 ${upstreamResponse.status}` },
+      error: isSuccess ? null : { code: 'UPSTREAM_HTTP_ERROR', message: `上游返回 ${responseStatus}` },
     };
   } catch (networkError) {
     // 超时/断网/证书错误都在这里落地：不抛给网关，让它还能记一条失败请求行
@@ -347,36 +387,63 @@ export async function streamCompletions(context, body, { signal } = {}) {
   const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 
   try {
-    const upstreamResponse = await prepared.fetchImpl(prepared.requestUrl, {
-      method: 'POST',
-      headers: { ...prepared.requestHeaders, accept: 'text/event-stream' },
-      body: JSON.stringify({ ...prepareOutboundBody(body, group.request), stream: true }),
-      signal: combinedSignal,
-    });
+    const transport = resolveUpstreamTransport(context, prepared.timeoutMs);
+    const requestBodyText = JSON.stringify({ ...prepareOutboundBody(body, group.request), stream: true });
+    const requestHeaders = { ...prepared.requestHeaders, accept: 'text/event-stream' };
+    let streamStatus;
+    let streamEvents;
+    let streamBodyText = '';
+    let streamContentType = '';
 
-    if (upstreamResponse.status < HTTP_SUCCESS_MIN || upstreamResponse.status > HTTP_SUCCESS_MAX) {
-      const failureText = await upstreamResponse.text().catch(() => '');
-      logger.warn(`[${prepared.groupLabel}] 流式上游返回 ${upstreamResponse.status}`);
+    if (transport.kind === 'client') {
+      const clientStream = await transport.client.requestStream({
+        url: prepared.requestUrl,
+        method: 'POST',
+        headers: requestHeaders,
+        body: requestBodyText,
+        signal: combinedSignal,
+      });
+      streamStatus = clientStream.status;
+      streamBodyText = clientStream.bodyText ?? '';
+      streamContentType = String(clientStream.headers['content-type'] ?? '');
+      streamEvents = clientStream.events;
+    } else {
+      const upstreamResponse = await transport.fetchImpl(prepared.requestUrl, {
+        method: 'POST',
+        headers: requestHeaders,
+        body: requestBodyText,
+        signal: combinedSignal,
+      });
+      streamStatus = upstreamResponse.status;
+      streamContentType = upstreamResponse.headers.get('content-type') ?? '';
+      if (streamStatus >= HTTP_SUCCESS_MIN && streamStatus <= HTTP_SUCCESS_MAX && streamContentType.includes('text/event-stream')) {
+        streamEvents = parseSseEvents(upstreamResponse.body);
+      } else {
+        streamBodyText = await upstreamResponse.text().catch(() => '');
+        streamEvents = null;
+      }
+    }
+
+    if (streamStatus < HTTP_SUCCESS_MIN || streamStatus > HTTP_SUCCESS_MAX) {
+      logger.warn(`[${prepared.groupLabel}] 流式上游返回 ${streamStatus}`);
       return {
         ok: false,
-        status: upstreamResponse.status,
+        status: streamStatus,
         events: null,
         error: {
           code: 'UPSTREAM_HTTP_ERROR',
-          message: `上游返回 ${upstreamResponse.status}${failureText.length > 0 ? `：${failureText.slice(0, MAX_ERROR_EXCERPT_LENGTH)}` : ''}`,
-          upstreamStatus: upstreamResponse.status,
+          message: `上游返回 ${streamStatus}${streamBodyText.length > 0 ? `：${streamBodyText.slice(0, MAX_ERROR_EXCERPT_LENGTH)}` : ''}`,
+          upstreamStatus: streamStatus,
         },
       };
     }
 
-    const upstreamContentType = upstreamResponse.headers.get('content-type') ?? '';
-    if (!upstreamContentType.includes('text/event-stream')) {
-      const rawBodyText = await upstreamResponse.text();
-      logger.warn(`[${prepared.groupLabel}] 上游未按流式返回（content-type: ${upstreamContentType || '未知'}），已包成单块事件`);
-      return { ok: true, status: upstreamResponse.status, events: toSingleSseEvent(rawBodyText), error: null };
+    if (!streamEvents) {
+      logger.warn(`[${prepared.groupLabel}] 上游未按流式返回（content-type: ${streamContentType || '未知'}），已包成单块事件`);
+      return { ok: true, status: streamStatus, events: toSingleSseEvent(streamBodyText), error: null };
     }
 
-    return { ok: true, status: upstreamResponse.status, events: parseSseEvents(upstreamResponse.body), error: null };
+    return { ok: true, status: streamStatus, events: streamEvents, error: null };
   } catch (networkError) {
     logger.warn(`[${prepared.groupLabel}] 流式上游请求失败：${describeFailure(networkError)}`);
     return { ok: false, status: 0, events: null, error: { code: 'UPSTREAM_REQUEST_FAILED', message: describeFailure(networkError) } };

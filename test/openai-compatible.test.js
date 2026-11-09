@@ -255,7 +255,9 @@ test('G-ua-①：默认请求带 dsh-model-team/<version>，且不是字面量 n
   assert.notEqual(sentUserAgent, 'node', 'undici 的裸 node 默认值必须被覆盖');
 });
 
-test('G-ua-②：group.request.extraHeaders 里的 user-agent 能覆盖默认值', async (t) => {
+// B12 语义变更：出站改自持客户端后，UA 由客户端**最后合并**，extraHeaders 里的 user-agent 不再生效
+// （docs/23 O-1：UA 必须由我们自己决定，宿主/配置都覆盖不了）。
+test('B12：extraHeaders 里的 user-agent 不再覆盖客户端 UA（客户端最后合并）', async (t) => {
   const stub = await startStubUpstream({
     routes: {
       'POST /v1/chat/completions': ({ outgoingResponse }) =>
@@ -269,7 +271,9 @@ test('G-ua-②：group.request.extraHeaders 里的 user-agent 能覆盖默认值
     { model: 'agnes-2.5-flash', messages: [{ role: 'user', content: 'hi' }] },
   );
 
-  assert.equal(stub.requests[0].headers['user-agent'], 'custom-agent/9.9', '用户配置优先于默认值');
+  const observedUserAgent = stub.requests[0].headers['user-agent'] || '';
+  assert.match(observedUserAgent, /^dsh-model-team\//, `UA 必须是包名/版本，实际：${observedUserAgent}`);
+  assert.equal(observedUserAgent === 'custom-agent/9.9', false, 'extraHeaders 不再能覆盖 UA');
 });
 
 test('G-ua-③：读不到 package.json 版本时回落成包名（不会让插件起不来）', () => {
