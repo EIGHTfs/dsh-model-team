@@ -1,12 +1,11 @@
-// 上游 max_tokens 上限自适应学习：解析 / 夹取 / 同轮重试 / limits.json 读写 / 端到端闭环。
-// 全部用假 Key 与本地 stub 上游，不碰外网；limits.json 落在临时数据根。
+// 上游 max_tokens 上限自适应学习：解析 / 夹取 / 同轮重试 / 进程内记忆 / 端到端闭环。
+// 全部用假 Key 与本地 stub 上游，不碰外网；学习值**只在进程内存里**（不落盘）。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  LIMITS_FILE_NAME,
   capMaxTokens,
   createLimitsStore,
   parseMaxTokensLimit,
@@ -79,7 +78,7 @@ test('夹取③：学到上限后，配置比学习值更小则按配置（sourc
   );
 });
 
-test('limits.json：学到的上限落盘、可读回；文件缺失/损坏都能容错', async (t) => {
+test('进程内记忆：学到后同进程可读回；**不落盘**', async (t) => {
   const dataRoot = await createTempDirectory(t);
   const logger = createRecordingLogger();
   const store = createLimitsStore({ dataRoot, logger });
@@ -87,20 +86,24 @@ test('limits.json：学到的上限落盘、可读回；文件缺失/损坏都�
   assert.equal(await store.getLimit('agnes', 'model-a'), null, '没有记录时返回 null');
   await store.learnLimit('agnes', 'model-a', UPSTREAM_LIMIT);
 
-  const limitsPath = path.join(dataRoot, LIMITS_FILE_NAME);
-  const written = JSON.parse(await fs.readFile(limitsPath, 'utf8'));
-  assert.equal(written.limits['agnes::model-a'].maxTokens, UPSTREAM_LIMIT);
-  assert.equal(typeof written.limits['agnes::model-a'].learnedAt, 'string');
+  assert.equal(await store.getLimit('agnes', 'model-a'), UPSTREAM_LIMIT, '同进程可读回声明上限');
+  assert.equal(await store.getEffectiveLimit('agnes', 'model-a'), UPSTREAM_LIMIT - 1, '默认可用值 = 上限 − 1');
 
-  // 新进程（新 store）能读到同一份文件
-  const anotherStore = createLimitsStore({ dataRoot, logger });
-  assert.equal(await anotherStore.getLimit('agnes', 'model-a'), UPSTREAM_LIMIT);
+  // 明确断言：不产生任何文件（用户口径：撞到即学、秒级完成，不落盘）
+  const filesInDataRoot = await fs.readdir(dataRoot).catch(() => []);
+  assert.deepEqual(filesInDataRoot, [], `数据根不该出现 limits 文件，实际：${filesInDataRoot.join(',')}`);
+});
 
-  // 文件损坏：按"没学到"处理，不抛
-  const brokenRoot = await createTempDirectory(t);
-  await fs.writeFile(path.join(brokenRoot, LIMITS_FILE_NAME), '{not json', 'utf8');
-  const brokenStore = createLimitsStore({ dataRoot: brokenRoot, logger });
-  assert.equal(await brokenStore.getLimit('agnes', 'model-a'), null);
+test('进程内 store 重建（模拟重启）后为空：会再撞一次 400（预期行为，不是缺陷）', async (t) => {
+  const dataRoot = await createTempDirectory(t);
+  const logger = createRecordingLogger();
+  const beforeRestart = createLimitsStore({ dataRoot, logger });
+  await beforeRestart.learnLimit('agnes2', 'agnes-3.0-flash', 65536, { effective: 65535 });
+
+  // 重启 = 新进程 = 新 store：内存清空，于是下一次请求会先撞 400 再学
+  const afterRestart = createLimitsStore({ dataRoot, logger });
+  assert.equal(await afterRestart.getLimit('agnes2', 'agnes-3.0-flash'), null, '重启后声明上限丢失');
+  assert.equal(await afterRestart.getEffectiveLimit('agnes2', 'agnes-3.0-flash'), null, '重启后可用值丢失');
 });
 
 // 重试逻辑用的驱动桩：记录每次请求体，按预设的响应序列返回
@@ -146,8 +149,9 @@ test('重试：只有"上限类 400"会在同一次调用内按上限重发一�
 
   assert.equal(finalResult.ok, true, '重发成功要把成功结果交回去');
   assert.equal(stub.calls.length, 2, '只允许重发一次');
-  assert.equal(stub.calls[1].max_tokens, UPSTREAM_LIMIT, '重发时 max_tokens 必须等于学到的上限');
-  assert.equal(await limitsStore.getLimit('agnes', 'model-a'), UPSTREAM_LIMIT, '上限要落进 limits.json');
+  assert.equal(stub.calls[1].max_tokens, UPSTREAM_LIMIT - 1, '重发时 max_tokens = 声明上限 − 1（上游边界排他）');
+  assert.equal(await limitsStore.getLimit('agnes', 'model-a'), UPSTREAM_LIMIT, '声明上限记在进程内存（证据）');
+  assert.equal(await limitsStore.getEffectiveLimit('agnes', 'model-a'), UPSTREAM_LIMIT - 1, '可用值 = 上限 − 1 也记住');
 
   // 同一 (群,模型) 再撞一次：不再重复告警
   const warnCountBefore = logger.lines.filter((line) => line.level === 'warn').length;
@@ -228,7 +232,8 @@ test('实际发送：configured 高于 learned 时，请求体里被学习值封
     limitsStore,
   });
 
-  assert.equal(body.max_tokens, 1024, '学到上限后，配置值也被学习值封顶');
+  // 学到之后，天花板是 effective（= 声明上限 − 1），配置值同样被它封顶
+  assert.equal(body.max_tokens, 1023, '学到上限后，配置值也被可用值封顶');
 });
 
 // ===== 端到端闭环：真适配器 + 真驱动 + 本地 stub 上游（首次 400，第二次成功）=====
@@ -314,8 +319,21 @@ test('闭环：首次 400 带上限 → 自动重发 → 客户端拿到成功�
   const firstBody = JSON.parse(stubUpstream.requests[0].bodyText);
   const secondBody = JSON.parse(stubUpstream.requests[1].bodyText);
   assert.equal(firstBody.max_tokens, 65536, '首次按宿主原值发');
-  assert.equal(secondBody.max_tokens, UPSTREAM_LIMIT, '重发时等于学到的上限');
+  assert.equal(secondBody.max_tokens, UPSTREAM_LIMIT - 1, '重发时 = 声明上限 − 1');
 
-  const learnedLimits = JSON.parse(await fs.readFile(path.join(dataRoot, LIMITS_FILE_NAME), 'utf8'));
-  assert.equal(learnedLimits.limits['agnes::model-a'].maxTokens, UPSTREAM_LIMIT, 'limits.json 里要有该条');
+  // 同一进程内的第二个请求：学习值在内存里，首发就直接用 effective（不再撞 400）
+  const secondChunks = [];
+  for await (const chunk of adapter.stream({
+    provider: 'dsh-model-team',
+    model: 'dsh-model-team',
+    sessionId: 'sess-limit',
+    messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    maxTokens: 65536,
+  })) {
+    secondChunks.push(chunk);
+  }
+  assert.equal(stubUpstream.requests.length, 3, '第二个请求只打一次上游（不再有 400 重发）');
+  const thirdBody = JSON.parse(stubUpstream.requests[2].bodyText);
+  assert.equal(thirdBody.max_tokens, UPSTREAM_LIMIT - 1, '第二个请求首发即用 effective');
+  assert.equal(secondChunks.filter((chunk) => chunk.type === 'text-delta').map((chunk) => chunk.text).join(''), '好');
 });

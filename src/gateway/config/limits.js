@@ -2,21 +2,16 @@
 //
 // 背景：`GET /v1/models` 只回 id/object/created/owned_by/supported_endpoint_types，
 // 既没有 max_tokens 也没有 context_length —— 限制**查不到**，只能从拒绝里学。
-// 策略：捕获 400 的错误文案 → 解析上限 → 落 <dataRoot>/limits.json → 后续请求发之前就夹住。
+// 策略：捕获 400 的错误文案 → 解析该模型的声明上限 → 进程内存记住「可用值 = 上限 − 1」→ 后续请求直接用它。
 //
-// 三条设计取舍：
-//   1) 学习值写盘并与内存缓存合一：进程内不重复读文件，跨进程（重启/多实例）靠文件；
+// 设计取舍（存储介质已改为**纯内存**）：
+//   1) 只在进程内存里记（Map）：撞到即学、秒级完成，省掉落盘的读写与失效维护；
+//      代价是重启后要重新撞一次 400 才能再学到 —— 这是明确接受的预期行为（见单测）；
 //   2) 群配置 `groups[].request.maxTokens` 优先于学习值（人工明确指定就该压过猜测）；
-//   3) 取 min(原值, 上限)：上限比原值大时不必抬高请求，抬高只会改变上游行为而没收益。
+//   3) 取 min(原值, 可用值, 声明上限)：上限比原值大时不必抬高请求，抬高只会改变上游行为而没收益。
 
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { getDataRoot, getConfigPath } from './paths.js';
-import { defaultLogger, describeFailure } from '../logger.js';
-
-// 学习结果落盘位置：与 config.json 同目录，方便人工打开检查
-export const LIMITS_FILE_NAME = 'limits.json';
-export const LIMITS_VERSION = 1;
+import { getDataRoot } from './paths.js';
+import { defaultLogger } from '../logger.js';
 
 // 目前能识别的文案（都能实测对上；认不出的一律返回 null → 不重试，宁可少认不可误判）：
 //   · 中文：`max_tokens 不能超过 65536`
@@ -57,12 +52,12 @@ export function limitKeyFor(groupId, modelId) {
 // 夹取规则：
 //   1) 还没学到上限 → 发 configured ?? requested。人工写的高值有机会先试一次，
 //      这样才能测出"上游是不是已经放宽"。
-//   2) 已经学到上限 → 一律发 min(configured ?? requested, learned)。
+//   2) 已经学到上限 → 一律发 min(configured ?? requested, effective, learned)。
 //      **学习值封顶配置值**：否则配置写得偏高时，每个请求都要先撞一次 400 再重发，
 //      代价是多一次往返、上游多记一次失败、日志里持续冒出 400 掩盖真问题。
-//   3) 想重新探测更高上限：删掉 limits.json 里对应条目（或整文件），回到规则 1。
+//   3) 想重新探测更高上限：最近一次学习只在进程内存里，重启进程即回到规则 1。
 // 返回 { maxTokens, source }，source 只用于日志/排查（configured / learned / requested / none）
-export function capMaxTokens({ requested, configured, learned }) {
+export function capMaxTokens({ requested, configured, effective, learned }) {
   const usableRequested = typeof requested === 'number' && Number.isFinite(requested) && requested > 0
     ? Math.trunc(requested)
     : null;
@@ -72,14 +67,27 @@ export function capMaxTokens({ requested, configured, learned }) {
   const usableLearned = typeof learned === 'number' && Number.isFinite(learned) && learned > 0
     ? Math.trunc(learned)
     : null;
+  // effective = "上游声明上限 − 1"这一档：上游按值直接判、边界排他（发上限本身会被拒），
+  // 所以真正能用的值比声明上限小 1。它优先于声明上限，避免每次请求都要先撞一次 400。
+  const usableEffective = typeof effective === 'number' && Number.isFinite(effective) && effective > 0
+    ? Math.trunc(effective)
+    : null;
 
-  // 学习值优先参与：学到之后它就是天花板
-  if (usableLearned !== null) {
+  // 学到过（声明上限或可用值）之后，它们就是天花板：取值顺序 configured → effective → learned
+  if (usableLearned !== null || usableEffective !== null) {
+    const ceiling = usableEffective !== null && usableLearned !== null
+      ? Math.min(usableEffective, usableLearned)
+      : (usableEffective ?? usableLearned);
     const base = usableConfigured ?? usableRequested;
-    if (base === null) return { maxTokens: usableLearned, source: 'learned' };
-    const capped = Math.min(base, usableLearned);
-    // 只有"配置本来就比学到的更小"才标 configured——那说明这次生效的是人工值
-    const source = usableConfigured !== null && usableConfigured <= usableLearned ? 'configured' : 'learned';
+    if (base === null) {
+      const source = usableEffective !== null && usableEffective <= (usableLearned ?? Infinity) ? 'effective' : 'learned';
+      return { maxTokens: ceiling, source };
+    }
+    const capped = Math.min(base, ceiling);
+    // 谁真正生效：配置更小就是人工值；否则看是不是 effective 那一档
+    const source = usableConfigured !== null && usableConfigured <= ceiling
+      ? 'configured'
+      : (usableEffective !== null && ceiling === usableEffective ? 'effective' : 'learned');
     return { maxTokens: capped, source };
   }
   // 还没学到：配置优先，其次宿主原值
@@ -87,88 +95,50 @@ export function capMaxTokens({ requested, configured, learned }) {
   return { maxTokens: usableRequested, source: usableRequested === null ? 'none' : 'requested' };
 }
 
-// 读盘：缺失/损坏都当"还没学到"，绝不让一个坏文件挡住请求
-async function readLimitsFile(absolutePath, logger) {
-  try {
-    const rawText = await fs.readFile(absolutePath, 'utf8');
-    const parsed = JSON.parse(rawText);
-    if (!parsed || typeof parsed !== 'object' || typeof parsed.limits !== 'object' || parsed.limits === null) {
-      return {};
-    }
-    return parsed.limits;
-  } catch (readError) {
-    if (readError?.code === 'ENOENT') return {};
-    logger.warn(`上游上限记录读取失败，按空记录继续：${describeFailure(readError)}`);
-    return {};
-  }
-}
-
-// 原子写：同目录临时文件 → rename；失败只告警（学不到就下次再学，不能因此打断对话）
-async function writeLimitsFile(absolutePath, limits, logger) {
-  const payload = { version: LIMITS_VERSION, updatedAt: new Date().toISOString(), limits };
-  const temporaryPath = `${absolutePath}.${process.pid}.tmp`;
-  try {
-    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-    await fs.writeFile(temporaryPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-    await fs.rename(temporaryPath, absolutePath);
-  } catch (writeError) {
-    await fs.rm(temporaryPath, { force: true }).catch(() => {});
-    logger.warn(`上游上限记录写入失败，本次仅在内存生效：${describeFailure(writeError)}`);
-  }
-}
-
-// 进程内共享的上限存储：按 dataRoot 隔离（测试用临时数据根时互不污染）
+// 上限存储：**纯进程内存**（不写盘、不读盘），按 dataRoot 隔离，测试之间互不污染。
+// 为什么不留落盘：撞到即学、秒级完成，落盘只换来读写的维护成本与失效问题；
+// 重启后重新撞一次 400 是可接受的代价（依据见 docs/24 B11d）。
 export function createLimitsStore({ dataRoot = getDataRoot(), logger = defaultLogger } = {}) {
-  // 惰性加载：第一次用到才读盘，读到的对象常驻内存
-  let limitsCache = null;
-  let loadingPromise = null;
-  const absolutePath = path.join(dataRoot, LIMITS_FILE_NAME);
-
-  async function ensureLoaded() {
-    if (limitsCache) return limitsCache;
-    if (!loadingPromise) {
-      loadingPromise = readLimitsFile(absolutePath, logger).then((loaded) => {
-        limitsCache = loaded;
-        return loaded;
-      });
-    }
-    return loadingPromise;
-  }
+  // key = `<groupId>::<modelId>`；value = { maxTokens, effective, learnedAt }
+  const learnedByKey = new Map();
+  void dataRoot;   // 保留参数：调用方按数据根隔离实例，内存实现下仅用于签名兼容与排查
+  void logger;     // 保留参数：本实现不产生日志，签名保持一致，调用方无需分支
 
   return {
-    // 取某群某模型学到的上限；没有就 null
+    // 取某群某模型学到的声明上限；没有就 null
     async getLimit(groupId, modelId) {
-      const limits = await ensureLoaded();
-      const stored = limits[limitKeyFor(groupId, modelId)];
-      const value = typeof stored === 'number' ? stored : stored?.maxTokens;
+      const stored = learnedByKey.get(limitKeyFor(groupId, modelId));
+      const value = stored?.maxTokens;
       return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
     },
 
-    // 学到上限：写内存 + 落盘；返回写入后的值
-    async learnLimit(groupId, modelId, maxTokens) {
-      const limits = await ensureLoaded();
+    // 取"可用值"（effective）：没学到或只在撞到但没验成功时返回 null
+    async getEffectiveLimit(groupId, modelId) {
+      const stored = learnedByKey.get(limitKeyFor(groupId, modelId));
+      const value = stored?.effective;
+      return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.trunc(value) : null;
+    },
+
+    // 学到上限：只写内存；返回写入后的声明上限。
+    // maxTokens = 上游声明的上限（证据）；effective = 本次验成功的可用值（null 表示还没验成功）。
+    async learnLimit(groupId, modelId, maxTokens, { effective } = {}) {
       const normalizedValue = Math.trunc(maxTokens);
-      limits[limitKeyFor(groupId, modelId)] = {
+      const normalizedEffective = effective === null
+        ? null
+        : (typeof effective === 'number' && Number.isFinite(effective) && effective > 0
+          ? Math.trunc(effective)
+          : Math.max(1, normalizedValue - 1));
+      learnedByKey.set(limitKeyFor(groupId, modelId), {
         maxTokens: normalizedValue,
+        effective: normalizedEffective,
         learnedAt: new Date().toISOString(),
-      };
-      await writeLimitsFile(absolutePath, limits, logger);
+      });
       return normalizedValue;
     },
 
-    // 测试/排查用：当前内存里的全量快照
+    // 测试/排查用：当前进程内记住的全量快照
     async snapshot() {
-      return { ...(await ensureLoaded()) };
+      return Object.fromEntries(learnedByKey.entries());
     },
   };
-}
-
-// 便于单测与其它模块直接拿默认路径
-export function getLimitsPath(dataRoot = getDataRoot()) {
-  return path.join(dataRoot, LIMITS_FILE_NAME);
-}
-
-// 与配置文件同目录是刻意的：备份/迁移数据根时两者一起走
-export function getLimitsDirectoryHint() {
-  return path.dirname(getConfigPath());
 }
