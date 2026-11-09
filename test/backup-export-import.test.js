@@ -34,10 +34,10 @@ function groupWithRef(id, apiKeyRef) {
 }
 
 test('导出：file: 引用把凭据本体带进 credentialFiles（相对路径为键）', async (t) => {
-  const { dataRoot, relativePath, absolutePath } = await createDataRootWithKey(t, { relativePath: 'credentials/sa6400.key' });
+  const { dataRoot, relativePath, absolutePath } = await createDataRootWithKey(t, { relativePath: 'credentials/demo-group.key' });
   const logger = createRecordingLogger();
 
-  const backup = await exportBackup({ config: { groups: [groupWithRef('sa6400', `file:${relativePath}`)] }, dataRoot, logger });
+  const backup = await exportBackup({ config: { groups: [groupWithRef('demo-group', `file:${relativePath}`)] }, dataRoot, logger });
 
   assert.equal(backup.version, BACKUP_VERSION);
   assert.equal(typeof backup.exportedAt, 'string');

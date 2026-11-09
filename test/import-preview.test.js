@@ -26,7 +26,7 @@ test('G7-①：导入预览表用 group.driver，驱动列不能是空的（不�
   const admin = loadAdminLayer();
 
   const tableHtml = admin.renderImportPreviewTable([
-    { id: 'sa6400', name: 'sa6400', driver: 'openai-compatible', credentialRef: 'file:credentials/sa6400.key' },
+    { id: 'demo-group', name: 'demo-group', driver: 'openai-compatible', credentialRef: 'file:credentials/demo-group.key' },
   ]);
 
   assert.match(tableHtml, /openai-compatible/, '驱动值必须出现在表格里');

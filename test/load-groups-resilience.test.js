@@ -32,7 +32,7 @@ const AVATAR_SOURCE = await fs.readFile(new URL('../ui/js/format/avatar-chain.js
 const THREE_GROUPS = [
   { id: 'agnes', name: 'agnes', driver: 'openai-compatible', summary: '官方接入' },
   { id: 'agnes2', name: 'agnes2', driver: 'openai-compatible', summary: '官方接入' },
-  { id: 'sa6400', name: 'sa6400', driver: 'openai-compatible', summary: '—' },
+  { id: 'demo-group', name: 'demo-group', driver: 'openai-compatible', summary: '—' },
 ];
 
 /** 造一个 store：只关心 loadGroups 的行为，持久化与渲染都用空实现 */

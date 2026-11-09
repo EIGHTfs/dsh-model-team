@@ -255,9 +255,12 @@ test('G-ua-①：默认请求带 dsh-model-team/<version>，且不是字面量 n
   assert.notEqual(sentUserAgent, 'node', 'undici 的裸 node 默认值必须被覆盖');
 });
 
-// B12 语义变更：出站改自持客户端后，UA 由客户端**最后合并**，extraHeaders 里的 user-agent 不再生效
-// （docs/23 O-1：UA 必须由我们自己决定，宿主/配置都覆盖不了）。
-test('B12：extraHeaders 里的 user-agent 不再覆盖客户端 UA（客户端最后合并）', async (t) => {
+// B12 / docs/23 O-1：UA 由谁决定，取决于出站走哪条传输。
+// 同一条用例按开关断言两种行为（不写两个文件，避免"两份真相"):
+//   · 默认（自持客户端，服务 rewrite 模式）：UA 强制 = dsh-model-team/<version>，extraHeaders 覆盖无效
+//   · DSH_MODEL_TEAM_USE_HOST_FETCH=1（永久开关，宿主 fetch 路径）：保留旧行为，extraHeaders 可覆盖
+// 注意：forward 模式（默认）由宿主官方适配器出站，UA 是宿主的，与本用例无关。
+test('B12：UA 归属按传输路径断言（默认强制 / 开关=1 可覆盖）', { timeout: 15000 }, async (t) => {
   const stub = await startStubUpstream({
     routes: {
       'POST /v1/chat/completions': ({ outgoingResponse }) =>
@@ -272,8 +275,12 @@ test('B12：extraHeaders 里的 user-agent 不再覆盖客户端 UA（客户端�
   );
 
   const observedUserAgent = stub.requests[0].headers['user-agent'] || '';
-  assert.match(observedUserAgent, /^dsh-model-team\//, `UA 必须是包名/版本，实际：${observedUserAgent}`);
-  assert.equal(observedUserAgent === 'custom-agent/9.9', false, 'extraHeaders 不再能覆盖 UA');
+  if (process.env.DSH_MODEL_TEAM_USE_HOST_FETCH === '1') {
+    assert.equal(observedUserAgent, 'custom-agent/9.9', '开关=1（宿主 fetch 路径）时保留旧行为：extraHeaders 可覆盖 UA');
+    return;
+  }
+  assert.match(observedUserAgent, /^dsh-model-team\//, `默认路径 UA 必须是包名/版本，实际：${observedUserAgent}`);
+  assert.equal(observedUserAgent === 'custom-agent/9.9', false, '默认路径 extraHeaders 不再能覆盖 UA');
 });
 
 test('G-ua-③：读不到 package.json 版本时回落成包名（不会让插件起不来）', () => {

@@ -110,8 +110,13 @@ function upstreamFailure(code, message) {
 
 // 出站传输选择（docs/23 O-1）：
 //   · 默认走自持客户端（UA 由客户端最后合并，宿主覆盖不到）；
-//   · `DSH_MODEL_TEAM_USE_HOST_FETCH=1` 回退到宿主 fetch（保留一个版本，清理留到 0.4.0 之后）；
+//   · `DSH_MODEL_TEAM_USE_HOST_FETCH=1` 走宿主 fetch —— **永久开关**，供需要宿主代理/证书行为的
+//     部署长期使用（不是过渡措施，不要按"临时兼容"对待）；
 //   · 注入的不是全局 fetch（= 测试/部署方的自定义桩）时也走 fetch，保证既有桩用例不用改。
+//
+// 作用范围（重要）：本文件只服务 `rewrite` 模式。默认的 `forward` 模式由宿主官方适配器出站
+// （src/plugin/adapter/forward.js），UA 是宿主的，本客户端管不到——所以"UA 已改自持"只对 rewrite 成立。
+//
 // 为什么放在驱动层而不是客户端里：客户端是中立层，不读环境变量。
 function resolveUpstreamTransport(context, timeoutMs) {
   const injectedFetch = context?.fetchImpl;

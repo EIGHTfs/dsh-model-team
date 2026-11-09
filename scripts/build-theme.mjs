@@ -190,6 +190,24 @@ export function assertThemeBundle(bundleCode, themeDefinition) {
 }
 
 /** 编译一处主题源码：入口内容 + 基准目录 → CJS 代码字符串 */
+
+// 把产物注释里的本机绝对路径换成仓库相对路径（只动 `// …` 注释行，不碰代码与字符串）
+function stripAbsolutePathComments(bundleCode) {
+  const repoRootPrefix = `${REPO_ROOT}${path.sep}`;
+  return String(bundleCode)
+    .split('\n')
+    .map((lineText) => {
+      if (!lineText.startsWith('// ')) return lineText;
+      const targetPath = lineText.slice(3).trim();
+      if (!path.isAbsolute(targetPath)) return lineText;
+      const relativePath = targetPath.startsWith(repoRootPrefix)
+        ? targetPath.slice(repoRootPrefix.length).split(path.sep).join('/')
+        : path.basename(targetPath);
+      return `// ${relativePath}`;
+    })
+    .join('\n');
+}
+
 export async function compileTheme({ sourceText, resolveDir, sourcefile = 'theme.tsx' }) {
   const esbuild = await loadEsbuild();
   const result = await esbuild.build({
@@ -211,7 +229,10 @@ export async function compileTheme({ sourceText, resolveDir, sourcefile = 'theme
   });
   const outputFile = result.outputFiles && result.outputFiles[0];
   if (!outputFile) throw new Error('[theme] 编译没有产出文件');
-  return { bundleCode: outputFile.text, bytes: outputFile.contents.length, metafile: result.metafile };
+  // 产物里不能出现本机绝对路径：esbuild 会为每个模块写一行 `// <绝对路径>` 注释，
+  // clone 到别的机器后那行就是无意义信息，也会泄露部署结构。这里统一改写成仓库相对路径。
+  const sanitizedCode = stripAbsolutePathComments(outputFile.text);
+  return { bundleCode: sanitizedCode, bytes: Buffer.byteLength(sanitizedCode), metafile: result.metafile };
 }
 
 /** 对外主入口（build.cjs 用）：编译配置指定的主题文件，返回代码 + 元信息（已过契约校验与产物断言） */

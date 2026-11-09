@@ -16,7 +16,7 @@ import { startGatewayHarness } from './helpers/gateway-harness.js';
 function buildContractPayload(overrides = {}) {
   return {
     id: 'contract-group',
-    name: 'sa6400',
+    name: 'demo-group',
     accessMode: 'official',
     driver: 'openai-compatible',
     baseURL: 'https://api.example.com/v1',
@@ -41,7 +41,7 @@ test('契约 §4.1：driver + 顶层 baseURL + auth.apiKey + models.endpoint + s
   assert.equal(response.status, 201);
   assert.ok(response.body && response.body.group, '响应体应含 { group }');
   assert.equal(response.body.group.id, 'contract-group');
-  assert.equal(response.body.group.name, 'sa6400');
+  assert.equal(response.body.group.name, 'demo-group');
   // POST 回显的是写入形状（driver）；读出映射见下一条用例的 GET 断言
   assert.equal(response.body.group.driver, 'openai-compatible');
 

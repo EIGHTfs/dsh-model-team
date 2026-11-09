@@ -26,7 +26,7 @@ const FULL_ROW_INPUT = {
   statusCode: 200,
   model: 'agnes-3.0-flash',
   account: { name: 'agnes(本机)', id: 'agnes' },
-  ipAddress: '10.0.0.7',
+  ipAddress: '203.0.113.7',
   userAgent: 'curl/8.0',
   startedAtMs: FIXED_START_MS,
   finishedAtMs: FIXED_START_MS + 1234,

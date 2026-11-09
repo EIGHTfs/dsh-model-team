@@ -160,7 +160,7 @@ test('验收5：请求行 12 字段齐全且 title 含会话账号（INV-07）',
     headers: {
       'X-Tim-Session-Id': 'sess-row',
       'user-agent': 'dsh-test-agent/1.0',
-      'x-forwarded-for': '10.1.2.3, 10.1.2.4',
+      'x-forwarded-for': '203.0.113.3, 203.0.113.4',
     },
   });
 
@@ -172,7 +172,7 @@ test('验收5：请求行 12 字段齐全且 title 含会话账号（INV-07）',
   assert.equal(requestRow.statusText, '成功');
   assert.equal(requestRow.model, 'agnes-3.0-flash');
   assert.equal(requestRow.account.id, 'agnes');
-  assert.equal(requestRow.ip, '10.1.2.3', 'x-forwarded-for 取首段');
+  assert.equal(requestRow.ip, '203.0.113.3', 'x-forwarded-for 取首段');
   assert.equal(requestRow.ua, 'dsh-test-agent/1.0');
   assert.equal(requestRow.tokens, '12.6k');
   assert.equal(requestRow.cacheHit, '99.9%');
