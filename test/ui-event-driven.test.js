@@ -16,13 +16,13 @@ test('theme-epilogue：不再轮询 store 就绪（无 setInterval / 无 50ms �
   assert.equal(/__dmtThemeAttachStore/.test(EPILOGUE_SOURCE), true, '必须提供"就绪即通知"的钩子');
 });
 
-test('theme-epilogue：只保留一个"事件没来"的告警定时器，且不做重试', () => {
-  const timers = EPILOGUE_SOURCE.match(/setTimeout\(/g) || [];
-  assert.equal(timers.length, 1, '只允许一个兜底告警定时器');
-  assert.match(EPILOGUE_SOURCE, /store 就绪通知未在/, '兜底必须是可读告警');
-  // 不做重试的判据看代码形态：没有循环、没有再次注册定时器
-  assert.equal(/while\s*\(|for\s*\(/.test(EPILOGUE_SOURCE), false, '兜底不许用循环重试');
-  assert.equal((EPILOGUE_SOURCE.match(/setTimeout\(/g) || []).length, 1, '只有一处 setTimeout');
+test('theme-epilogue：事件监控路径里**没有**任何超时（事件必达）', () => {
+  // 依据 skill event-driven-no-timeout-fallback：能事件驱动就不许用超时兜底。
+  // 就绪事件必达的两条路径：①app.js 装配后同步调钩子 ②主题晚挂时直接读 __teamStore。
+  assert.equal(/setTimeout\(/.test(EPILOGUE_SOURCE), false, '不许对"就绪事件"设超时');
+  assert.equal(/THEME_STORE_READY_WARN_MS/.test(EPILOGUE_SOURCE), false, '超时常量必须删除');
+  assert.equal(/warnTimer/.test(EPILOGUE_SOURCE), false, '不允许残留告警定时器');
+  assert.match(EPILOGUE_SOURCE, /__teamStore/, '必须保留"主题晚挂直接读现值"这条路径');
 });
 
 test('装配层：__teamStore 赋值后立刻主动通知主题（同一处，不靠轮询）', () => {

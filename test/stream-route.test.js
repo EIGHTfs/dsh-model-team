@@ -59,8 +59,13 @@ test('订阅后能收到 request:completed（事件名与 data 都是契约形�
   // 等连接建立（首帧注释）
   await new Promise((resolve) => setTimeout(resolve, 100));
   getEventHub().publish(EVENT_REQUEST_COMPLETED, { sessionId: 'session-1', groupId: 'g1', row: { time: '10:00:00', status: 200 } });
+  // 连上后服务端先发就绪事件（event: ready，前端据此拉首屏，不靠超时重试）；
+  // 这里要的是其中的 request:completed，所以等到出现该事件的 chunk 为止。
   const chunk = await waitFor((resolve) => {
-    const timer = setInterval(() => { if (events.length > 0) { clearInterval(timer); resolve(events[0]); } }, 10);
+    const timer = setInterval(() => {
+      const matched = events.find((item) => /^event: request:completed$/m.test(item));
+      if (matched) { clearInterval(timer); resolve(matched); }
+    }, 10);
   });
 
   assert.match(chunk, /^event: request:completed$/m);
@@ -69,6 +74,26 @@ test('订阅后能收到 request:completed（事件名与 data 都是契约形�
 
   controller.abort();
   await reading.catch(() => {});
+});
+
+test('连上后先发就绪事件（event: ready）：前端据此拉首屏，不靠超时重试', async (t) => {
+  resetEventHubForTest();
+  const { server, port } = await startStreamServer();
+  t.after(() => server.close());
+
+  const controller = new AbortController();
+  const response = await fetch(`http://127.0.0.1:${port}/_team/stream`, { signal: controller.signal });
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  while (!text.includes('event: ready')) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    text += decoder.decode(value, { stream: true });
+  }
+  controller.abort();
+  assert.match(text, /^event: ready$/m, '就绪事件必须存在（它是首屏加载的触发源）');
+  assert.match(text, /data: \{"ready":true\}/);
 });
 
 test('带 sessionId 只推该会话；不带则推全部', async (t) => {

@@ -470,7 +470,14 @@ function boot() {
   store.dispatch({ type: 'start' }).then(function () {
     const current = store.getState();
     // 请求完成事件流：启动成功后挂一次（唯一订阅点，SSE，不轮询）
-    if (!window.__dmtGatewayStream) window.__dmtGatewayStream = attachGatewayStream({ store: store });
+    if (!window.__dmtGatewayStream) {
+      window.__dmtGatewayStream = attachGatewayStream({
+        store: store,
+        // 插件路由就绪（SSE 连上）后重拉首屏：此前失败只会显示"加载失败 + 重试"，
+        // 这里用事件把状态纠正回来，不依赖用户手点重试，也不依赖超时重试。
+        onReady: function () { store.dispatch({ type: 'load-groups' }); }
+      });
+    }
     // 默认选中第一项：优先平台预置（preset:<id>），没有预置则用第一个驱动的通用入口（driver:<id>）
     if (!viewState.addForm.platformId) {
       if (current.platforms.length) viewState.addForm.platformId = 'preset:' + current.platforms[0].id;

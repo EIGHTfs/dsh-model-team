@@ -8,7 +8,10 @@
 // 启动加载的四个接口：下标稳定（0=groups 是"群列表本身"，重试判定要用到）
 var GROUP_REQUEST_NAMES = ['groups', 'drivers', 'friend-groups', 'platforms'];
 // 有界重试：第一次失败多半是"宿主路由还没就绪/冷启慢"；不重试会让 state.groups 永久为空
-var DEFAULT_GROUP_RETRY_DELAYS_MS = [500, 2000];
+// 默认**不按超时重试**：首屏失败时把失败态显示出来（用户可点重试），
+// 真正的重拉由「插件就绪」事件驱动（gateway-stream 的 ready 回调 → load-groups）。
+// 依据 skill event-driven-no-timeout-fallback：能等事件就不要用超时兜底。
+var DEFAULT_GROUP_RETRY_DELAYS_MS = [];
 
 // 有界重试调度：只对失败的接口重拉，成功的那几份由调用方负责保留。
 // 与具体 store 无关，所以单独放在模块级。

@@ -24,7 +24,10 @@ export async function handleStreamRoute({ incomingRequest, outgoingResponse, que
     // nginx 一类反代要显式关缓冲，否则事件会被攒着不发
     'x-accel-buffering': 'no',
   });
+  // 就绪信号：能订阅到这条流，就说明插件路由已挂载、数据接口可用。
+  // 前端据此拉首屏数据，**不再靠超时重试猜"插件准备好没有"**（skill: event-driven-no-timeout-fallback）。
   outgoingResponse.write(': connected\n\n');
+  outgoingResponse.write('event: ready\ndata: {"ready":true}\n\n');
 
   const hub = getEventHub({ logger });
   const unsubscribe = hub.subscribe(EVENT_REQUEST_COMPLETED, (payload) => {

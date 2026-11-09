@@ -16,8 +16,10 @@ import { fileURLToPath } from 'node:url';
 const PROJECT_ROOT = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const MESSAGES_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/view/messages.js');
 
-// 绝对时间字段名：出现任意一个就说明排序键能吃"哪一天"
-const ABSOLUTE_TIME_FIELDS = ['startedAtMs', 'getTime()', 'valueOf()'];
+// 绝对时间字段名（契约 docs/02 §3.2：请求行出参 startedAt；事件用 at）
+const ABSOLUTE_TIME_FIELDS = ['startedAt', 'startedAtMs', "'at'", '"at"', '.at', 'getTime()', 'valueOf()'];
+// 排序键必须通过"绝对时间"取值的入口函数（允许实现抽成 helper，但不允许绕过它只算时分秒）
+const ABSOLUTE_TIME_HELPERS = ['absoluteTimeOf('];
 // 已知缺陷写法：把 Date 拆成时分秒再加权（当天偏移）
 const TIME_OF_DAY_ONLY = /getHours\(\)\s*\*\s*[A-Z_]*(HOUR|3600000)/;
 
@@ -44,9 +46,11 @@ const failures = [];
 if (!body) {
   failures.push('找不到 messageSortValue —— 排序入口被改名或删除，门禁无法判断');
 } else {
-  const hasAbsoluteField = ABSOLUTE_TIME_FIELDS.some((fieldName) => body.includes(fieldName));
+  const callsAbsoluteHelper = ABSOLUTE_TIME_HELPERS.some((helperName) => body.includes(helperName));
+  const hasAbsoluteField = ABSOLUTE_TIME_FIELDS.some((fieldName) => body.includes(fieldName))
+    || (callsAbsoluteHelper && ABSOLUTE_TIME_FIELDS.some((fieldName) => source.includes(fieldName)));
   if (!hasAbsoluteField) {
-    failures.push(`messageSortValue 没有使用绝对时间字段（缺 ${ABSOLUTE_TIME_FIELDS.join(' / ')}）：跨日排序必然错`);
+    failures.push(`messageSortValue 没有使用绝对时间（缺 ${ABSOLUTE_TIME_FIELDS.join(' / ')} 或 absoluteTimeOf 入口）：跨日排序必然错`);
   }
   if (TIME_OF_DAY_ONLY.test(body)) {
     failures.push('messageSortValue 把时间换算成"当天毫秒偏移"（getHours()*3600000 …）：跨午夜会把新消息判成更早');

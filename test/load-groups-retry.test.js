@@ -14,6 +14,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
+// 生产中默认不按超时重试（就绪事件驱动）；这里显式给两档延迟，验证**重试机制本身**仍然可用。
+const RETRY_DELAYS_UNDER_TEST = [500, 2000];
+
 const STORE_GROUPS_SOURCE = await fs.readFile(new URL('../ui/js/store/groups.js', import.meta.url), 'utf8');
 
 // 最小依赖桩：state/broadcast/reportError/api 都可控
@@ -72,7 +75,7 @@ test('G-client-retry-①：首个接口第一轮失败、第二轮成功 → 只
   });
   const harness = createHarness({ api });
 
-  const groups = await harness.loaders.loadGroups({ schedule: harness.syncSchedule });
+  const groups = await harness.loaders.loadGroups({ schedule: harness.syncSchedule, retryDelays: RETRY_DELAYS_UNDER_TEST });
 
   assert.equal(calls.groups, 2, 'groups 接口应被重试一次');
   assert.equal(calls.drivers, 1, '成功的接口不该被重复请求');
@@ -91,7 +94,7 @@ test('G-client-retry-②：三轮全失败（首次 + 两档重试）→ 不再�
   });
   const harness = createHarness({ api });
 
-  await harness.loaders.loadGroups({ schedule: harness.syncSchedule });
+  await harness.loaders.loadGroups({ schedule: harness.syncSchedule, retryDelays: RETRY_DELAYS_UNDER_TEST });
 
   // 首次 + 两档退避各重试一次 = 3 次请求（retryDelays 长度为 2，最多 2 轮重试）
   assert.equal(calls.groups, 3, `实际调用 ${calls.groups} 次`);
@@ -110,7 +113,7 @@ test('G-client-retry-③：重试期间成功接口的数据不被清空（不�
   });
   const harness = createHarness({ api });
 
-  await harness.loaders.loadGroups({ schedule: harness.syncSchedule });
+  await harness.loaders.loadGroups({ schedule: harness.syncSchedule, retryDelays: RETRY_DELAYS_UNDER_TEST });
 
   assert.deepEqual(harness.state.drivers, DRIVERS_OK, 'drivers 必须保留第一轮的成功结果');
   assert.deepEqual(harness.state.platforms, PLATFORMS_OK);

@@ -316,6 +316,12 @@ export const INTERNAL_REQUEST_ROW_FIELDS = Object.freeze(['startedAtMs', 'usage'
 export function toPublicRequestRow(requestRow) {
   const publicRequestRow = {
     ...requestRow,
+    // 绝对时间出网（docs/02 §3.2）：前端排序必须能区分"哪一天"，只给 HH:mm:ss 跨午夜必错。
+    // 毫秒实现仍是内部细节：出网的是 ISO（带时区偏移），startedAtMs 继续裁掉。
+    // 用项目既有的 ISO+偏移格式化（与其它时间字段同口径，避免 Z 与 +08:00 两种写法并存）
+    startedAt: typeof requestRow.startedAtMs === 'number' && Number.isFinite(requestRow.startedAtMs)
+      ? formatIsoWithOffset(requestRow.startedAtMs)
+      : null,
     // 历史行没有这两个字段（它们是写入时落盘的）；契约要求 null 而不是 undefined——
     // JSON 序列化时 undefined 字段会直接消失，与"值为 null"语义不同，前端排查会踩坑
     completionTokens: requestRow.completionTokens ?? null,

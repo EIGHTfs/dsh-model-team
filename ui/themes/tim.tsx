@@ -299,6 +299,8 @@ function ListPage({ onHide }: { onHide: () => void }) {
 
 /** 登录轮询间隔：设备码协议**只能轮询**（上游没有推送通道），这不是"等状态变化"的偷懒写法 */
 const LOGIN_POLL_INTERVAL_MS = 1000;
+// 登录状态查询连续失败上限：到上限就明确失败（事件驱动纪律：不许用无限重试掩盖"事件不来"）
+const LOGIN_POLL_MAX_CONSECUTIVE_FAILURES = 3;
 
 interface DriverLike {
   id?: unknown;
@@ -382,6 +384,7 @@ function AddPage({ onHide }: { onHide: () => void }) {
     if (loginState !== 'waiting' || !platformId) return undefined;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveFailures = 0;
     const pollOnce = () => {
       Promise.resolve(actions.pollReverseLogin(platformId) as Promise<{ ok?: boolean; status?: number; body?: { status?: string; account?: AccountLike } }>)
         .then((result) => {
@@ -404,7 +407,18 @@ function AddPage({ onHide }: { onHide: () => void }) {
           setLoginState('failed');
           setLoginNote('登录服务异常，请稍后重试');
         })
-        .catch(() => { if (!cancelled) timer = setTimeout(pollOnce, LOGIN_POLL_INTERVAL_MS); });
+        .catch((error: Error) => {
+          if (cancelled) return;
+          // 网络/服务错误**不能**静默无限重试（那是把"事件永远不来"掩盖成"慢一点"）：
+          // 连续 3 次失败就明确失败并把原因显示出来，用户可重试。
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= LOGIN_POLL_MAX_CONSECUTIVE_FAILURES) {
+            setLoginState('failed');
+            setLoginNote('登录状态查询连续失败：' + (error && error.message ? error.message : '未知原因'));
+            return;
+          }
+          timer = setTimeout(pollOnce, LOGIN_POLL_INTERVAL_MS);
+        });
     };
     pollOnce();
     return () => { cancelled = true; if (timer !== null) clearTimeout(timer); };
@@ -1536,7 +1550,9 @@ export default defineTheme({
   styles: THEME_STYLES,
   Root: function TimRoot() {
     // 收起 = 只不渲染主窗口（DOM 与订阅都保留，球还在），再点球展开；不销毁、不退订
-    const [windowHidden, setWindowHidden] = useState(false);
+    // 默认收起：首帧时既有判定还没到、球也还没显示，此时**不该弹出聊天界面**
+    // （契约 03 §7.3.6：球隐藏 ⇒ 主窗口隐藏，单向；球显示不反向强制展开）
+    const [windowHidden, setWindowHidden] = useState(true);
     // 主窗口位置：由宿主 dock 状态持有（主题不碰浏览器存储）；null = 还没拖过（居中）
     const dockBridge = useDockState();
     const [windowPosition, setWindowPosition] = useState<{ left: number; top: number } | null>(null);
@@ -1587,7 +1603,7 @@ export default defineTheme({
     return (
       <div data-theme-root="tim" className="tim-theme-root">
         <DockLayer windowHidden={windowHidden} onExpand={() => setWindowHidden(false)} />
-        {windowHidden ? null : (
+        {windowHidden || !(dockBridge.snapshot && dockBridge.snapshot.visible) ? null : (
           <MainWindow
             onHide={() => setWindowHidden(true)}
             windowStyle={effectivePosition

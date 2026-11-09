@@ -188,6 +188,8 @@ export async function fetchRemoteCatalog({
   dataRoot,
   logger,
   fetchImpl,
+  // 显式声明"这是测试注入的桩"：只有它为 true，或传入的 fetch 不是全局 fetch 时，才走 fetch 分支
+  allowFetchImplForCatalog = false,
   now = Date.now,
   ttlMs = CATALOG_CACHE_TTL_MS,
   forceRefresh = false,
@@ -212,8 +214,14 @@ export async function fetchRemoteCatalog({
   }
 
   const { url, headers, bodyText } = buildCatalogRequest({ credential, inferBase: endpoints.inferBase, now });
-  const response = typeof fetchImpl === 'function'
-    // 测试注入：调用方保证 stub 允许 GET 带 body
+  // 为什么不能"有 fetchImpl 就用"：生产会把全局 undici fetch 注入进来（gateway-deps.js），
+  // 而 Node 的 fetch 拒绝「GET 带 body」（上游目录协议恰恰要求带 body），会直接抛
+  // TypeError: Request with GET/HEAD method cannot have body → 端点 502。
+  // 判据：显式打开开关，或传进来的不是全局 fetch（= 测试/部署方的自定义桩）才走 fetch；
+  // 其余一律用自持 sendCatalogRequest（node:http，支持 GET 带 body）。
+  const useInjectedFetch = typeof fetchImpl === 'function'
+    && (allowFetchImplForCatalog === true || fetchImpl !== globalThis.fetch);
+  const response = useInjectedFetch
     ? await fetchImpl(url, { method: 'GET', headers, body: bodyText }).then(async (rawResponse) => ({
       status: rawResponse.status,
       bodyText: await rawResponse.text(),

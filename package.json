@@ -45,6 +45,7 @@
     "lib/client.js",
     "lib/shared",
     "config",
+    "assets",
     "cordis.patch.yml",
     "README.md"
   ],

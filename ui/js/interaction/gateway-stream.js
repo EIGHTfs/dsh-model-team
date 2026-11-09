@@ -11,6 +11,7 @@
 
 var GATEWAY_STREAM_PATH = '/_team/stream';
 var REQUEST_COMPLETED_EVENT = 'request:completed';
+var READY_EVENT = 'ready';
 
 /** 由 store 状态与事件载荷决定要 dispatch 什么（纯函数，便于单测） */
 function planStreamRefresh(state, payload) {
@@ -58,6 +59,12 @@ function attachGatewayStream(options) {
       currentSource = null;   // 建不起来就当没有实时刷新，用户动作仍会刷新
       return;
     }
+    // 就绪事件：首屏数据在这里拉，而不是靠"失败后按超时重试"
+    currentSource.addEventListener(READY_EVENT, function () {
+      if (typeof settings.onReady === 'function') {
+        try { settings.onReady(); } catch (readyError) { /* 拉数据失败由各自的错误出口负责 */ }
+      }
+    });
     currentSource.addEventListener(REQUEST_COMPLETED_EVENT, function (event) {
       var payload = null;
       try { payload = JSON.parse(event.data); } catch (parseError) { payload = null; }
