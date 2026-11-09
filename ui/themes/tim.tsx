@@ -37,6 +37,8 @@ import {
   useDockState,
   useDrivers,
   useFriendGroups,
+  buildAvatarView,
+  nextAvatarView,
   credentialFieldsOf,
   driverDisplayName,
   isAccountAuthDriver,
@@ -54,13 +56,24 @@ import {
 
 // ---------------------------------------------------------------- 小件
 
+// 头像：四级回退（图片 → 下一个图片 → 文本 → 首字符），与宿主的 avatar-chain.js 同一份规则。
+// 失败换候选靠 React 的 onError 就地更新（不整页重建，也不留裂图）。
 function Avatar({ avatar, fallbackName, size = 'sm' }: { avatar: unknown; fallbackName: unknown; size?: 'sm' | 'lg' }) {
-  const rawValue = String(avatar == null ? '' : avatar).trim();
-  const isImageUrl = /^https?:\/\//i.test(rawValue) || /^data:/i.test(rawValue);
-  const initial = String(fallbackName == null ? '' : fallbackName).trim().charAt(0).toUpperCase() || '?';
   const className = size === 'lg' ? 'tim-avatar tim-avatar-lg' : 'tim-avatar';
-  if (isImageUrl) return <span className={className}><img src={rawValue} alt="" loading="lazy" /></span>;
-  return <span className={className}>{rawValue || initial}</span>;
+  const [view, setView] = useState(() => buildAvatarView(avatar, fallbackName));
+  if (view.kind === 'image') {
+    return (
+      <span className={className}>
+        <img
+          src={view.src}
+          alt=""
+          loading="lazy"
+          onError={() => setView(nextAvatarView(view.rest, view.fallbackText))}
+        />
+      </span>
+    );
+  }
+  return <span className={className}>{view.text || view.fallbackText}</span>;
 }
 
 /** 请求卡片的指标行：允许折行（docs/25 要求「指标允许折两行」），用 | 分隔 */

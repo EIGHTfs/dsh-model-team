@@ -478,4 +478,7 @@ function boot() {
   });
 }
 
+// 头像图片加载失败的换候选逻辑在 format/avatar-chain.js（同一职责集中一处）
+installAvatarErrorFallback();
+
 document.addEventListener('DOMContentLoaded', boot);

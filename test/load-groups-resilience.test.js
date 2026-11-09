@@ -26,6 +26,8 @@ const FORMAT_SOURCE = await fs.readFile(new URL('../ui/js/format/ui-format.js', 
 const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/view/render.js', import.meta.url), 'utf8');
 // 列表规则已搬到 format/list-rules.js（单一实现）：真实 bundle 里与 render 同作用域，这里也拼起来
 const LIST_RULES_SOURCE = await fs.readFile(new URL('../ui/js/format/list-rules.js', import.meta.url), 'utf8');
+// 头像四级回退在 format/avatar-chain.js（单一实现）：与 render 同一作用域
+const AVATAR_SOURCE = await fs.readFile(new URL('../ui/js/format/avatar-chain.js', import.meta.url), 'utf8');
 
 const THREE_GROUPS = [
   { id: 'agnes', name: 'agnes', driver: 'openai-compatible', summary: '官方接入' },
@@ -112,6 +114,7 @@ test('回归③：群列表空 + 有失败原因 → 渲染"加载失败"，不�
   // eslint-disable-next-line no-new-func
   const factory = new Function(`${FORMAT_SOURCE}
 ${LIST_RULES_SOURCE}
+${AVATAR_SOURCE}
 ${RENDER_SOURCE}
 ;return { renderGroupList: renderGroupList };`);
   const render = factory();
@@ -175,6 +178,7 @@ test('G-B：群友数区分「未加载」与「确实 0 个」（未加载显�
   // eslint-disable-next-line no-new-func
   const render = new Function(`${FORMAT_SOURCE}
 ${LIST_RULES_SOURCE}
+${AVATAR_SOURCE}
 ${RENDER_SOURCE}
 ;return { renderChat: renderChat };`)();
   const group = { id: 'agnes', name: 'agnes' };

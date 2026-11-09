@@ -20,7 +20,14 @@ function notImplemented(methodName) {
   return error;
 }
 
+// Qoder 平台图标：直接复用 dsh-providers-hub 的现成内联图标（data:image/svg+xml;base64，
+// 深色圆角底 + 白色 Q），**不是自绘**。来源文件：dsh-providers-hub/plugin-src/client/provider-icons.js
+// 的 QODER_ICON 常量。图标属于平台声明（docs/04 §二点五），通用层不出现任何平台图标。
+const QODER_PLATFORM_ICON = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHJ4PSI1IiBmaWxsPSIjMWYyYTNmIi8+PGNpcmNsZSBjeD0iMTEiIGN5PSIxMSIgcj0iNC42IiBmaWxsPSJub25lIiBzdHJva2U9IiNmZmYiIHN0cm9rZS13aWR0aD0iMS44Ii8+PHBhdGggZD0iTTEzLjkgMTMuOSAxNyAxN2EwLjk1IDAuOTUgMCAwIDEtMS4zNSAxLjM1bC0zLjEtMy4xIiBmaWxsPSIjZmZmIi8+PC9zdmc+';
+
 export const platform = {
+  // 图标候选（有序）：插件型平台在这里声明；本地相对路径会相对本文件所在目录解析
+  icons: Object.freeze([QODER_PLATFORM_ICON]),
   // 上游错误认领模块（字符串路径；由注册器动态加载，通用层不认识它）
   streamErrorClaimersModule: './claimers.js',
   streamErrorClaimersBase: import.meta.url,

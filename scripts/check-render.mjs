@@ -37,6 +37,8 @@ const RENDER_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/view/render.js');
 const FORMAT_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/format/ui-format.js');
 // 列表规则（过滤/三态/计数/时间/行数据）已搬到 format/list-rules.js（单一实现，render 只调用）
 const LIST_RULES_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/format/list-rules.js');
+// 头像四级回退（单一实现）：render 只调用
+const AVATAR_CHAIN_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/format/avatar-chain.js');
 // float.js 的几何函数已搬到 float/geometry.js（单一实现）
 const GEOMETRY_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui/js/float/geometry.js');
 // 面板五字段口径已搬到 float/panel-fields.js（单一实现）
@@ -57,7 +59,7 @@ const EXIT_MISMATCH = 1;
  * view/render.js 的函数在调用时才碰全局（escapeHtml 等都在同文件内定义），空沙箱足够。
  */
 function loadRenderLayer() {
-  const source = `${fs.readFileSync(FORMAT_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(LIST_RULES_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(RENDER_SOURCE_PATH, 'utf8')}`;
+  const source = `${fs.readFileSync(FORMAT_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(LIST_RULES_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(AVATAR_CHAIN_SOURCE_PATH, 'utf8')}\n${fs.readFileSync(RENDER_SOURCE_PATH, 'utf8')}`;
   const sandbox = vm.createContext({ console });
   const exported = vm.runInContext(
     `${source}\n;({ renderGroupList: renderGroupList, renderChat: renderChat })`,

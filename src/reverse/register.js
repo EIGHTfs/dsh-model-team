@@ -6,7 +6,8 @@
 //   3. 清单里的实现都是字符串路径，本文件按路径动态加载，不静态 import 域内实现。
 
 import { manifest } from './manifest.js';
-import { getPlatform, listPlatformLoadFailures, listPlatforms } from './registry.js';
+import { getPlatform, getPlatformDirectory, listPlatformLoadFailures, listPlatforms } from './registry.js';
+import { resolveIconCandidate } from '../gateway/config/platform-presets.js';
 import { registerReverseDrivers } from './driver.js';
 import { attachStreamErrorClaimers } from '../gateway/drivers/index.js';
 import { getImportSource } from './core/import/index.js';
@@ -117,6 +118,28 @@ async function doRegisterReverse({ ctx, dataRoot, logger = defaultLogger, creden
       }
     },
   };
+}
+
+/**
+ * 插件型平台的图标候选（驱动 id → 有序数组）。
+ * 声明写在平台对象上（`icons: [...]`），本地相对路径按**平台模块所在目录**解析并转成 data URI；
+ * 这是"配置型 / 插件型同形"的落地点：界面只消费候选链，不关心图标来自 JSON 还是插件目录。
+ */
+export async function getPlatformIcons(logger = defaultLogger) {
+  const iconsByDriverId = {};
+  for (const platformEntry of listPlatforms()) {
+    const declaredIcons = Array.isArray(platformEntry?.icons) ? platformEntry.icons : [];
+    if (declaredIcons.length === 0) continue;
+    const platformDirectory = getPlatformDirectory(platformEntry.id);
+    const resolvedIcons = [];
+    for (const iconCandidate of declaredIcons) {
+      const resolvedIcon = await resolveIconCandidate(iconCandidate, platformDirectory ?? process.cwd(), logger);
+      if (resolvedIcon !== null && !resolvedIcons.includes(resolvedIcon)) resolvedIcons.push(resolvedIcon);
+    }
+    if (resolvedIcons.length === 0) continue;
+    iconsByDriverId[platformEntry.driverId ?? platformEntry.id] = resolvedIcons;
+  }
+  return iconsByDriverId;
 }
 
 /** 供 /_team/meta 的 reverse 段使用：平台清单 + 可用性 + 导入源 */

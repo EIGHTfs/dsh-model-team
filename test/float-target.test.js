@@ -11,6 +11,8 @@ const FORMAT_SOURCE = await fs.readFile(new URL('../ui/js/format/ui-format.js', 
 const RENDER_SOURCE = await fs.readFile(new URL('../ui/js/view/render.js', import.meta.url), 'utf8');
 // 列表规则已搬到 format/list-rules.js（单一实现）：真实 bundle 里与 render 同作用域，这里也拼起来
 const LIST_RULES_SOURCE = await fs.readFile(new URL('../ui/js/format/list-rules.js', import.meta.url), 'utf8');
+// 头像四级回退在 format/avatar-chain.js（单一实现）：与 render 同一作用域
+const AVATAR_SOURCE = await fs.readFile(new URL('../ui/js/format/avatar-chain.js', import.meta.url), 'utf8');
 const CLIENT_SOURCE = await fs.readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 const FLOAT_SOURCE = await fs.readFile(new URL('../ui/js/float/float.js', import.meta.url), 'utf8');
 // float.js 的几何函数住在 float/geometry.js（单一实现），拼接顺序必须是 geometry → float
@@ -23,6 +25,7 @@ function loadRenderLayer() {
   // eslint-disable-next-line no-new-func
   return new Function(`${FORMAT_SOURCE}
 ${LIST_RULES_SOURCE}
+${AVATAR_SOURCE}
 ${RENDER_SOURCE}
 ;return { renderFloatTargetMarkup: renderFloatTargetMarkup, renderGroupList: renderGroupList };`)();
 }

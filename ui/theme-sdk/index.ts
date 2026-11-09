@@ -47,6 +47,13 @@ export {
 export { readDockBridge, useDockState, type DockBridge, type DockStateSnapshot } from './dock-state';
 
 export {
+  buildAvatarView,
+  nextAvatarView,
+  avatarInitial,
+  type AvatarView,
+} from './avatar';
+
+export {
   isAccountAuthDriver,
   credentialFieldsOf,
   driverDisplayName,

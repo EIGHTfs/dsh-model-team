@@ -4,6 +4,8 @@
 // 而实现必须"按清单加载"。模块初始化时一次性加载完，导出面保持同步。
 // 单个平台加载失败只记下来（describeReverse 会报 available:false），不影响其它平台。
 
+import path from 'node:path';
+
 import { manifest } from './manifest.js';
 import { REVERSE_DRIVER_PREFIX, assertPlatformShape } from './core/types.js';
 
@@ -23,6 +25,21 @@ for (const entry of manifest.platforms) {
 }
 
 const platformById = new Map(loadedPlatforms.map((platform) => [platform.id, platform]));
+
+// 平台模块所在目录：平台声明里的本地图标相对**声明方目录**解析（docs/04 §二点五）
+const platformDirectoryById = new Map();
+for (const entry of manifest.platforms) {
+  if (!platformById.has(entry.id)) continue;
+  try {
+    platformDirectoryById.set(entry.id, path.dirname(new URL(entry.module, import.meta.url).pathname));
+  } catch {
+    // 取不到目录不影响其它能力：该平台只是不能声明"相对路径"图标
+  }
+}
+
+export function getPlatformDirectory(platformId) {
+  return platformDirectoryById.get(platformId) ?? null;
+}
 
 export function getPlatform(platformId) {
   return platformById.get(platformId) ?? null;

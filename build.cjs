@@ -41,7 +41,7 @@ const UI_PARTS = [
   // → friend-group 三层 → interaction/chat → view/admin → float/float → app 入口
   // 速率不再有客户端分片：公式在 lib/shared/rate.mjs（可拷复用的纯模块），
   // 由服务端按声明动态加载后算出 { tps, exact }，客户端只做显示（单位与 ≈）。
-  "js/view/messages.js", "js/float/target-source.js", "js/format/ui-format.js", "js/format/list-rules.js", "js/format/driver-view.js",
+  "js/view/messages.js", "js/float/target-source.js", "js/format/ui-format.js", "js/format/list-rules.js", "js/format/driver-view.js", "js/format/avatar-chain.js",
   "js/store/state.js", "js/store/persist.js", "js/store/events.js", "js/store/forms.js",
   "js/store/groups.js", "js/store/chat.js", "js/store/stats.js",
   "js/store/session.js", "js/store/dispatch.js", "js/store/index.js",
@@ -70,6 +70,7 @@ function assertPartOrder() {
     // 拼接顺序反了就会在真实产物里变成「调用先于定义」（函数声明能提升，但 const/let 不能）。
     [UI_PARTS, "js/format/ui-format.js", "js/view/render.js", "ui-format 必须早于 render"],
     [UI_PARTS, "js/format/list-rules.js", "js/view/render.js", "list-rules 必须早于 render"],
+    [UI_PARTS, "js/format/avatar-chain.js", "js/view/render.js", "avatar-chain 必须早于 render"],
     [UI_PARTS, "js/float/geometry.js", "js/float/float.js", "geometry 必须早于 float"],
     [UI_PARTS, "js/float/panel-fields.js", "js/float/float.js", "panel-fields 必须早于 float"],
     [UI_PARTS, "js/interaction/model-selection-source.js", "js/interaction/session-bridge.js", "model-selection-source 必须早于 session-bridge"],

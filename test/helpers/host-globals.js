@@ -17,6 +17,7 @@ const HOST_PART_PATHS = [
   'ui/js/float/target-source.js',
   'ui/js/format/list-rules.js',
   'ui/js/format/driver-view.js',
+  'ui/js/format/avatar-chain.js',
 ];
 
 /** 宿主分片在加载期用到的少量环境垫片（都只在函数体内被调用，加载期不会真的跑） */
@@ -43,6 +44,7 @@ export async function loadHostGlobals(extraGlobals = {}) {
     dshHostTargetSource: sandbox.dshHostTargetSource,
     dshHostListRules: sandbox.dshHostListRules,
     dshHostDriverView: sandbox.dshHostDriverView,
+    dshHostAvatar: sandbox.dshHostAvatar,
   };
 }
 

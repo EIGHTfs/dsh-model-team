@@ -72,14 +72,16 @@ function requestRow(row, index, isExpanded, platform) {
 
 // 头像渲染：http(s) / data: URL 用 <img>，其余按文本占位（空则用名称首字母）。
 // 图片 404 等加载失败由 app.js 的全局 error 捕获降级为文本，不会留下破图。
-function renderAvatar(avatarText, fallbackName) {
-  const rawValue = String(avatarText == null ? '' : avatarText).trim();
-  const isImageUrl = /^https?:\/\//i.test(rawValue) || /^data:/i.test(rawValue);
-  const initial = String(fallbackName == null ? '' : fallbackName).trim().charAt(0).toUpperCase() || '?';
-  if (isImageUrl) {
-    return `<img class="avatar-img" src="${escapeHtml(rawValue)}" alt="" loading="lazy" data-fallback="${escapeHtml(initial)}">`;
+// 头像：走 avatar-chain.js 的四级回退（候选数组 / 单个值都接受）。
+// 图片候选把"剩下的候选"写进 data-avatar-rest：加载失败时由 app.js 的捕获监听换下一格，
+// 不显示裂图、也不在 HTML 里内联脚本（内联 handler 会被 CSP 拦）。
+function renderAvatar(avatarValue, fallbackName) {
+  const view = buildAvatarView(avatarValue, fallbackName);
+  if (view.kind === 'image') {
+    const restAttr = view.rest.length > 0 ? ` data-avatar-rest="${escapeHtml(JSON.stringify(view.rest))}"` : '';
+    return `<img class="avatar-img" src="${escapeHtml(view.src)}" alt="" loading="lazy" data-fallback="${escapeHtml(view.fallbackText)}"${restAttr}>`;
   }
-  return escapeHtml(rawValue || initial);
+  return escapeHtml(view.text || view.fallbackText);
 }
 
 // 视图一：群列表（= 平台账号列表）：顶部搜索 + 加群入口，每项右侧 lastUpdated 本地化时间。

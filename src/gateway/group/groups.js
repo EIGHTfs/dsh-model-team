@@ -9,7 +9,9 @@ import path from 'node:path';
 
 import { API_PREFIX } from '../config/constants.js';
 import { attachLastUpdated } from './last-updated.js';
-import { loadPlatformPresets, resolveGroupAvatar } from '../config/platform-presets.js';
+import { loadPlatformPresets, resolveGroupIcons } from '../config/platform-presets.js';
+// 插件型平台的图标由反代域自报（唯一允许的核心→反代入口：register.js）
+import { getPlatformIcons } from '../../reverse/register.js';
 import { normalizeModelList } from '../model/catalog.js';
 import { buildGroupModels, normalizeGroupSubmission, persistGroupApiKey } from './credentials.js';
 import { AUTH_KINDS, getDriver } from '../drivers/index.js';
@@ -275,14 +277,22 @@ export async function listGroupsWithSummary(config, options = {}) {
   const groupsWithSummary = await Promise.all(
     groups.map(async (group) => ({ ...group, summary: await renderGroupSummary(group, options) })),
   );
-  // avatar：配置里有就用配置，否则回落到平台预置（清单来自 JSON，代码里没有平台字面量）；都没有则不写该字段
+  // 图标：群自己的 icons 在前（可覆盖），平台声明在后；配置型看 JSON 预置，插件型看平台声明的 icons。
+  // 都没有就两个字段都不写（出参省略，界面按"没有图标"处理成首字符文本头像）。
   const platformPresets = await loadPlatformPresets({ dataRoot: options.dataRoot, logger: options.logger });
-  const groupsWithAvatar = groupsWithSummary.map((group) => {
-    const avatar = resolveGroupAvatar(group, platformPresets);
-    return avatar === undefined ? group : { ...group, avatar };
+  let pluginIcons = {};
+  try {
+    pluginIcons = await getPlatformIcons(options.logger);
+  } catch (iconError) {
+    // 图标是增强：拿不到就当没有，不影响群列表本身
+    options.logger?.warn?.(`插件型平台图标读取失败（按无图标处理）：${iconError?.message ?? iconError}`);
+  }
+  const groupsWithIcons = groupsWithSummary.map((group) => {
+    const icons = resolveGroupIcons(group, platformPresets, pluginIcons);
+    return icons === undefined ? group : { ...group, icons, avatar: icons[0] };
   });
   // lastUpdated 只在列表出参里补：优先级见 group-last-updated.js，其它字段不动
-  return attachLastUpdated(groupsWithAvatar, options);
+  return attachLastUpdated(groupsWithIcons, options);
 }
 
 // 加群：id 已存在返回 409（不静默覆盖用户已有平台账号）
