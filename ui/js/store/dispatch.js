@@ -32,6 +32,14 @@ function createActionHandlers(deps) {
       persist(ANCHOR_STORAGE_KEY, JSON.stringify(action.anchor));
       return Promise.resolve();
     },
+    // 表单类动作：实现只调接口，结果（或错误）原样交回调用方，不落 state
+    'add-group': function (action) { return actions.addGroup(action.payload); },
+    'probe-models': function (action) { return actions.probeModels(action.input); },
+    'export-config': function () { return actions.exportConfig(); },
+    'import-config': function (action) { return actions.importConfig(action.payload); },
+    'reverse-accounts': function (action) { return actions.loadReverseAccounts(action.platformId); },
+    'reverse-login-start': function (action) { return actions.startReverseLogin(action.platformId); },
+    'reverse-login-poll': function (action) { return actions.pollReverseLogin(action.platformId); },
     'view:rebuilt': function () { renderNow(); return Promise.resolve(); }
   };
 }

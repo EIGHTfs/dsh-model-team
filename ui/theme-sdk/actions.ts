@@ -45,6 +45,37 @@ export const actions = {
   toggleRow(rowIndex: number): unknown {
     return dispatch({ type: 'toggle-row', rowIndex });
   },
+  /** 加群：payload 原样交给服务端，成功回 { group }，失败 reject（message 为服务端原文） */
+  addGroup(payload: Record<string, unknown>): unknown {
+    return dispatch({ type: 'add-group', payload });
+  },
+  /**
+   * 探测可用模型：只给结构化输入，线格式由宿主组装。
+   * accountRef 给账号引用（账号型驱动）；否则用 baseURL + apiKey（配置型驱动）。
+   */
+  probeModels(input: { driver: string; accountRef?: string; baseURL?: string; apiKey?: string }): unknown {
+    return dispatch({ type: 'probe-models', input });
+  },
+  /** 导出备份（回完整备份对象，下载由主题触发） */
+  exportConfig(): unknown {
+    return dispatch({ type: 'export-config' });
+  },
+  /** 导入备份：回 { imported, updated, rejected } 回执 */
+  importConfig(payload: Record<string, unknown>): unknown {
+    return dispatch({ type: 'import-config', payload });
+  },
+  /** 反代账号列表（已脱敏） */
+  loadReverseAccounts(platformId: string): unknown {
+    return dispatch({ type: 'reverse-accounts', platformId });
+  },
+  /** 发起设备码登录：回 { loginUrl } */
+  startReverseLogin(platformId: string): unknown {
+    return dispatch({ type: 'reverse-login-start', platformId });
+  },
+  /** 按平台轮询登录状态：回 { ok, status, body } */
+  pollReverseLogin(platformId: string): unknown {
+    return dispatch({ type: 'reverse-login-poll', platformId });
+  },
   /** 拖拽后落锚点（悬浮件位置） */
   setDockAnchor(anchor: { left: number; top: number }): unknown {
     return dispatch({ type: 'set-anchor', anchor });

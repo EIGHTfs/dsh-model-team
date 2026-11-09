@@ -47,6 +47,14 @@ export {
 export { readDockBridge, useDockState, type DockBridge, type DockStateSnapshot } from './dock-state';
 
 export {
+  isAccountAuthDriver,
+  credentialFieldsOf,
+  driverDisplayName,
+  type DriverMetaLike,
+  type DriverCredentialField,
+} from './driver-view';
+
+export {
   GROUP_COUNT_SUFFIX,
   LOAD_FAILED_TEXT,
   TAB_ITEMS,

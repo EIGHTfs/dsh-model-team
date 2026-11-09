@@ -16,6 +16,7 @@ const HOST_PART_PATHS = [
   'ui/js/format/ui-format.js',
   'ui/js/float/target-source.js',
   'ui/js/format/list-rules.js',
+  'ui/js/format/driver-view.js',
 ];
 
 /** 宿主分片在加载期用到的少量环境垫片（都只在函数体内被调用，加载期不会真的跑） */
@@ -41,6 +42,7 @@ export async function loadHostGlobals(extraGlobals = {}) {
     dshHostUiFormat: sandbox.dshHostUiFormat,
     dshHostTargetSource: sandbox.dshHostTargetSource,
     dshHostListRules: sandbox.dshHostListRules,
+    dshHostDriverView: sandbox.dshHostDriverView,
   };
 }
 

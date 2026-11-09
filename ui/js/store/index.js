@@ -31,8 +31,16 @@ function createStoreLoaders(options) {
 }
 
 // 动作表：dispatch 只认"动作名 → 实现"，这里把 loader/session 的方法映射成契约里的动作名
-function collectStoreActions(loaders, session) {
+function collectStoreActions(loaders, session, forms) {
   return {
+    // 表单类动作（加群/探测/导出导入/反代登录）：只调接口、不写 state
+    addGroup: forms.addGroup,
+    probeModels: forms.probeModels,
+    exportConfig: forms.exportConfig,
+    importConfig: forms.importConfig,
+    loadReverseAccounts: forms.loadReverseAccounts,
+    startReverseLogin: forms.startReverseLogin,
+    pollReverseLogin: forms.pollReverseLogin,
     start: session.start,
     stop: session.stop,
     applySessionChanged: session.applySessionChanged,
@@ -78,11 +86,13 @@ function createTeamStore(options) {
     sessionSource: sessionSource
   });
 
+  var forms = createFormActions({ api: api, reportError: errorSink.reportError });
+
   var dispatcher = createDispatcher({
     state: state,
     persist: persistence.persist,
     renderNow: hub.renderNow,
-    actions: collectStoreActions(loaders, session)
+    actions: collectStoreActions(loaders, session, forms)
   });
 
   return {
