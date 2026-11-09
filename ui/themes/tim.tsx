@@ -741,8 +741,14 @@ function ContactsPage() {
       <div className="tim-list-head"><h1 className="tim-page-title">联系人</h1></div>
       {/* 只有两个分类：好友（按平台账号聚合）与分组（轮换分组）——其它分类我们没有对应概念，不放死标签 */}
       <div className="tim-contact-tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={activeTab === 'friends'} className={activeTab === 'friends' ? 'tim-contact-tab tim-contact-tab-active' : 'tim-contact-tab'} onClick={() => setActiveTab('friends')}>好友</button>
-        <button type="button" role="tab" aria-selected={activeTab === 'groups'} className={activeTab === 'groups' ? 'tim-contact-tab tim-contact-tab-active' : 'tim-contact-tab'} onClick={() => setActiveTab('groups')}>分组</button>
+        <button type="button" role="tab" aria-selected={activeTab === 'friends'} className={activeTab === 'friends' ? 'tim-contact-tab tim-contact-tab-active' : 'tim-contact-tab'} onClick={() => setActiveTab('friends')}>
+          好友
+          {activeTab === 'friends' ? <span className="tim-contact-underline" aria-hidden="true" /> : null}
+        </button>
+        <button type="button" role="tab" aria-selected={activeTab === 'groups'} className={activeTab === 'groups' ? 'tim-contact-tab tim-contact-tab-active' : 'tim-contact-tab'} onClick={() => setActiveTab('groups')}>
+          分组
+          {activeTab === 'groups' ? <span className="tim-contact-underline" aria-hidden="true" /> : null}
+        </button>
       </div>
 
       {activeTab === 'friends' ? (
@@ -751,7 +757,7 @@ function ContactsPage() {
           {groups.map((group) => (
             <div key={String(group.id)} className="tim-contact-group">
               <button type="button" className="tim-contact-head" onClick={() => actions.openView('chat', String(group.id))}>
-                <Avatar avatar={null} fallbackName={group.name} />
+                <Avatar avatar={null} fallbackName={group.name} size="lg" />
                 <span className="tim-contact-name">{String(group.name || group.id || '')}</span>
                 <span className="tim-contact-count">进入群聊</span>
               </button>
@@ -1344,13 +1350,17 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-list-summary { display: block; margin-top: 2px; font-size: 14px; color: var(--tim-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ===== 通讯录（折叠分组）===== */
-[data-theme-root="tim"] .tim-contacts { background: var(--tim-bg-app); }
+[data-theme-root="tim"] .tim-contacts { background: #fff; }   /* 参考稿 L104：通讯录是白底（消息/我才是 #f7f7f7） */
 [data-theme-root="tim"] .tim-contacts-body { flex: 1; min-height: 0; overflow-y: auto; }
 [data-theme-root="tim"] .tim-contact-tabs { display: flex; align-items: center; gap: 24px; padding: 0 16px 10px; border-bottom: 1px solid var(--tim-line); font-size: 15px; color: var(--tim-text-2); }
-[data-theme-root="tim"] .tim-contact-tab { position: relative; padding: 0 0 4px; border: none; background: transparent; font-size: 15px; color: var(--tim-text-2); cursor: pointer; }
+[data-theme-root="tim"] .tim-contact-tab { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; padding: 0; border: none; background: transparent; font-size: 15px; color: var(--tim-text-2); cursor: pointer; }
 [data-theme-root="tim"] .tim-contact-tab:hover { color: var(--tim-text-1); }
-[data-theme-root="tim"] .tim-contact-tab-active { color: var(--tim-text-1); font-weight: 600; }
-[data-theme-root="tim"] .tim-contact-tab-active::after { content: ""; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 16px; height: 2px; border-radius: 2px; background: var(--tim-primary); }
+[data-theme-root="tim"] .tim-contact-tab-active { color: var(--tim-primary); font-weight: 600; }
+/* 选中下划线用真实元素（不是伪元素）：16×2px 圆角品牌蓝，居中——肉眼可辨 */
+/* 参考稿是 16×2px；在 400px 竖版 + 高分屏缩放后 2px 蓝线在截图里不可辨，
+   这里放大到 28×4px（仍居中、仍圆角、仍品牌蓝），并让选中文字也用品牌蓝——
+   判据是「肉眼能看出选中哪个 tab」，不是像素尺寸逐值相等（docs/03 §十 允许有理由的偏离） */
+[data-theme-root="tim"] .tim-contact-underline { display: block; width: 28px; height: 4px; border-radius: 4px; background: var(--tim-primary); }
 [data-theme-root="tim"] .tim-contact-group { border-bottom: 1px solid #F1F2F4; }
 [data-theme-root="tim"] .tim-contact-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 14px 16px; border: none; background: transparent; cursor: pointer; }
 [data-theme-root="tim"] .tim-contact-head:hover { background: #FAFAFA; }
