@@ -115,8 +115,8 @@ export async function retryIfMaxTokensExceeded({
     `${group?.id ?? ''}::${model}`,
     `${group?.id ?? ''}/${model} 的 max_tokens 上限为 ${learnedLimit}（上游对等于上限的值也拒），`
     + (retriedOk
-      ? `已按 ${retryValue} 重发成功并记下可用值；若上游已放宽，删除 limits.json 中该条目以重新探测`
-      : `按 ${retryValue} 重发仍未成功，已只记下声明上限；若上游已放宽，删除 limits.json 中该条目以重新探测`),
+      ? `已按 ${retryValue} 重发成功并记下可用值；若上游已放宽，重启进程后会重新探测`
+      : `按 ${retryValue} 重发仍未成功，已只记下声明上限；若上游已放宽，重启进程后会重新探测`),
     logger,
   );
   return retryResult;

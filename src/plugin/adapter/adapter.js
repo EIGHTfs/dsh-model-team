@@ -86,7 +86,7 @@ export function createModelTimAdapter({ BaseAdapter, LlmErrorClass, deps = {} })
     ...deps,
   };
   const adapterDataRoot = resolvedDeps.dataRoot ?? getDataRoot();
-  // 上游 max_tokens 上限的学习存储：进程内复用一份，跨进程靠 <dataRoot>/limits.json
+  // 上游 max_tokens 上限的学习存储：纯进程内存（不落盘）；重启后重新探测一次
   const limitsStore = resolvedDeps.limitsStore ?? createLimitsStore({ dataRoot: adapterDataRoot, logger: resolvedDeps.logger });
   // 每个 (群, 模型) 只告警一次，避免撞限后每次都刷屏
   const warnLimitOnce = createLimitWarningTracker();

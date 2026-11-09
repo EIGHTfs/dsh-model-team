@@ -183,7 +183,7 @@ test('B11d：第二个请求起直接用 effective（不再先撞 400）', async
   assert.equal(capped.source, 'effective', 'source 要能指出生效的是 effective 这一档');
 });
 
-test('B11d：重发成功后才落盘 effective；下一个请求直接用 effective（不再撞 400）', async (t) => {
+test('B11d：重发成功后才记住 effective（进程内存）；下一个请求直接用 effective（不再撞 400）', async (t) => {
   const dataRoot = await createTempDirectory(t);
   const logger = createRecordingLogger();
   const limitsStore = createLimitsStore({ dataRoot, logger });
@@ -205,8 +205,8 @@ test('B11d：重发成功后才落盘 effective；下一个请求直接用 effec
 
   assert.equal(finalResult.ok, true, '按 learned-1 重发成功');
   assert.equal(stub.calls[0].max_tokens, 4095, '重发值 = 声明上限 − 1');
-  assert.equal(await limitsStore.getLimit('agnes2', 'agnes-3.0-flash'), 4096, '声明上限落盘（证据）');
-  assert.equal(await limitsStore.getEffectiveLimit('agnes2', 'agnes-3.0-flash'), 4095, '可用值落盘');
+  assert.equal(await limitsStore.getLimit('agnes2', 'agnes-3.0-flash'), 4096, '声明上限记在内存（证据）');
+  assert.equal(await limitsStore.getEffectiveLimit('agnes2', 'agnes-3.0-flash'), 4095, '可用值记在内存');
 
   // 第二个请求：不再撞 400，直接发 effective
   const { body, capped } = await buildCappedRequestBody({
