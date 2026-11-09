@@ -55,7 +55,8 @@
     "mock:server": "node scripts/mock-team-server.mjs",
     "gate:ui-contract": "node scripts/check-ui-contract.mjs",
     "prepack": "node build.cjs",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "smoke": "node scripts/smoke-capabilities.mjs"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": ">=0.2.0 <0.3.0"

@@ -358,7 +358,16 @@ function AddPage({ onHide }: { onHide: () => void }) {
     Promise.resolve(actions.startReverseLogin(platformId) as Promise<{ loginUrl?: string }>)
       .then((started) => {
         const loginUrl = started && started.loginUrl ? String(started.loginUrl) : '';
-        if (!loginUrl) { setLoginState('failed'); setLoginNote('无法发起登录：服务端没有返回授权地址'); return; }
+        if (!loginUrl) {
+          setLoginState('failed');
+          const serverMessage = started && (started as { error?: { message?: string } }).error
+            ? String((started as { error?: { message?: string } }).error?.message || '')
+            : '';
+          setLoginNote(serverMessage
+            ? `无法发起登录：${serverMessage}`
+            : `无法发起登录：服务端没有返回授权地址（平台 id=${platformId || '(空)'}）`);
+          return;
+        }
         // 同一段异步续体里开窗：离用户手势还近，浏览器才允许弹窗
         let opened: Window | null = null;
         try { opened = window.open(loginUrl, '_blank', 'width=800,height=620'); } catch { opened = null; }
