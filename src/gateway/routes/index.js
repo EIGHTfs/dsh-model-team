@@ -19,6 +19,7 @@ import { handleGlobalStatsRoute, handleSessionStatsRoute } from './stats.js';
 import { handleExportRoute, handleImportRoute, handlePlatformListRoute } from './config.js';
 // 会话查询直接复用 session/current.js 的两个 handler（同属「会话」领域，不必再包一层）
 import { handleCurrentSessionRoute, handleSessionDetailRoute } from '../session/current.js';
+import { handleStreamRoute } from './stream.js';
 
 export const ROUTES = Object.freeze([
   { method: 'POST', pattern: '/v1/chat/completions', handler: handleChatCompletionsRoute },
@@ -50,6 +51,8 @@ export const ROUTES = Object.freeze([
   { method: 'POST', pattern: `${API_PREFIX}/import`, handler: handleImportRoute },
   // 客户端元信息（契约 02 §2.9 #26）：只读、无副作用，客户端启动取一次
   { method: 'GET', pattern: `${API_PREFIX}/meta`, handler: handleMetaRoute },
+  // 请求完成事件流（SSE）：前端唯一订阅点，避免"猜宿主 hook"（docs/09）
+  { method: 'GET', pattern: `${API_PREFIX}/stream`, handler: handleStreamRoute },
 ].map((route) => ({ ...route, segments: route.pattern.split('/').filter((segment) => segment.length > 0) })));
 
 // 单段匹配：`:` 开头为参数占位，其余按字面比较

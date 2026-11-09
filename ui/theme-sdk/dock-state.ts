@@ -11,6 +11,8 @@ import type { OpenDirection, Point } from './dock-geometry';
 export interface DockStateSnapshot {
   visible: boolean;
   anchor: Point | null;
+  /** 主窗口左上角（主题拖动后写回；由宿主持久化） */
+  windowAnchor: Point | null;
   openDir: OpenDirection;
 }
 
@@ -18,6 +20,8 @@ export interface DockBridge {
   getDockState: () => DockStateSnapshot;
   subscribeDockState: (listener: (snapshot: DockStateSnapshot) => void) => () => void;
   setDockAnchor: (anchor: Point) => void;
+  /** 主窗口位置（与球锚点分开） */
+  setWindowAnchor: (anchor: Point) => void;
   setDockOpenDir: (openDir: OpenDirection) => void;
   setDockShape: (shape: 'ball' | 'panel') => void;
 }

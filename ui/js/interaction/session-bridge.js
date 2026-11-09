@@ -266,23 +266,6 @@ function createSessionBridgeComponent(reactRuntime) {
       pushSession(sessionId, sessionTitle);
     }, [sessionId, sessionTitle]);
 
-    // 一轮请求结束时刷新聊天与统计：宿主会自己翻转 session.running（true → false），
-    // 这是**事件驱动**的信号，不引入任何定时轮询。为什么必须有它：
-    // 群聊页的数据只在"进群聊/切会话/发消息"时加载；模型请求在后台跑完并不会产生 store 事件，
-    // 主题是按事件重渲染的（legacy 每次 onRender 都重画，所以看上去"会更新"）。缺这一下，
-    // 新请求的请求行要等用户切走再回来才出现。
-    const sessionRunning = Boolean(props && props.session && props.session.running);
-    reactRuntime.useEffect(function () {
-      const wasRunning = previousSessionRunningRef.current;
-      previousSessionRunningRef.current = sessionRunning;
-      if (!wasRunning || sessionRunning) return;
-      if (!store) return;
-      const currentState = store.getState();
-      if (currentState.view !== 'chat' || !currentState.currentGroupId) return;
-      store.dispatch({ type: 'load-chat', groupId: currentState.currentGroupId }).catch(function () {});
-      store.dispatch({ type: 'load-stats' }).catch(function () {});
-    }, [sessionRunning]);
-
     // 响应式路径一（渲染驱动）：宿主重渲染时重新取值并下发
     reactRuntime.useEffect(function () {
       reportDockDecision(evaluateDock({
@@ -321,8 +304,16 @@ function createSessionBridgeComponent(reactRuntime) {
 // 兜底（仅在槽位不可用时调用）：启动后拉一次，绝不 setInterval
 function fetchSessionOnce() {
   if (typeof api === 'undefined' || !api || typeof api.getCurrentSession !== 'function') return;
+  // 槽位已经给过会话 id 时，兜底**绝不覆盖**：/sessions/current 是"宿主最近活跃会话"的快照，
+  // 可能正是旧会话；用它覆盖槽位 id 会让"写目标"写进另一个会话（真机实测过的错位）。
+  if (typeof store === 'undefined' || !store) return;
+  var knownSessionId = store.getState().sessionId;
+  if (typeof knownSessionId === 'string' && knownSessionId.length > 0) return;
   api.getCurrentSession().then(function (payload) {
+    if (!payload || !payload.sessionId) return;
+    var currentSessionId = store.getState().sessionId;
+    if (typeof currentSessionId === 'string' && currentSessionId.length > 0) return;   // 期间槽位已到达
     // 一次性兜底没有 useSessions，标题拿不到 → 面板「会话」行只显示 id 前 8 位
-    if (payload && payload.sessionId) pushSession(payload.sessionId, null);
+    pushSession(payload.sessionId, null);
   });
 }

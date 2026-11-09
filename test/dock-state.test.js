@@ -47,7 +47,7 @@ test('G-dock2-⑥：subscribe 立即回调一次当前值（R2：订阅者不必
   const unsubscribe = api.subscribeDockState((state) => seen.push(state));
 
   assert.equal(seen.length, 1, '订阅瞬间必须回调一次');
-  assert.deepEqual(seen[0], { visible: false, anchor: null, shape: 'ball', openDir: 'down-left' });
+  assert.deepEqual(seen[0], { visible: false, anchor: null, windowAnchor: null, shape: 'ball', openDir: 'down-left' });
   assert.equal(typeof unsubscribe, 'function');
 });
 
@@ -79,7 +79,7 @@ test('G-dock2-⑧：锚点持久化只存收起态锚点，刷新后能读回；
   first.api.setDockAnchor({ left: 120.4, top: 88.6 });
 
   const saved = JSON.parse(first.store.get('dsh-model-team:dock-state-v2'));
-  assert.deepEqual(saved, { anchor: { left: 120, top: 89 } }, '只存锚点（并取整），不存 visible');
+  assert.deepEqual(saved, { anchor: { left: 120, top: 89 }, windowAnchor: null }, '只存锚点（并取整），不存 visible');
   assert.equal(JSON.stringify(saved).includes('visible'), false);
 
   // 模拟刷新：用同一份存储重新加载工厂

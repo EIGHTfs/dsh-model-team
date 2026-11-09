@@ -15,6 +15,8 @@ function createInitialState() {
     sessionId: null,
     sessionTitle: null,
     lastSessionId: null,
+    // 会话 id 的来源：slot（宿主槽位，唯一可信）| fallback（服务端「最近活跃」推断）| none
+    sessionIdSource: 'none',
     target: null,                 // 本会话显式绑定的目标（可能为 null）
     effectiveTarget: null,        // 实际生效的目标（含后端回落），面板/球/群聊都用它
     targetSource: 'none',         // explicit | parent | last-session | fallback-group | none

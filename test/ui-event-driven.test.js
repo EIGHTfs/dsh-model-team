@@ -40,8 +40,11 @@ test('dock.js：视图切换用微任务排队，不用 0ms 定时器', () => {
 });
 
 test('产品代码 setInterval 只剩协议轮询（白名单逐条说明）', async () => {
-  // 允许清单：路径 → 理由。当前产品代码里**没有任何** setInterval（协议轮询用的是递归 setTimeout）。
-  const allowed = new Map([]);
+  // 允许清单：路径 → 理由。协议轮询用递归 setTimeout；唯一例外是 SSE 心跳——
+  // 它是**服务端**往长连接里写注释帧（代理 20~60s 空闲就断），属于协议要求，不是客户端轮询。
+  const allowed = new Map([
+    ['src/gateway/routes/stream.js', 'SSE 心跳：每 20s 写一行 ": ping" 防代理断连（docs/09 stream 端点规定）'],
+  ]);
   const roots = ['ui/js', 'src', 'lib/client-parts'];
   const offenders = [];
   const walk = async (relativeDir) => {

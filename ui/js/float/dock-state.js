@@ -18,6 +18,8 @@ var DOCK_SHAPES = { BALL: 'ball', PANEL: 'panel' };
 var dockState = {
   visible: false,          // 球是否显示（INV-14 判定的唯一落点）
   anchor: null,            // 收起态锚点（球左上角）{left, top}；null = 还没定过位（用默认右下角）
+  // 主窗口位置（左上角 {left, top}）：主题拖动后写这里，由宿主持久化（主题不碰 localStorage）
+  windowAnchor: null,
   shape: DOCK_SHAPES.BALL, // 当前形态，决定按谁的尺寸夹取
   // 展开方向：锚点中心相对视口中心决定象限。文本侧与面板展开方向都由它推出来，
   // 拖动松手/窗口 resize 后必须重算（用户可能拖到另一半屏再展开）。
@@ -36,6 +38,7 @@ function getDockState() {
   return {
     visible: dockState.visible,
     anchor: cloneDockAnchor(dockState.anchor),
+    windowAnchor: cloneDockAnchor(dockState.windowAnchor),
     shape: dockState.shape,
     openDir: dockState.openDir,
   };
@@ -108,6 +111,22 @@ function setDockShape(shape) {
 }
 
 // 位置只存锚点（球的左上角）；面板位置由锚点 + 展开方向算出来，不落盘
+// 主窗口位置：主题拖动结束写一次；与球锚点分开存（两者是不同部件，共用一个字段会互相顶掉）
+function setWindowAnchor(anchor) {
+  var nextAnchor = cloneDockAnchor(anchor);
+  if (nextAnchor) {
+    nextAnchor.left = Math.round(nextAnchor.left);
+    nextAnchor.top = Math.round(nextAnchor.top);
+  }
+  var previous = dockState.windowAnchor;
+  var unchanged = (previous === null && nextAnchor === null)
+    || (previous && nextAnchor && previous.left === nextAnchor.left && previous.top === nextAnchor.top);
+  if (unchanged) return;
+  dockState.windowAnchor = nextAnchor;
+  persistDockState();
+  notifyDockState();
+}
+
 function setDockAnchor(anchor) {
   var nextAnchor = cloneDockAnchor(anchor);
   if (nextAnchor) {
@@ -152,7 +171,10 @@ function loadDockStateFromStorage(storage) {
     if (parsedState && parsedState.anchor) {
       dockState.anchor = cloneDockAnchor(parsedState.anchor);
     }
-    // 只有锚点会持久化：显隐与形态是运行时事实，不该跨会话恢复
+    if (parsedState && parsedState.windowAnchor) {
+      dockState.windowAnchor = cloneDockAnchor(parsedState.windowAnchor);
+    }
+    // 只有两个锚点会持久化：显隐与形态是运行时事实，不该跨会话恢复
     return;
   }
   // 迁移旧键：读出来 → 写进新键 → 删旧键（避免两份真相并存）
@@ -169,7 +191,8 @@ function persistDockState(storage) {
   var target = readStorage(storage) || readStorage(typeof window === 'undefined' ? null : window.localStorage);
   if (!target) return;
   try {
-    target.setItem(DOCK_STATE_STORAGE_KEY, JSON.stringify({ anchor: dockState.anchor }));
+    // 只持久化两个锚点：显隐/形态是运行时事实，不跨会话恢复
+    target.setItem(DOCK_STATE_STORAGE_KEY, JSON.stringify({ anchor: dockState.anchor, windowAnchor: dockState.windowAnchor }));
   } catch (error) { /* 存储不可用（隐私模式/配额）时装不了不影响运行 */ }
 }
 
@@ -186,6 +209,7 @@ if (typeof window !== 'undefined') {
     subscribeDockState: subscribeDockState,
     setDockVisible: setDockVisible,
     setDockAnchor: setDockAnchor,
+    setWindowAnchor: setWindowAnchor,
     setDockShape: setDockShape,
     setDockOpenDir: setDockOpenDir,
     reapplyDockDom: reapplyDockDom,

@@ -183,7 +183,7 @@ function ChatPage({ groupId, onHide }: { groupId: string; onHide: () => void }) 
             <div className="tim-mention-section">本群群友（单模型）</div>
             {models.length === 0 ? <div className="tim-mention-empty">没有群友</div> : null}
             {models.map((model) => (
-              <button key={String(model.id)} type="button" className="tim-mention-item" onClick={() => { actions.switchTarget({ type: 'model', id: String(model.id) }); setMentionOpen(false); }}>
+              <button key={String(model.id)} type="button" className="tim-mention-item" onClick={() => { actions.switchTarget({ type: 'model', id: String(model.id), platformId: groupId }); setMentionOpen(false); }}>
                 <Avatar avatar={model.avatar} fallbackName={model.name || model.id} />
                 <span>{String(model.name || model.id)}</span>
               </button>
@@ -1021,10 +1021,18 @@ function TabBar() {
   );
 }
 
-function MainWindow({ onHide }: { onHide: () => void }) {
+function MainWindow({ onHide, windowStyle, dragHandlers }: {
+  onHide: () => void;
+  windowStyle: { left?: number; top?: number; transform?: string };
+  dragHandlers: {
+    onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+    onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
+    onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
+  };
+}) {
   const view = useView();
   return (
-    <div className="tim-app">
+    <div className="tim-app tim-app-draggable" style={windowStyle} {...dragHandlers}>
       <div className="tim-app-body">
         {view.view === 'list' ? <ListPage onHide={onHide} /> : null}
         {view.view === 'chat' ? <ChatPage groupId={view.currentGroupId} onHide={onHide} /> : null}
@@ -1078,6 +1086,8 @@ function DockLayer({ windowHidden, onExpand }: { windowHidden: boolean; onExpand
   const openDir = snapshot ? snapshot.openDir : computeOpenDir({ ...ballPosition, ...ballSize }, viewSize);
   const panelPosition = computePanelPosition({ ...ballPosition, ...ballSize }, measureSize(panelElement, PANEL_FALLBACK_SIZE as Size), openDir, viewSize);
 
+  // 球的显隐**只看判定**：当前会话选中的模型是我们的虚拟模型 → 必须显示；否则不显示。
+  // 与"窗口是否收起""是否正在看面板"无关 —— 那两者是界面自身状态，不该改变准入判定。
   if (!snapshot || !snapshot.visible) return null;
 
   const platformName = activeGroup && typeof activeGroup.name === 'string' ? activeGroup.name : '';
@@ -1299,6 +1309,15 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-input { flex: 1; min-width: 0; height: 34px; padding: 0 12px; border: none; border-radius: 8px; background: var(--tim-bg-input); font-size: 13px; color: var(--tim-text-1); outline: none; }
 [data-theme-root="tim"] .tim-send { height: 34px; padding: 0 16px; border: none; border-radius: 8px; background: var(--tim-primary); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; }
 
+/* 主窗口可拖：拖过之后用 left/top 定位（覆盖居中 transform）；顶栏空白处给出抓取光标 */
+[data-theme-root="tim"] .tim-app.tim-app-draggable { touch-action: none; }
+[data-theme-root="tim"] .tim-app-draggable .tim-list-head,
+[data-theme-root="tim"] .tim-app-draggable .tim-chat-head,
+[data-theme-root="tim"] .tim-app-draggable .tim-profile-head { cursor: grab; }
+[data-theme-root="tim"] .tim-app-draggable .tim-list-head button,
+[data-theme-root="tim"] .tim-app-draggable .tim-chat-head button,
+[data-theme-root="tim"] .tim-app-draggable .tim-profile-head button { cursor: pointer; }
+
 /* 顶部「—」收起键：触屏友好（32×32 命中区），不抢标题视觉 */
 [data-theme-root="tim"] .tim-window-hide { flex: none; width: 32px; height: 32px; margin-left: auto; border: none; border-radius: 8px; background: transparent; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; opacity: 0.72; }
 [data-theme-root="tim"] .tim-window-hide:hover { opacity: 1; background: rgba(0, 0, 0, 0.06); }
@@ -1509,10 +1528,65 @@ export default defineTheme({
   Root: function TimRoot() {
     // 收起 = 只不渲染主窗口（DOM 与订阅都保留，球还在），再点球展开；不销毁、不退订
     const [windowHidden, setWindowHidden] = useState(false);
+    // 主窗口位置：由宿主 dock 状态持有（主题不碰浏览器存储）；null = 还没拖过（居中）
+    const dockBridge = useDockState();
+    const [windowPosition, setWindowPosition] = useState<{ left: number; top: number } | null>(null);
+    const dragRef = useRef<{ startX: number; startY: number; left: number; top: number } | null>(null);
+    // 拖动过程中的最新位置（同一个 tick 里 state 还没刷新，落盘要用它）
+    const latestPositionRef = useRef<{ left: number; top: number } | null>(null);
+
+    const anchorFromHost = dockBridge.snapshot && dockBridge.snapshot.windowAnchor;
+    const effectivePosition = windowPosition || (anchorFromHost ? { left: anchorFromHost.left, top: anchorFromHost.top } : null);
+
+    // 只在顶栏空白处起拖：按钮/输入/选择器不触发（触屏也一样，pointer 事件统一处理）
+    const beginWindowDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+      const target = event.target as HTMLElement | null;
+      if (target && target.closest('button,input,select,textarea,a,[data-no-drag]')) return;
+      const inHeader = target && target.closest('.tim-list-head,.tim-chat-head,.tim-profile-head');
+      if (!inHeader) return;
+      const appElement = (event.currentTarget as HTMLElement).getBoundingClientRect();
+      dragRef.current = { startX: event.clientX, startY: event.clientY, left: appElement.left, top: appElement.top };
+      try { (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId); } catch { /* 捕获失败不影响拖动 */ }
+    };
+
+    const moveWindowDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+      const context = dragRef.current;
+      if (!context) return;
+      const appElement = event.currentTarget as HTMLElement;
+      const size = { width: appElement.offsetWidth, height: appElement.offsetHeight };
+      const clamped = clampDockPosition(
+        context.left + (event.clientX - context.startX),
+        context.top + (event.clientY - context.startY),
+        size,
+        readViewSize(),
+      );
+      latestPositionRef.current = clamped;
+      setWindowPosition(clamped);
+    };
+
+    const endWindowDrag = () => {
+      const context = dragRef.current;
+      dragRef.current = null;
+      const finalPosition = latestPositionRef.current || windowPosition;
+      if (!context || !finalPosition) return;
+      // 位置存宿主：与球锚点分开的 windowAnchor（持久化由宿主的状态工厂负责）
+      if (dockBridge.bridge && typeof dockBridge.bridge.setWindowAnchor === 'function') {
+        dockBridge.bridge.setWindowAnchor(finalPosition);
+      }
+    };
+
     return (
       <div data-theme-root="tim" className="tim-theme-root">
         <DockLayer windowHidden={windowHidden} onExpand={() => setWindowHidden(false)} />
-        {windowHidden ? null : <MainWindow onHide={() => setWindowHidden(true)} />}
+        {windowHidden ? null : (
+          <MainWindow
+            onHide={() => setWindowHidden(true)}
+            windowStyle={effectivePosition
+              ? { left: effectivePosition.left, top: effectivePosition.top, transform: 'none' }
+              : {}}
+            dragHandlers={{ onPointerDown: beginWindowDrag, onPointerMove: moveWindowDrag, onPointerUp: endWindowDrag }}
+          />
+        )}
       </div>
     );
   },

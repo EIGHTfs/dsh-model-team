@@ -18,11 +18,16 @@ function createSessionAndTarget(deps) {
     if (sessionSource) sessionSource.start();
     return api.getCurrentSession().then(function (payload) {
       var sessionId = payload && payload.sessionId ? payload.sessionId : null;
+      // 启动兜底只用于「界面先有个会话可显示」，来源标记为 fallback。
+      // 它来自服务端的「最近活跃会话」推断，**不是本界面正在看的会话**（docs/14 §1.3），
+      // 因此不允许用它写目标 —— 否则会把目标写进另一个会话（真机实测过「写 A 跑 B」）。
       if (sessionId) {
         state.sessionId = sessionId;
+        state.sessionIdSource = 'fallback';
         persist(SESSION_STORAGE_KEY, sessionId);
       } else {
         state.sessionId = state.lastSessionId;
+        state.sessionIdSource = state.sessionId ? 'fallback' : 'none';
       }
       if (typeof api.setActiveSession === 'function' && state.sessionId) api.setActiveSession(state.sessionId);
       broadcast('session:changed', { sessionId: state.sessionId, previous: null });
@@ -51,7 +56,10 @@ function createSessionAndTarget(deps) {
   }
 
   function switchTarget(target) {
-    if (!state.sessionId) return Promise.resolve(null);
+    // 只认槽位给的会话 id：fallback 值是「最近活跃」推断，写进去会落到别的会话上
+    if (!state.sessionId || state.sessionIdSource !== 'slot') {
+      return Promise.reject(new Error('当前会话尚未就绪（等宿主槽位同步），请稍后重试'));
+    }
     return api.putSessionTarget(state.sessionId, target).then(function (nextTarget) {
       state.target = nextTarget || target;
       // 用户显式切换后，实际生效的就是它，来源标记为 explicit
@@ -73,6 +81,13 @@ function createSessionAndTarget(deps) {
     var previous = state.sessionId;
     var previousTitle = state.sessionTitle;
     if (nextSessionId === previous) {
+      // 即使 id 相同，也要把来源升级为「槽位确认」：启动兜底先给了同值，来源仍是 fallback，
+      // 不升级的话 switchTarget 会一直拒绝写目标（表现为「切了没反应」）。
+      if (nextSessionId && state.sessionIdSource !== 'slot') {
+        state.sessionIdSource = 'slot';
+        broadcast('session:changed', { sessionId: nextSessionId, previous: previous });
+        return Promise.resolve();
+      }
       // 会话没变但标题可能后到（useSessions 异步就绪）——标题变了也要广播，否则「会话」行一直空着
       if (nextTitle === previousTitle) return Promise.resolve();
       state.sessionTitle = nextTitle;
@@ -80,6 +95,7 @@ function createSessionAndTarget(deps) {
       return Promise.resolve();
     }
     state.sessionId = nextSessionId;
+    state.sessionIdSource = nextSessionId ? 'slot' : 'none';
     state.sessionTitle = nextTitle;
     if (nextSessionId) {
       state.lastSessionId = nextSessionId;

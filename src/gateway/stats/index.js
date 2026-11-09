@@ -10,6 +10,7 @@ import { getDataRoot, getRequestRowsPath, getStatsDirectory } from '../config/pa
 import { defaultLogger, describeFailure } from '../logger.js';
 import { formatClockTime, formatIsoWithOffset, formatLatency } from '../clock.js';
 import { resolvePromptTotal } from '../mapping.js';
+import { EVENT_REQUEST_COMPLETED, getEventHub } from '../events/hub.js';
 
 // 环形截断阈值缺省值（docs/09 §8：config.stats.maxRows）
 export const DEFAULT_MAX_REQUEST_ROWS = 5000;
@@ -264,6 +265,23 @@ export async function appendRequestRow(
   await fs.mkdir(getStatsDirectory(dataRoot), { recursive: true });
   await fs.appendFile(getRequestRowsPath(dataRoot), `${JSON.stringify(requestRow)}\n`, 'utf8');
   await enforceRingTruncation({ dataRoot, logger, maxRows });
+  // 落盘之后才广播：前端收到事件去读，必须能读到这一行（失败请求也要发——界面要显示失败行）
+  try {
+    getEventHub({ logger }).publish(EVENT_REQUEST_COMPLETED, {
+      sessionId: requestRow.sessionId ?? null,
+      groupId: requestRow.account?.id ?? null,
+      row: {
+        time: requestRow.time,
+        status: requestRow.status,
+        statusText: requestRow.statusText,
+        model: requestRow.model,
+        latency: requestRow.latency,
+      },
+    });
+  } catch (publishError) {
+    // 广播失败不能影响请求本身：前端最坏等下一次用户动作再刷新
+    logger?.warn?.(`请求完成事件广播失败：${publishError?.message ?? publishError}`);
+  }
   return requestRow;
 }
 
