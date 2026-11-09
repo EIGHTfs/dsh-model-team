@@ -1,0 +1,5 @@
+{
+  "theme": {
+    "source": "ui/themes/tim.tsx"
+  }
+}

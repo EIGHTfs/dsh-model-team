@@ -79,9 +79,35 @@ function decideDock(input) {
   return evaluateDock(input).decision;
 }
 
+// 结论的「信息量」分级：
+//   2 级 = 拿到了值（ours / other）
+//   1 级 = 没有可用值（unknown：值还没到；degraded：连通道都没有）
+// 桥可能被多次挂载（宿主多个槽位/重渲染），**"没有值"的挂载不得覆盖"有值"的结论**——
+// 否则"先判出 ours、后被无 projection 的挂载改写成 degraded"会让球永久隐藏（真机实测就是这个顺序）。
+// unknown 与 degraded 同级：两者都不显示，谁在后就记谁（日志更准），互不构成信息损失。
+// 同级允许更新，保证 other → ours 这种真实变化能生效。
+var DOCK_DECISION_LEVELS = { degraded: 1, unknown: 1, other: 2, ours: 2 };
+
+function dockDecisionLevel(decision) {
+  return Object.prototype.hasOwnProperty.call(DOCK_DECISION_LEVELS, decision)
+    ? DOCK_DECISION_LEVELS[decision]
+    : DOCK_DECISION_LEVELS.degraded;
+}
+
+// 是否该用新结论覆盖上一个结论（纯函数，便于单测）
+function shouldApplyDockDecision(nextDecision, lastDecision) {
+  if (!lastDecision) return true;
+  return dockDecisionLevel(nextDecision) >= dockDecisionLevel(lastDecision);
+}
+
 // 每次结论变化打一行（含理由），便于现场判断"为什么球不显示"；结论没变就不刷屏
 var lastDockLogKey = null;
+var lastAppliedDecision = null;
 function reportDockDecision(result) {
+  if (!shouldApplyDockDecision(result.decision, lastAppliedDecision)) {
+    // 低信息量的挂载不改写已有结论；保持当前显隐不动
+    return lastAppliedDecision;
+  }
   var logKey = result.decision + "|" + result.reason;
   if (logKey !== lastDockLogKey) {
     lastDockLogKey = logKey;
@@ -89,6 +115,7 @@ function reportDockDecision(result) {
       console.info("[dock] " + result.decision + " ← " + result.reason);
     } catch (logError) { /* 没有 console 的环境不影响显隐 */ }
   }
+  lastAppliedDecision = result.decision;
   applyDockDecision(result.decision);
   return result.decision;
 }
@@ -140,31 +167,17 @@ function recomputeDockDecision() {
 // ui-conversation 也是这么读的），订阅它就能在变化时立即重算，且不引入任何定时轮询。
 // 返回退订函数；宿主没提供 face（旧版/结构变了）时返回 null，由调用方继续走渲染期取值。
 function subscribeModelSelection({ session, key, onChange } = {}) {
-  try {
-    const projections = session && session.projections;
-    const face = projections && typeof projections.faceOf === "function" ? projections.faceOf(key) : null;
-    if (!face || typeof face.subscribe !== "function") return null;
-    const emitSelection = function () {
-      let nextSelection;
-      try {
-        nextSelection = typeof face.getSnapshot === "function" ? face.getSnapshot() : undefined;
-      } catch (snapshotError) {
-        warnOnce("projection(modelSelection) getSnapshot", snapshotError);
-        nextSelection = undefined;
-      }
-      if (typeof onChange === "function") onChange(nextSelection);
-    };
-
-    const unsubscribe = face.subscribe(emitSelection);
-    // 订阅成功后**立刻取一次快照**：projection 的值可能在订阅之前就已设定（恢复历史会话就是这样），
-    // 之后不会再有变化事件；不补这一下，selection 会一直是 undefined → 判定 unknown → 球永久隐藏。
-    emitSelection();
-    return typeof unsubscribe === "function" ? unsubscribe : null;
-  } catch (error) {
-    // 订阅失败不算致命：退回渲染期取值（比现在不多也不少）
-    warnOnce("subscribe(modelSelection)", error);
-    return null;
-  }
+  // 取值通道统一走适配层（model-selection-source.js）：老宿主 session.projections.faceOf 只是其中一种，
+  // 以后官方换版本只改适配层，这里与判定逻辑都不动。
+  var source = resolveModelSelectionSource({ session: session, projectionKey: key });
+  if (!source) return null;
+  var emit = function () {
+    if (typeof onChange === "function") onChange(source.getSnapshot());
+  };
+  var unsubscribe = source.subscribe(emit);
+  // 订阅成功后立刻取一次快照：值可能在订阅之前就已设定（恢复历史会话就是这样）
+  emit();
+  return typeof unsubscribe === "function" ? unsubscribe : null;
 }
 
 // meta 重试预算：首次失败后按这三档重试；三次都失败 = 判不了 → 隐藏。
@@ -231,18 +244,18 @@ function createSessionBridgeComponent(reactRuntime) {
     const sessionId = (props && props.session && props.session.sessionId) || (props && props.sessionId) || null;
     const sessionTitle = readSessionTitle(props, sessionId);
 
-    // 旧版宿主没有 useProjection：降级为"显示"（不比现状差），只警告一次
-    const hasProjection = Boolean(props && typeof props.useProjection === "function");
+    // 取值通道由适配层探测（useProjection / session.projections / props 直传 / session 快照）
+    const selectionSource = resolveModelSelectionSource(props);
+    const hasProjection = Boolean(selectionSource);
     if (!hasProjection) {
-      warnOnce('宿主未提供 useProjection，INV-14 降级为常显', null);
+      warnOnce('宿主未提供任何模型选择通道，INV-14 判定为 degraded（隐藏）', null);
     }
     let selection;
     if (hasProjection) {
       try {
-        selection = props.useProjection(MODEL_SELECTION_PROJECTION_KEY);
+        selection = selectionSource.getSnapshot();
       } catch (error) {
-        // 宿主 hook 形状变了不算致命：按"还没有值"处理（不显示），告警一次
-        warnOnce('useProjection(modelSelection)', error);
+        warnOnce('modelSelection.getSnapshot', error);
       }
     }
     // 记下本次输入并判定：meta 迟到时用同一份输入重算，不依赖 React 再渲染一次
@@ -274,14 +287,10 @@ function createSessionBridgeComponent(reactRuntime) {
     // 响应式路径二（订阅驱动，G-15）：宿主不重渲染时也能感知 modelSelection 变化。
     // 依赖 sessionId：切会话要重新订阅新 session 的 projection face；同一会话内不重复订阅。
     reactRuntime.useEffect(function () {
-      const unsubscribe = subscribeModelSelection({
-        session: props && props.session,
-        key: MODEL_SELECTION_PROJECTION_KEY,
-        onChange: function (nextSelection) {
-          // 新值到达：先记输入（meta 迟到的重算要用最新值），再立即下发，不等 React 再渲染一次
-          applyDockDecision(rememberDockInputs(nextSelection, true));
-        }
-      });
+      const unsubscribe = selectionSource ? selectionSource.subscribe(function () {
+        // 新值到达：先记输入（meta 迟到的重算要用最新值），再立即下发，不等 React 再渲染一次
+        applyDockDecision(rememberDockInputs(selectionSource.getSnapshot(), true));
+      }) : null;
       return function () {
         if (typeof unsubscribe === "function") unsubscribe();
       };

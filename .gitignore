@@ -1,6 +1,8 @@
 # 本地数据根：平台配置与凭证引用都落在这里，绝不入库
 .dsh-model-team/
 config.json
+# 例外：随包分发的默认主题指向（不是本机数据根配置，必须入库）
+!config/config.json
 
 # 依赖与锁文件（本项目零第三方依赖，出现即异常）
 node_modules/

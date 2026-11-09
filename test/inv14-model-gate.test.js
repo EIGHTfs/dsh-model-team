@@ -8,12 +8,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
 const BRIDGE_SOURCE = await fs.readFile(new URL('../ui/js/interaction/session-bridge.js', import.meta.url), 'utf8');
+// 取值通道已抽成适配层（model-selection-source.js）：真实 bundle 里同作用域，测试也要拼起来执行
+const SOURCE_LAYER_SOURCE = await fs.readFile(new URL('../ui/js/interaction/model-selection-source.js', import.meta.url), 'utf8');
 const CLIENT_SOURCE = await fs.readFile(new URL('../lib/client.js', import.meta.url), 'utf8');
 
 // 每次加载都重新执行一遍源码：分片里的 meta 缓存是模块级的，用例之间不能互相污染
 function loadBridge() {
   // eslint-disable-next-line no-new-func
-  const factory = new Function(`${BRIDGE_SOURCE}
+  const factory = new Function(`${SOURCE_LAYER_SOURCE}
+${BRIDGE_SOURCE}
 ;return {
   decideDock: decideDock,
   rememberDockInputs: rememberDockInputs,

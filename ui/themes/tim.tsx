@@ -1080,7 +1080,7 @@ function DockLayer() {
         ref={setBallElement}
         className="tim-ball-anchor"
         data-open-dir={openDir}
-        style={{ position: 'fixed', left: `${ballPosition.left}px`, top: `${ballPosition.top}px`, transition: dragging ? 'none' : 'transform 220ms cubic-bezier(.16,1,.3,1)' }}
+        style={{ position: 'fixed', zIndex: 1, left: `${ballPosition.left}px`, top: `${ballPosition.top}px`, transition: dragging ? 'none' : 'transform 220ms cubic-bezier(.16,1,.3,1)' }}
         onPointerDown={(event) => {
           event.preventDefault();
           dragContextRef.current = { startX: event.clientX, startY: event.clientY, left: ballPosition.left, top: ballPosition.top, panelWasOpen: panelOpen, moved: false };
@@ -1161,9 +1161,12 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
   --tim-window-height: min(760px, 86vh);
 }
 
-/* 主窗口（桌面浮窗，不是 1.html 的手机外壳） */
+/* 主窗口（桌面浮窗，不是 1.html 的手机外壳）。
+   跨宿主层级由宿主容器统一持有（theme-epilogue 把容器放进 app 层）；
+   这里的 2 只是容器内部顺序，主题不持任何跨宿主层级数值。 */
 [data-theme-root="tim"] .tim-app {
   position: fixed;
+  z-index: 2;   /* 容器内部顺序（跨宿主的层级由宿主容器统一给，见 theme-epilogue.js） */
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
@@ -1404,7 +1407,7 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-ball::after { content: ""; position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 50%; background: #22C55E; border: 2px solid #fff; }
 
 /* ===== 面板：深色标题条（1.html 的 gray-900）===== */
-[data-theme-root="tim"] .tim-panel { width: 320px; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 18px 44px rgba(17, 24, 39, 0.34); border: 1px solid var(--tim-line); font: 13px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", system-ui, sans-serif; color: var(--tim-text-1); }
+[data-theme-root="tim"] .tim-panel { z-index: 3; width: 320px; border-radius: 12px; overflow: hidden; background: #fff; box-shadow: 0 18px 44px rgba(17, 24, 39, 0.34); border: 1px solid var(--tim-line); font: 13px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", system-ui, sans-serif; color: var(--tim-text-1); }
 [data-theme-root="tim"] .tim-panel-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: #111827; color: #fff; }
 [data-theme-root="tim"] .tim-panel-title { border: none; background: transparent; color: #fff; font-size: 12px; font-weight: 700; cursor: pointer; padding: 0; }
 [data-theme-root="tim"] .tim-panel-model { margin-left: auto; font-size: 11.5px; color: #9CA3AF; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
