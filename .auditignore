@@ -13,3 +13,11 @@ lib/client.js : readability/max-function-length
 lib/client.js : security/no-repeated-hardcoded-literals
 lib/client.js : button/unbound
 lib/client.js : readability/vague-variable-name
+
+# 主题是「一个主题 = 一个 .tsx 文件」（docs/03 §7.1），单文件承载整套界面的结构与样式，
+# 因此文件长度与其中渲染函数的长度天然超过通用阈值 —— 这是契约要求的形态，不是可拆可合并的问题。
+# 只豁免这两个尺寸类规则；主题里其它规则（命名、复杂度、安全）照常报。
+ui/themes/tim.tsx : readability/max-file-length
+ui/themes/tim.tsx : readability/max-function-length
+ui/themes/classic.tsx : readability/max-file-length
+ui/themes/classic.tsx : readability/max-function-length
