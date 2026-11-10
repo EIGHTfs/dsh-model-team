@@ -232,3 +232,22 @@ test('导入后的账号文件权限仍是 0600（凭据落盘不因导入放宽
   const stats = await fs.stat(filePath);
   assert.equal(stats.mode & 0o777, 0o600);
 });
+
+// 账号健康状态文件与账号文件同目录：列表里绝不能把它当账号（线上出现过 accountId="….state" 的脏条目）
+test('listAccounts：排除账号健康状态文件（.state.json）', async (t) => {
+  const dataRoot = await createTempDirectory(t);
+  const logger = createRecordingLogger();
+  const accountStore = createAccountStore({ dataRoot, logger });
+  // 唯一入库入口是 upsertByUserId（按 userId 判重）
+  const written = await accountStore.upsertByUserId('qoder', {
+    accessToken: 't', refreshToken: 'r', expiresAt: '2030-01-01T00:00:00Z', userId: 'u-real', nickname: '真实账号',
+  });
+  // 健康状态文件：与账号同目录、同样以 .json 结尾
+  const healthDirectory = path.join(dataRoot, 'reverse', 'qoder');
+  await fs.mkdir(healthDirectory, { recursive: true });
+  await fs.writeFile(path.join(healthDirectory, written.accountId + '.state.json'), '{"hardFailStreak":0}', 'utf8');
+  await fs.writeFile(path.join(healthDirectory, 'catalog.json'), '{"models":[]}', 'utf8');
+
+  const accounts = await accountStore.listAccounts('qoder');
+  assert.deepEqual(accounts.map((account) => account.accountId), [written.accountId], '只允许真实账号出现（.state 与 catalog 都不是账号）');
+});

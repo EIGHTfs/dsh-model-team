@@ -17,6 +17,12 @@ import { defaultLogger, describeFailure } from '../../gateway/logger.js';
 export const ACCOUNT_DIRECTORY_NAME = 'reverse';
 export const ACCOUNT_FILE_MODE = 0o600;
 const ACCOUNT_FILE_EXTENSION = '.json';
+// 与账号文件同目录、但**不是账号**的文件（都是我们自己的附属数据）：
+//   <accountId>.state.json  账号健康状态（account-health.js 写）
+//   catalog.json            平台模型目录缓存（platforms/<id>/catalog.js 写）
+// 它们同样以 .json 结尾，不排除就会被当成账号读出（accountId="….state"/"catalog"、nickname=null）。
+const NON_ACCOUNT_FILE_SUFFIXES = Object.freeze(['.state.json']);
+const NON_ACCOUNT_FILE_NAMES = Object.freeze(['catalog.json']);
 
 // 凭据字段白名单：落盘只写这些键，避免把调试用的临时字段一起存进去
 const CREDENTIAL_FIELDS = Object.freeze([
@@ -91,7 +97,10 @@ export function createAccountStore({ dataRoot, logger = defaultLogger, now = () 
       return [];
     }
     const accounts = [];
-    for (const fileName of fileNames.filter((name) => name.endsWith(ACCOUNT_FILE_EXTENSION))) {
+    const accountFileNames = fileNames.filter((name) => name.endsWith(ACCOUNT_FILE_EXTENSION)
+      && !NON_ACCOUNT_FILE_SUFFIXES.some((suffix) => name.endsWith(suffix))
+      && !NON_ACCOUNT_FILE_NAMES.includes(name));
+    for (const fileName of accountFileNames) {
       const account = await readAccountFile(platformId, fileName.slice(0, -ACCOUNT_FILE_EXTENSION.length));
       if (account) accounts.push(account);
     }

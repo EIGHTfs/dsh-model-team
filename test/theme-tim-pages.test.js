@@ -354,3 +354,10 @@ test('底栏三个图标同一套内联 SVG（同 viewBox / 同尺寸 / 同描�
   assert.equal((sourceText.match(/const TAB_ICON_PROPS/g) || []).length, 1, '只允许一处图标属性定义');
   assert.equal(/fill="currentColor"/.test(sourceText), false, '不许混用实心图标');
 });
+
+test('登录引导（D）：文案提示"授权完成后可直接关闭该页"，且不靠定时器检测窗口关闭', async () => {
+  const themeSource = await fs.readFile(THEME_SOURCE_PATH, 'utf8');
+  assert.equal(themeSource.includes('授权完成后可直接关闭该页面'), true, '必须有可关闭授权页的引导文案');
+  assert.equal(themeSource.includes('setInterval'), false, '不许用 setInterval 轮询窗口状态（改由 focus 事件驱动）');
+  assert.equal(themeSource.includes("addEventListener('focus'"), true, '窗口重新获得焦点时要刷新账号（事件驱动）');
+});

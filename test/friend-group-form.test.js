@@ -37,7 +37,6 @@ function loadFormLayer() {
 // 与真实 apiJson/apiPostRaw 的差异就在这一点上（这也正是能读到错误体的原因）
 function loadApiLayer(responses) {
   globalThis.API_PREFIX = '/_team';
-  globalThis.API_TIMEOUT_MS = 8000;
   globalThis.formatTokenCount = (value) => String(value);
   const calls = [];
   globalThis.fetch = async (url, options) => {

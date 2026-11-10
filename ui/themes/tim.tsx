@@ -462,7 +462,6 @@ function AddPage({ onHide }: { onHide: () => void }) {
   // 切平台：账号区与模型目录都要重置（上一家的账号/模型不能带过来）；
   // 表单值由宿主按选项展开（预置项带平台默认值，驱动项为空）
   const selectDriver = (nextOptionId: string) => {
-    actions.selectGroupOption(nextOptionId);
     setAccounts([]);
     setAccountId('');
     setLoginState('idle');
@@ -470,6 +469,13 @@ function AddPage({ onHide }: { onHide: () => void }) {
     setModels([]);
     setProbeError('');
     setSubmitError('');
+    // 选平台 = 选账号域：账号型平台立刻拉一次账号（旧版在选平台时就加载，0.4.0 重写把它丢了）
+    Promise.resolve(actions.selectGroupOption(nextOptionId)).then((selection) => {
+      const selected = selection as { driver?: string } | null;
+      const nextDriver = drivers.find((candidate) => String(candidate.id || '') === String(selected?.driver || '')) || null;
+      const nextPlatformId = nextDriver && nextDriver.platformId ? String(nextDriver.platformId) : '';
+      if (isAccountAuthDriver(nextDriver) && nextPlatformId) refreshAccounts(nextPlatformId);
+    });
   };
 
   const refreshAccounts = (nextPlatformId: string) => Promise.resolve(actions.loadReverseAccounts(nextPlatformId) as Promise<AccountLike[]>)
@@ -481,7 +487,28 @@ function AddPage({ onHide }: { onHide: () => void }) {
     })
     .catch(() => { setAccounts([]); return []; });
 
+  // 补拉一次：进入加群页（或从别的平台切回来）时，账号型平台若还没有账号列表，主动拉一次。
+  // 只在 (平台, 是否账号型) 变化时触发，不进循环（accounts 变化不是它的依赖）。
+  // 离开加群页：授权页还开着就一并关掉（没人会再回那一页看结果）
+  useEffect(() => () => { closeLoginWindow(); }, []);
+
+  useEffect(() => {
+    if (!accountDriver || !platformId) return;
+    refreshAccounts(platformId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [platformId, accountDriver]);
+
   // 登录：一次点击 → 立刻开授权页 → 轮询；**只更新账号区**，表单其余字段（名称/凭证）不动
+  // 登录弹窗句柄：granted 成功/失败/过期/离开页面时都要把它关掉
+  // （否则那个页面随后被授权站导航到自定义协议，浏览器只会显示"打不开"的错误页）
+  const loginWindowRef = useRef<Window | null>(null);
+  const closeLoginWindow = () => {
+    try {
+      if (loginWindowRef.current && !loginWindowRef.current.closed) loginWindowRef.current.close();
+    } catch { /* 关不掉就留着：跨域窗口可能不允许 close，不影响登录结果 */ }
+    loginWindowRef.current = null;
+  };
+
   const startLogin = () => {
     if (!platformId || loginState === 'starting' || loginState === 'waiting') return;
     setLoginState('starting');
@@ -502,8 +529,13 @@ function AddPage({ onHide }: { onHide: () => void }) {
         // 同一段异步续体里开窗：离用户手势还近，浏览器才允许弹窗
         let opened: Window | null = null;
         try { opened = window.open(loginUrl, '_blank', 'width=800,height=620'); } catch { opened = null; }
+        loginWindowRef.current = opened || null;
         setLoginState('waiting');
-        setLoginNote(opened && !opened.closed ? '等待授权…（浏览器里完成登录后会自动刷新）' : '浏览器拦截了弹窗，请允许弹窗后重试');
+        // D：授权页最后会跳到 App 自己的协议（浏览器会显示"打不开"），这不是故障——
+        // 只要授权完成，关掉那个页面即可，登录态由这边轮询领取。
+        setLoginNote(opened && !opened.closed
+          ? '请在打开的页面完成授权；授权完成后可直接关闭该页面，回到这里会自动完成'
+          : '浏览器拦截了弹窗，请允许弹窗后重试');
       })
       .catch((error: Error) => { setLoginState('failed'); setLoginNote('无法发起登录：' + (error && error.message ? error.message : '未知原因')); });
   };
@@ -512,6 +544,14 @@ function AddPage({ onHide }: { onHide: () => void }) {
   useEffect(() => {
     if (loginState !== 'waiting' || !platformId) return undefined;
     let cancelled = false;
+    // 用户从授权页回到本页 = 一个真实事件（focus），据此刷新账号；
+    // 不用定时器去"到点检查窗口是否关闭"（那是超时兜底思路）。
+    const onWindowFocus = () => {
+      if (cancelled) return;
+      const opened = loginWindowRef.current;
+      if (!opened || opened.closed) refreshAccounts(platformId);
+    };
+    window.addEventListener('focus', onWindowFocus);
     let timer: ReturnType<typeof setTimeout> | null = null;
     let consecutiveFailures = 0;
     const pollOnce = () => {
@@ -522,6 +562,7 @@ function AddPage({ onHide }: { onHide: () => void }) {
           if (result && result.ok && body && body.status === 'pending') { timer = setTimeout(pollOnce, LOGIN_POLL_INTERVAL_MS); return; }
           if (result && result.ok && body && body.status === 'granted') {
             const granted = body.account || {};
+            closeLoginWindow();          // 授权完成：我们自己开的那一页必须关掉（否则停在错误页）
             setLoginState('idle');
             setLoginNote('已登录：' + String(granted.nickname || granted.accountId || '账号已保存'));
             refreshAccounts(platformId).then((list) => {
@@ -530,9 +571,10 @@ function AddPage({ onHide }: { onHide: () => void }) {
             });
             return;
           }
-          if (result && result.ok && body && body.status === 'expired') { setLoginState('failed'); setLoginNote('授权已超时，请重新登录'); return; }
-          if (result && result.status === 404) { setLoginState('failed'); setLoginNote('登录会话已失效，请重新登录'); return; }
-          if (result && typeof result.status === 'number' && result.status >= 500) { setLoginState('failed'); setLoginNote('登录服务异常（HTTP ' + result.status + '）'); return; }
+          if (result && result.ok && body && body.status === 'expired') { closeLoginWindow(); setLoginState('failed'); setLoginNote('授权已超时，请重新登录'); return; }
+          if (result && result.status === 404) { closeLoginWindow(); setLoginState('failed'); setLoginNote('登录会话已失效，请重新登录'); return; }
+          if (result && typeof result.status === 'number' && result.status >= 500) { closeLoginWindow(); setLoginState('failed'); setLoginNote('登录服务异常（HTTP ' + result.status + '）'); return; }
+          closeLoginWindow();
           setLoginState('failed');
           setLoginNote('登录服务异常，请稍后重试');
         })
@@ -542,6 +584,7 @@ function AddPage({ onHide }: { onHide: () => void }) {
           // 连续 3 次失败就明确失败并把原因显示出来，用户可重试。
           consecutiveFailures += 1;
           if (consecutiveFailures >= LOGIN_POLL_MAX_CONSECUTIVE_FAILURES) {
+            closeLoginWindow();
             setLoginState('failed');
             setLoginNote('登录状态查询连续失败：' + (error && error.message ? error.message : '未知原因'));
             return;
@@ -550,7 +593,7 @@ function AddPage({ onHide }: { onHide: () => void }) {
         });
     };
     pollOnce();
-    return () => { cancelled = true; if (timer !== null) clearTimeout(timer); };
+    return () => { cancelled = true; window.removeEventListener('focus', onWindowFocus); if (timer !== null) clearTimeout(timer); };
   }, [loginState, platformId]);
 
   const runProbe = () => {
