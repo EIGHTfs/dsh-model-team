@@ -2,9 +2,19 @@
 // 为什么单独成文件：球（float.js）、@ 选择器（render.js）、切换提示（chat.js）三处都要用，
 // 各写一份必然在边界上漂移（未知值怎么显示、字母怎么取），而且 render.js 已到 400 行上限，
 // 把这些"口径"搬出来比压行更符合约定。
-// 依赖方向：本文件的函数会调用 render.js 的 escapeHtml / renderAvatar，靠的是
+// 依赖方向：本文件自带 escapeHtml（0.4.0 起 legacy 渲染层已删除，HTML 转义归展示格式层唯一一份），
 // build.cjs 的 UI_PARTS 把它们拼进同一个作用域（format 在前、render 在后，顺序有断言守着）。
 // 单独执行本文件（不在 bundle 里）时必须自行垫上这两个函数，别把「依赖同作用域」当隐式约定。
+
+// HTML 转义：展示层唯一实现（legacy render.js 删除后搬到这里，调用方：本文件与 float/target-source.js）
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 
 // 球内目标标记（G6）：有 URL 头像就只显示图、不显示任何文字；没有头像就用平台首字母圆牌。
 // 为什么不另写一套首字母规则：renderAvatar 已经封装了「URL 判定 + 首字母 + 转义」，

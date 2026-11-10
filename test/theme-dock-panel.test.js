@@ -19,7 +19,6 @@ import { loadHostGlobals } from './helpers/host-globals.js';
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // 几何/文案口径现在住在 SDK（主题只负责画）：单测直接打 SDK 的纯函数
 const DOCK_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui', 'theme-sdk', 'dock-geometry.ts');
-const LEGACY_FLOAT_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui', 'js', 'float', 'float.js');
 const LEGACY_TARGET_SOURCE_PATH = path.join(PROJECT_ROOT, 'ui', 'js', 'float', 'target-source.js');
 
 /** react 只被组件体用到；模块加载期只需要这个桩（拿纯函数时不会调用任何 hook） */
@@ -61,7 +60,6 @@ async function loadDockModule() {
 
 /** legacy 的两个纯函数：直接在 vm 里跑旧分片，拿「现状的真相」来比 */
 async function loadLegacyFunctions() {
-  const floatSource = await fs.readFile(LEGACY_FLOAT_SOURCE_PATH, 'utf8');
   const targetSource = await fs.readFile(LEGACY_TARGET_SOURCE_PATH, 'utf8');
   const geometrySource = await fs.readFile(path.join(PROJECT_ROOT, 'ui', 'js', 'float', 'geometry.js'), 'utf8');
   const panelFieldsSource = await fs.readFile(path.join(PROJECT_ROOT, 'ui', 'js', 'float', 'panel-fields.js'), 'utf8');
@@ -76,12 +74,11 @@ async function loadLegacyFunctions() {
   vm.runInContext(geometrySource, sandbox, { filename: 'geometry.js' });
   vm.runInContext(panelFieldsSource, sandbox, { filename: 'panel-fields.js' });
   vm.runInContext(targetSource, sandbox, { filename: 'target-source.js' });
-  const exported = vm.runInContext(
-    `${floatSource}\n;({ buildPanelFieldTexts: buildPanelFieldTexts, formatSessionLabel: formatSessionLabel })`,
-    sandbox,
-    { filename: 'float.js' },
-  );
-  return { ...exported, targetSourceHintOf: sandbox.targetSourceHintOf };
+  // 0.4.0：legacy 的 float.js 已删除，单一实现就在 float/panel-fields.js 与 float/target-source.js
+  return {
+    buildPanelFieldTexts: sandbox.buildPanelFieldTexts,
+    targetSourceHintOf: sandbox.targetSourceHintOf,
+  };
 }
 
 // vm 里造出来的对象/数组原型来自另一个 realm，deepEqual 会因原型不同而误报；

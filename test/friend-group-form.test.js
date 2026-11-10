@@ -10,7 +10,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
 const RULES_SOURCE = await fs.readFile(new URL('../ui/js/friend-group/form.js', import.meta.url), 'utf8');
-const VIEW_SOURCE = await fs.readFile(new URL('../ui/js/friend-group/view.js', import.meta.url), 'utf8');
 const API_SOURCE = await fs.readFile(new URL('../lib/client-parts/foundation/api.js', import.meta.url), 'utf8');
 
 function installRenderShims() {
@@ -22,15 +21,12 @@ function installRenderShims() {
 
 function loadFormLayer() {
   installRenderShims();
-  // 规则层与视图层在构建产物里是同一作用域（build.cjs 顺序拼接），这里照同样方式拼接后执行，
-  // 免得测试里造出一套"两个模块互相 import"的假结构。
+  // 0.4.0 起只有规则层（form.js）：视图层 friend-group/view.js 已随 legacy 界面删除。
   const factory = new Function(`${RULES_SOURCE}
-${VIEW_SOURCE}
 ;return {
   deriveFriendGroupId: deriveFriendGroupId,
   validateFriendGroupForm: validateFriendGroupForm,
   normalizeFriendGroupDraft: normalizeFriendGroupDraft,
-  renderFriendGroupForm: renderFriendGroupForm,
   FRIEND_GROUP_ID_PATTERN: FRIEND_GROUP_ID_PATTERN,
   FRIEND_GROUP_ID_MAX_LENGTH: FRIEND_GROUP_ID_MAX_LENGTH
 };`);
@@ -184,31 +180,3 @@ test('G8-⑩：提交前归一化去空白、按平台::模型去重且保留顺
   assert.deepEqual(normalized.members, [{ platformId: 'p1', modelId: 'm1' }, { platformId: 'p2', modelId: 'm2' }]);
 });
 
-test('G8-⑪：表单 HTML 含成员行、策略选中、错误文案与服务端失败原文', () => {
-  const form = loadFormLayer();
-
-  const html = form.renderFriendGroupForm({
-    mode: 'edit',
-    groups: [{ id: 'p1', name: 'CodeArts' }],
-    modelsByGroupId: { p1: [{ id: 'm1', name: 'm1 显示名' }] },
-    modelsStatus: { p1: 'loaded' },
-    draft: {
-      id: 'main', name: '主力', strategy: 'fallback',
-      members: [{ platformId: 'p1', modelId: 'm1' }, { platformId: 'p1', modelId: 'm2' }],
-      platformPick: 'p1', modelPick: 'm1',
-    },
-    errors: { name: '分组名不能为空' },
-    formError: '分组 main 正被 2 个会话使用',
-    deleteArmed: false,
-  });
-
-  assert.match(html, /data-remove-member="0"/, '成员行要能移除');
-  assert.match(html, /\[主\]/, 'fallback 组第一名成员标主');
-  assert.match(html, /\[备\]/, '其余成员标备');
-  assert.match(html, /<option value="fallback" selected>/, '策略下拉选中当前值');
-  assert.match(html, /分组名不能为空/, '字段错误要渲染出来');
-  assert.match(html, /正被 2 个会话使用/, '服务端失败原文要渲染出来');
-  assert.match(html, /id="btnSaveFriendGroup"/);
-  assert.match(html, /id="btnDeleteFriendGroup"/, '编辑态才有删除按钮');
-  assert.equal(form.renderFriendGroupForm({ mode: 'create', groups: [], draft: { members: [] } }).includes('btnDeleteFriendGroup'), false, '新建态不出现删除');
-});

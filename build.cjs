@@ -45,10 +45,10 @@ const UI_PARTS = [
   "js/store/state.js", "js/store/persist.js", "js/store/events.js", "js/store/forms.js", "js/store/add-form.js",
   "js/store/groups.js", "js/store/chat.js", "js/store/stats.js",
   "js/store/session.js", "js/store/dispatch.js", "js/store/index.js",
-  "js/view/model-catalog.js", "js/interaction/model-selection-source.js", "js/interaction/session-bridge.js", "js/interaction/gateway-stream.js",
-  "js/float/dock-state.js", "js/float/geometry.js", "js/float/panel-fields.js", "js/view/reverse-account.js", "js/view/render.js",
-  "js/friend-group/form.js", "js/friend-group/view.js", "js/friend-group/modal.js",
-  "js/interaction/chat.js", "js/view/admin.js", "js/interaction/reverse-login.js", "js/float/float.js", "js/app.js"
+  "js/interaction/model-selection-source.js", "js/interaction/session-bridge.js", "js/interaction/gateway-stream.js",
+  "js/float/dock-state.js", "js/float/geometry.js", "js/float/panel-fields.js",
+  "js/friend-group/form.js",
+  "js/app.js"
 ];
 
 // 收尾：DOM 骨架 + apply
@@ -65,14 +65,6 @@ function assertPartOrder() {
   const pairs = [
     [CLIENT_PARTS, "foundation/z-layers.js", "foundation/styles.js", "z-layers 必须早于 styles"],
     [UI_PARTS, "js/store/state.js", "js/store/index.js", "store/state 必须早于 store/index"],
-    [UI_PARTS, "js/float/dock-state.js", "js/float/float.js", "dock-state 必须早于 float"],
-    // ui-format 提供跨视图展示口径（群友数三态、副标题判空），render 是它们的调用方：
-    // 拼接顺序反了就会在真实产物里变成「调用先于定义」（函数声明能提升，但 const/let 不能）。
-    [UI_PARTS, "js/format/ui-format.js", "js/view/render.js", "ui-format 必须早于 render"],
-    [UI_PARTS, "js/format/list-rules.js", "js/view/render.js", "list-rules 必须早于 render"],
-    [UI_PARTS, "js/format/avatar-chain.js", "js/view/render.js", "avatar-chain 必须早于 render"],
-    [UI_PARTS, "js/float/geometry.js", "js/float/float.js", "geometry 必须早于 float"],
-    [UI_PARTS, "js/float/panel-fields.js", "js/float/float.js", "panel-fields 必须早于 float"],
     [UI_PARTS, "js/interaction/model-selection-source.js", "js/interaction/session-bridge.js", "js/interaction/gateway-stream.js", "model-selection-source 必须早于 session-bridge"],
   ];
   for (const [list, early, late, reason] of pairs) {
@@ -166,7 +158,6 @@ const requiredSnippets = [
   // 断言钉这两个；注释里的 "THEME_BUNDLE" 是这套机制的统称。
   ["var THEME_META = ", "主题 meta 内联"],
   ["var THEME_FACTORY = function", "主题 bundle 内联"],
-  ["function renderChat", "ui/js/render.js"],
   ["function apiFormatSessionRate", "foundation/api.js（速率显示：值来自服务端）"],
   ["function targetSourceHintOf", "ui/js/target-source.js（来源文案唯一口径）"],
   ["function renderFloatTargetMarkup", "ui/js/ui-format.js（跨视图展示口径）"],

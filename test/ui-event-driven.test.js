@@ -76,15 +76,16 @@ test('主题 SDK 的两个剩余实现体已改为转调（buildPanelFields / re
 });
 
 test('同一能力只有一处实现：面板字段 / 来源提示文案', async () => {
+  // 0.4.0：legacy 的 float.js 已删除，"不许复制"的比对对象改成整棵 ui 源码（防以后又抄一份）
   const panelFieldsSource = await readSource('ui/js/float/panel-fields.js');
-  const floatSource = await readSource('ui/js/float/float.js');
   const targetSourceSource = await readSource('ui/js/float/target-source.js');
 
   assert.equal((panelFieldsSource.match(/function buildPanelFields/g) || []).length, 1);
-  assert.equal(/function buildPanelFieldTexts/.test(floatSource), false, 'float.js 不许再有面板字段实现');
-
   for (const hint of ['（继承上一会话）', '（继承父会话）', '（兜底群默认）']) {
     assert.equal(targetSourceSource.includes(hint), true, `来源提示必须在 target-source.js：${hint}`);
-    assert.equal(floatSource.includes(hint), false, `float.js 不许复制来源文案：${hint}`);
   }
+  // 主题只许转调宿主：SDK 里不许出现实现体（这条已在上一个用例守，这里补主题本身）
+  const themeSource = await readSource('ui/themes/tim.tsx');
+  assert.equal(/function buildPanelFields/.test(themeSource), false, '主题不许实现面板字段');
+  assert.equal(themeSource.includes('（继承上一会话）'), false, '主题不许复制来源文案');
 });

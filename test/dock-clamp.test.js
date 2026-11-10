@@ -15,11 +15,10 @@ import fs from 'node:fs/promises';
 
 // 几何函数住在 float/geometry.js（单一实现）：真实 bundle 里两者同一作用域，这里也拼起来跑
 const GEOMETRY_SOURCE = await fs.readFile(new URL('../ui/js/float/geometry.js', import.meta.url), 'utf8');
-const FLOAT_SOURCE = await fs.readFile(new URL('../ui/js/float/float.js', import.meta.url), 'utf8');
 
 function loadFloatLayer() {
   // eslint-disable-next-line no-new-func
-  const factory = new Function(`${GEOMETRY_SOURCE}\n${FLOAT_SOURCE}
+  const factory = new Function(`${GEOMETRY_SOURCE}
 ;return { clampDockPosition: clampDockPosition, computeOpenDir: computeOpenDir };`);
   return factory();
 }
