@@ -118,6 +118,8 @@ async function collectGates(args) {
     { name: 'doc-refs', command: process.execPath, args: ['scripts/check-doc-refs.mjs'] },
     // 禁止绝对路径 / 本机专属描述进仓库（文档、注释、代码一律禁止；用占位符或相对路径）
     { name: 'no-local-paths', command: process.execPath, args: ['scripts/check-no-local-paths.mjs'] },
+    // 每个主题都必须能单独编译（模板字符串里出现反引号只有编译才暴露）
+    { name: 'theme-compile', command: process.execPath, args: ['scripts/check-theme-compile.mjs'] },
     // 会话 id 来源：只许槽位为准，「最近活跃」兜底不得被用来写目标（docs/14 §1.3）
     { name: 'session-source', command: process.execPath, args: ['scripts/check-session-id-source.mjs'] },
     {
