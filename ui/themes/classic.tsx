@@ -4,7 +4,7 @@
 // 不需要在 base/ 与 skins/ 之间来回跳。行为逻辑（几何、文案、列表规则、状态桥）从 ui/theme-sdk 拿，
 // 那些是「两套主题必须一致」的部分，放在 SDK 里才有唯一实现（S-3 的结构保证）。
 //
-// 本主题对应现状外观（对照组）：令牌逐值取自 ui/css/layout.css:5-24，不做「更好看」的改动。
+// 本主题是横版默认外观（对照组）：令牌在本文件内自持，不再依赖任何外部 CSS 文件。
 // data-theme-root 必须写**字面量**：构建期靠它核对主题 id（scripts/build-theme.mjs）。
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -539,7 +539,7 @@ function MainWindow() {
 
 const CLASSIC_STYLES = `/* tokens.css —— classic skin 的设计令牌（对照组规格）。
  *
- * 来源：ui/css/layout.css:5-24 的 --team-* 变量，逐值照抄（docs/25 §十一 的对照表）。
+ * 令牌为本主题唯一来源（横版 760×540 的一套取值），不与 tim 共用。
  * 为什么照抄而不重新设计：classic 的验收口径是「与现状视觉等价」，
  * 自制更好看的颜色/圆角一律算缺陷（用户比对时会当作回归）。
  *
@@ -955,7 +955,7 @@ const CLASSIC_STYLES = `/* tokens.css —— classic skin 的设计令牌（对�
 }
 
 /* 空态：居中灰字 */
-/* 群聊：消息流 + 请求卡片（取值同 ui/css/views.css 的 .chat-stream/.req-* 段） */
+/* 群聊：消息流 + 请求卡片（本主题自持的一套取值） */
 [data-theme-root="classic"] .chat-stream { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 6px; display: flex; flex-direction: column; gap: 12px; }
 [data-theme-root="classic"] .msg { display: flex; align-items: flex-start; gap: 8px; max-width: 100%; }
 [data-theme-root="classic"] .msg-left { justify-content: flex-start; }

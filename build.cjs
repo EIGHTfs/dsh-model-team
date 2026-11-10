@@ -100,12 +100,6 @@ function readPart(relativePath) {
   return fs.readFileSync(path.join(partsDir, relativePath), "utf8");
 }
 
-// 从 ui/index.html 抽出界面骨架（<body> 到第一个 <script> 之间），客户端不再手抄一份 DOM。
-// 设计稿专用装饰（.desk 垫场层）用 design-only 注释包住，构建时整段剥掉，绝不进宿主；
-// 剥完还要做白名单断言，防止以后往 index.html 加装饰又漏进宿主。
-const SKELETON_REQUIRED = ['id="floatDock"', 'id="floatPanel"', 'class="team-app"'];
-const SKELETON_FORBIDDEN = ['class="desk"', 'desk-bar', 'desk-card', 'desk-tip'];
-
 function buildThemePart(built) {
   return "// 由 scripts/build-theme.mjs 编译的 TSX 主题（esbuild-wasm 产物，勿手改）\n"
     + "var THEME_META = " + JSON.stringify(built.meta) + ";\n"
