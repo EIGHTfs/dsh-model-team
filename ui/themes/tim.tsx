@@ -313,22 +313,27 @@ interface DriverLike {
 interface AccountLike { accountId?: unknown; nickname?: unknown }
 
 
-/** 平台下拉（自绘）：触发器 + 浮层列表。
- * 为什么不用原生 <select>：浮层由系统绘制，样式与 tokens 不一致；选中态/键盘焦点不可控，
+/** 通用下拉（自绘）：触发器 + 浮层列表。
+ * 为什么不用浏览器原生下拉控件：浮层由系统绘制，样式与 tokens 不一致；选中态/键盘焦点不可控，
  * 也无法给每一项加 data-* 标记供门禁与真机验收定位。
- * 数据面完全不变：选项来自 useGroupOptions()（只有 id/label），选中只调一个回调（→ 宿主动作）。 */
-function PlatformPicker({ labelId, options, selectedId, onPick }: {
-  labelId: string;
+ * 数据面完全不变：选项是 {id,label} 投影，选中只调一个回调（值仍由宿主持有）。
+ * 控件留在主题里（不进 theme-sdk）：SDK 只放数据与动作，绘制属于主题。 */
+function Picker({ triggerId, pickerName, labelId, options, selectedId, onPick, placeholder, disabled }: {
+  triggerId?: string;
+  pickerName: string;
+  labelId?: string;
   options: Array<{ id: string; label: string }>;
   selectedId: string;
   onPick: (optionId: string) => void;
+  placeholder: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
-  const listboxId = 'timPlatformListbox';
+  const listboxId = 'timPickerListbox-' + pickerName;
   const selectedOption = options.find((option) => option.id === selectedId) || null;
 
   // 点击外部 / Esc 关闭：只在打开时挂监听，关闭即摘（不留常驻全局监听）
@@ -377,23 +382,24 @@ function PlatformPicker({ labelId, options, selectedId, onPick }: {
   };
 
   return (
-    <div className="tim-picker" ref={rootRef} data-picker="platform">
+    <div className="tim-picker" ref={rootRef} data-picker={pickerName}>
       <button
         type="button"
         ref={triggerRef}
-        id="timDriverSelect"
+        id={triggerId || ('timPickerTrigger-' + pickerName)}
         className="tim-form-input tim-picker-trigger"
+        disabled={disabled}
         role="combobox"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listboxId}
-        aria-labelledby={labelId + ' timDriverSelect'}
+        aria-labelledby={labelId ? labelId + ' ' + (triggerId || ('timPickerTrigger-' + pickerName)) : undefined}
         data-picker-trigger
         onClick={() => setOpen((previous) => !previous)}
         onKeyDown={onTriggerKeyDown}
       >
         <span className={selectedOption ? 'tim-picker-value' : 'tim-picker-placeholder'}>
-          {selectedOption ? selectedOption.label : '请选择'}
+          {selectedOption ? selectedOption.label : placeholder}
         </span>
         <span className="tim-picker-arrow" aria-hidden="true">▾</span>
       </button>
@@ -402,7 +408,7 @@ function PlatformPicker({ labelId, options, selectedId, onPick }: {
           className="tim-picker-list"
           id={listboxId}
           role="listbox"
-          aria-labelledby={labelId}
+          aria-labelledby={labelId || undefined}
           tabIndex={-1}
           ref={listRef}
           onKeyDown={onListKeyDown}
@@ -410,7 +416,7 @@ function PlatformPicker({ labelId, options, selectedId, onPick }: {
         >
           {options.map((option, index) => (
             <li
-              key={option.id}
+              key={option.id || '__empty__'}
               role="option"
               aria-selected={option.id === selectedId}
               data-option-id={option.id}
@@ -582,12 +588,15 @@ function AddPage({ onHide }: { onHide: () => void }) {
 
       <div className="tim-form-body">
         <label className="tim-form-label" id="timPlatformLabel">选平台</label>
-        {/* 自绘下拉（原生 <select> 的浮层由系统绘制，样式/键盘/选中态都不可控） */}
-        <PlatformPicker
+        {/* 自绘下拉（原生控件的浮层由系统绘制，样式/键盘/选中态都不可控） */}
+        <Picker
+          pickerName="platform"
+          triggerId="timDriverSelect"
           labelId="timPlatformLabel"
           options={groupOptions}
           selectedId={addForm.optionId}
           onPick={selectDriver}
+          placeholder="请选择"
         />
 
         {!driver ? <div className="tim-empty-inline" data-add-hint="no-platform">先选平台</div> : null}
@@ -606,20 +615,21 @@ function AddPage({ onHide }: { onHide: () => void }) {
 
             {accountDriver ? (
               <div className="tim-form-section" data-account-state={accounts.length > 0 ? 'ready' : 'none'}>
-                <label className="tim-form-label" htmlFor="timAccountSelect">账号</label>
-                <select
-                  id="timAccountSelect"
-                  className="tim-form-input"
-                  value={accountId}
-                  onChange={(event) => setAccountId(event.target.value)}
-                >
-                  {accounts.length === 0 ? <option value="">（尚无账号）</option> : null}
-                  {accounts.map((account) => (
-                    <option key={String(account.accountId)} value={String(account.accountId)}>
-                      {String(account.nickname || account.accountId || '')}
-                    </option>
-                  ))}
-                </select>
+                <label className="tim-form-label" id="timAccountLabel">账号</label>
+                <Picker
+                  pickerName="account"
+                  triggerId="timAccountSelect"
+                  labelId="timAccountLabel"
+                  options={accounts.length === 0
+                    ? [{ id: '', label: '（尚无账号）' }]
+                    : accounts.map((account) => ({
+                      id: String(account.accountId || ''),
+                      label: String(account.nickname || account.accountId || ''),
+                    }))}
+                  selectedId={accountId}
+                  onPick={setAccountId}
+                  placeholder="（尚无账号）"
+                />
                 <button type="button" className="tim-form-primary" onClick={startLogin} disabled={loginState === 'starting' || loginState === 'waiting'}>
                   {loginState === 'starting' ? '正在打开授权页…' : loginState === 'waiting' ? '等待授权…' : '登录 ' + driverName}
                 </button>
@@ -634,7 +644,7 @@ function AddPage({ onHide }: { onHide: () => void }) {
                   const fieldKey = String(field.key || '');
                   const fieldType = String(field.type || 'text');
                   const fieldValue = values[fieldKey] || '';
-                  const setFieldValue = (nextValue: string) => setValues((previous) => ({ ...previous, [fieldKey]: nextValue }));
+                  const setFieldValue = (nextValue: string) => actions.setAddFormValue(fieldKey, nextValue);
                   // 条件字段（如「手动填写」才出现的模型名）：条件不满足就不渲染
                   const condition = field.showWhen as { key?: unknown; value?: unknown } | undefined;
                   if (condition && String(values[String(condition.key || '')] || '') !== String(condition.value || '')) return null;
@@ -643,24 +653,26 @@ function AddPage({ onHide }: { onHide: () => void }) {
                     const options = Array.isArray(field.options) ? field.options as Array<{ value?: unknown; label?: unknown }> : [];
                     return (
                       <div key={fieldKey} className="tim-form-field">
-                        <label className="tim-form-label" htmlFor={'timField-' + fieldKey}>{label}</label>
-                        <select
-                          id={'timField-' + fieldKey}
-                          className="tim-form-input"
-                          value={fieldValue}
-                          onChange={(event) => setFieldValue(event.target.value)}
-                        >
-                          {options.map((option) => (
-                            <option key={String(option.value)} value={String(option.value)}>{String(option.label || option.value || '')}</option>
-                          ))}
-                        </select>
+                        <label className="tim-form-label" id={'timFieldLabel-' + fieldKey}>{label}</label>
+                        <Picker
+                          pickerName={'field-' + fieldKey}
+                          triggerId={'timField-' + fieldKey}
+                          labelId={'timFieldLabel-' + fieldKey}
+                          options={options.map((option) => ({
+                            id: String(option.value || ''),
+                            label: String(option.label || option.value || ''),
+                          }))}
+                          selectedId={fieldValue}
+                          onPick={setFieldValue}
+                          placeholder="请选择"
+                        />
                       </div>
                     );
                   }
                   if (fieldType === 'textarea') {
                     return (
                       <div key={fieldKey} className="tim-form-field">
-                        <label className="tim-form-label" htmlFor={'timField-' + fieldKey}>{label}</label>
+                        <label className="tim-form-label" id={'timFieldLabel-' + fieldKey}>{label}</label>
                         <textarea
                           id={'timField-' + fieldKey}
                           className="tim-form-textarea"
@@ -673,7 +685,7 @@ function AddPage({ onHide }: { onHide: () => void }) {
                   }
                   return (
                     <div key={fieldKey} className="tim-form-field">
-                      <label className="tim-form-label" htmlFor={'timField-' + fieldKey}>{label}</label>
+                      <label className="tim-form-label" id={'timFieldLabel-' + fieldKey}>{label}</label>
                       <input
                         id={'timField-' + fieldKey}
                         className="tim-form-input"
@@ -827,26 +839,43 @@ function FriendGroupEditor({ group, groups, onClose, onSaved }: {
         <label className="tim-form-label" htmlFor="timFriendName">分组名称</label>
         <input id="timFriendName" className="tim-form-input" type="text" value={name} placeholder="例如：主力轮换" onChange={(event) => setName(event.target.value)} />
 
-        <label className="tim-form-label" htmlFor="timFriendStrategy">成员轮换策略</label>
-        <select id="timFriendStrategy" className="tim-form-input" value={strategy} onChange={(event) => setStrategy(event.target.value)}>
-          {STRATEGY_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
+        <label className="tim-form-label" id="timFriendStrategyLabel">成员轮换策略</label>
+        <Picker
+          pickerName="friend-strategy"
+          triggerId="timFriendStrategy"
+          labelId="timFriendStrategyLabel"
+          options={STRATEGY_OPTIONS.map((option) => ({ id: String(option.value), label: String(option.label) }))}
+          selectedId={strategy}
+          onPick={setStrategy}
+          placeholder="请选择策略"
+        />
 
-        <label className="tim-form-label" htmlFor="timFriendPlatform">成员（平台 → 模型）</label>
-        <select id="timFriendPlatform" className="tim-form-input" value={pickedPlatformId} onChange={(event) => setPickedPlatformId(event.target.value)}>
-          <option value="">选择平台账号</option>
-          {groups.map((candidate) => <option key={String(candidate.id)} value={String(candidate.id)}>{String(candidate.name || candidate.id || '')}</option>)}
-        </select>
-        <select
-          className="tim-form-input"
-          aria-label="选择模型"
-          value={pickedModelId}
-          onChange={(event) => setPickedModelId(event.target.value)}
+        <label className="tim-form-label" id="timFriendPlatformLabel">成员（平台 → 模型）</label>
+        <Picker
+          pickerName="friend-platform"
+          triggerId="timFriendPlatform"
+          labelId="timFriendPlatformLabel"
+          options={[{ id: '', label: '选择平台账号' }].concat(groups.map((candidate) => ({
+            id: String(candidate.id || ''),
+            label: String(candidate.name || candidate.id || ''),
+          })))}
+          selectedId={pickedPlatformId}
+          onPick={setPickedPlatformId}
+          placeholder="选择平台账号"
+        />
+        <Picker
+          pickerName="friend-model"
+          triggerId="timFriendModel"
+          labelId="timFriendModelLabel"
+          options={models.length === 0
+            ? [{ id: '', label: '（先选平台账号）' }]
+            : models.map((model) => ({ id: String(model.id || ''), label: String(model.name || model.id || '') }))}
+          selectedId={pickedModelId}
+          onPick={setPickedModelId}
+          placeholder="选择模型"
           disabled={models.length === 0}
-        >
-          {models.length === 0 ? <option value="">（先选平台账号）</option> : null}
-          {models.map((model) => <option key={String(model.id)} value={String(model.id)}>{String(model.name || model.id || '')}</option>)}
-        </select>
+        />
+        <span id="timFriendModelLabel" hidden>选择模型</span>
         <button type="button" className="tim-form-ghost" onClick={addMember}>添加到成员列表</button>
 
         <ul className="tim-member-list">

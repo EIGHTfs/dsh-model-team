@@ -104,6 +104,8 @@ function stateOf(fixtures) {
     sessionTitle: '',
     rate: null,
     global: null,
+    // 加群表单的「值」（值显分离后归宿主态）：用例需要"已选平台"时必须显式给
+    addForm: fixtures.addForm || { optionId: '', driverKey: '', values: {}, advancedField: null },
   };
 }
 
@@ -189,6 +191,34 @@ const DRIVERS = [
   { id: 'reverse-qoder', name: 'Qoder', authKind: 'reverse-account', platformId: 'qoder', authSchema: [] },
 ];
 
+test('加群页：authSchema 的 select 型字段也走自绘 Picker（id 保留 timField-<key>）', async () => {
+  const driversWithSelect = [
+    {
+      id: 'openai-compatible',
+      name: 'OpenAI 兼容',
+      authKind: 'api-key',
+      authSchema: [
+        { key: 'baseURL', label: '接口地址', type: 'text' },
+        { key: 'region', label: '区域', type: 'select', options: [{ value: 'cn', label: '中国' }, { value: 'us', label: '美国' }] },
+      ],
+    },
+  ];
+  const exports = await loadThemePages({
+    groups: [],
+    drivers: driversWithSelect,
+    friendGroups: [],
+    view: 'add',
+    // 已选配置型平台：直接给宿主侧的表单值（主题只读这份投影）
+    addForm: { optionId: 'driver:openai-compatible', driverKey: 'openai-compatible', values: {}, advancedField: null },
+  });
+  // 断言"传给 Picker 的 props"：树收集器只收文本/属性，展开不了函数组件，所以直接序列化元素树
+  const element = exports.AddPage({ onHide: () => {} });
+  const pageJson = JSON.stringify(element);
+  assert.equal(pageJson.includes('"pickerName":"field-region"'), true, 'select 型字段必须走自绘 Picker');
+  assert.equal(pageJson.includes('timField-region'), true, '控件钩子 id 要保留 timField-<key>');
+  assert.equal(pageJson.includes('中国') && pageJson.includes('美国'), true, '选项文案要原样传入');
+});
+
 test('加群页：未选平台 → 空态「先选平台」', async () => {
   const exports = await loadThemePages({ groups: [], drivers: DRIVERS, friendGroups: [], view: 'add' });
   const tree = renderPage(exports, 'AddPage', {});
@@ -230,8 +260,11 @@ test('分组编辑面板：新建态有名称/策略/两级成员选择，空成
   assert.equal(tree.attrs['data-friend-editor'], 'create', '默认是新建');
   assert.equal(tree.texts.includes('分组名称'), true);
   assert.equal(tree.texts.includes('成员轮换策略'), true);
-  assert.equal(tree.allText.includes('轮询'), true);
-  assert.equal(tree.allText.includes('故障转移'), true);
+  // 0.4.0 后策略/平台/模型都是自绘 Picker（函数组件）：树收集器不展开函数组件，
+  // 所以这里断言"传进去的控件与选项"本身（选项文案仍是真源 STRATEGY_OPTIONS）
+  const editorJson = JSON.stringify(editorTree);
+  assert.equal(editorJson.includes('"pickerName":"friend-strategy"'), true, '策略必须是自绘下拉');
+  assert.equal(editorJson.includes('轮询') && editorJson.includes('故障转移'), true, '两个策略项都要作为选项传入');
   assert.equal(tree.texts.includes('还没有成员'), true);
 });
 
