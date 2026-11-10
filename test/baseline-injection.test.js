@@ -18,7 +18,7 @@ import { createRecordingLogger, createTempDirectory } from './helpers/test-envir
 
 // store 分片按构建顺序拼接后执行（与浏览器里同一份作用域）
 const STORE_MODULE_FILES = [
-  'view/messages.js', 'store/state.js', 'store/persist.js', 'store/events.js', 'store/forms.js',
+  'view/messages.js', 'store/state.js', 'store/persist.js', 'store/events.js', 'store/forms.js', 'store/add-form.js',
   'store/groups.js', 'store/chat.js', 'store/stats.js',
   'store/session.js', 'store/dispatch.js', 'store/index.js',
 ];

@@ -48,6 +48,7 @@ test('远端目录：解析 payload.chat，补 id/name，其它字段原样保�
     dataRoot: await createTempDirectory(t),
     logger: createRecordingLogger(),
     fetchImpl,
+    allowFetchImplForCatalog: true,   // 显式声明"这是测试桩"：生产永不把 fetch 当客户端
   });
 
   assert.equal(result.models.length, 2);
@@ -76,6 +77,7 @@ test('远端目录：响应不是明文 JSON → REVERSE_CATALOG_UNDECRYPTABLE�
       dataRoot,
       logger: createRecordingLogger(),
       fetchImpl: buildStubFetch({ bodyText: '\u0001\u0002 encrypted-bytes' }),
+      allowFetchImplForCatalog: true,
     }),
     (error) => error.code === CATALOG_ERROR_CODES.UNDECRYPTABLE,
   );
@@ -92,6 +94,7 @@ test('远端目录：HTTP 403 → 带状态码的明确错误（不回落静态�
       dataRoot,
       logger: createRecordingLogger(),
       fetchImpl: buildStubFetch({ status: 403, bodyText: '{"message":"forbidden"}' }),
+      allowFetchImplForCatalog: true,
     }),
     (error) => error.code === CATALOG_ERROR_CODES.UPSTREAM_FAILED && error.status === 403,
   );
@@ -104,8 +107,8 @@ test('缓存：同进程两次只打一次上游；TTL 过期后重拉', async (
   const fetchImpl = buildStubFetch({ bodyText: JSON.stringify({ chat: [{ key: 'model-a' }] }), calls });
   let nowMs = 1_000_000;
 
-  const first = await fetchRemoteCatalog({ platformId: 'qoder', credential: CREDENTIAL, endpoints: ENDPOINTS, dataRoot, logger: createRecordingLogger(), fetchImpl, now: () => nowMs });
-  const second = await fetchRemoteCatalog({ platformId: 'qoder', credential: CREDENTIAL, endpoints: ENDPOINTS, dataRoot, logger: createRecordingLogger(), fetchImpl, now: () => nowMs });
+  const first = await fetchRemoteCatalog({ platformId: 'qoder', credential: CREDENTIAL, endpoints: ENDPOINTS, dataRoot, logger: createRecordingLogger(), fetchImpl, allowFetchImplForCatalog: true, now: () => nowMs });
+  const second = await fetchRemoteCatalog({ platformId: 'qoder', credential: CREDENTIAL, endpoints: ENDPOINTS, dataRoot, logger: createRecordingLogger(), fetchImpl, allowFetchImplForCatalog: true, now: () => nowMs });
   assert.equal(calls.length, 1, 'TTL 内只打一次上游');
   assert.equal(second.fromCache, true);
   assert.deepEqual(second.models, first.models);
@@ -117,7 +120,7 @@ test('缓存：同进程两次只打一次上游；TTL 过期后重拉', async (
 
   nowMs += 11 * 60 * 1000;   // TTL 10 分钟之后
   resetCatalogCacheForTest();  // 模拟"进程内缓存也没了"（换进程/重启），此时应读盘判断过期
-  await fetchRemoteCatalog({ platformId: 'qoder', credential: CREDENTIAL, endpoints: ENDPOINTS, dataRoot, logger: createRecordingLogger(), fetchImpl, now: () => nowMs });
+  await fetchRemoteCatalog({ platformId: 'qoder', credential: CREDENTIAL, endpoints: ENDPOINTS, dataRoot, logger: createRecordingLogger(), fetchImpl, allowFetchImplForCatalog: true, now: () => nowMs });
   assert.equal(calls.length, 2, '过期后必须重拉');
 });
 

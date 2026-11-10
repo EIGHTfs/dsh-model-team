@@ -98,6 +98,8 @@ export {
   useGroups,
   useGroupsError,
   useDrivers,
+  useGroupOptions,
+  useAddForm,
   useFriendGroups,
   useTarget,
   useChat,

@@ -382,7 +382,7 @@ test('T28 ⑥：适配器 resolveModel 也吃 override（生产路径与 peek �
   assert.equal(resolvedModel.context.contextWindow, 524288);
 });
 
-test('探测超时：超时发生在 I/O 边界（AbortSignal），缓存里不留假窗口值', async (t) => {
+test('探测超时：上游超时错误被归类为「探测超时」，缓存里不留假窗口值', async (t) => {
   setEnvironmentVariableForTest(t, TEST_API_KEY_ENV, TEST_API_KEY);
   const dataRoot = await createTempDirectory(t);
   const logger = createRecordingLogger();
@@ -390,19 +390,16 @@ test('探测超时：超时发生在 I/O 边界（AbortSignal），缓存里不�
   await writeConfig(config, { dataRoot });
   resetContextWindowCache();
 
-  // 上游永不回包：只有 signal abort 时才会结束——这样"超时"是唯一可能的失败路径
+  // 超时由驱动自己的 signal / 超时负责（本层不再包一层 fetch），
+  // 这里只模拟"上游以 TimeoutError 失败"，校验我们把它归类成「探测超时」并落空样本。
   let fetchCallCount = 0;
-  const hangingFetch = (requestUrl, requestInit) => {
+  const timeoutFetch = async () => {
     fetchCallCount += 1;
-    return new Promise((resolveFetch, rejectFetch) => {
-      requestInit?.signal?.addEventListener('abort', () => {
-        const timeoutError = new Error('The operation was aborted due to timeout');
-        timeoutError.name = 'TimeoutError';
-        rejectFetch(timeoutError);
-      });
-    });
+    const timeoutError = new Error('The operation was aborted due to timeout');
+    timeoutError.name = 'TimeoutError';
+    throw timeoutError;
   };
-  const adapter = createAdapter({ dataRoot, logger, fetchImpl: hangingFetch });
+  const adapter = createAdapter({ dataRoot, logger, fetchImpl: timeoutFetch });
 
   const coldModel = await adapter.resolveModel('dsh-model-team', 'dsh-model-team');
   assert.equal(coldModel.context.contextWindow, DEFAULT_CONTEXT_WINDOW_FALLBACK, '冷调用立即按兜底值申报');

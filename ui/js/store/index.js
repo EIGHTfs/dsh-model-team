@@ -31,7 +31,7 @@ function createStoreLoaders(options) {
 }
 
 // 动作表：dispatch 只认"动作名 → 实现"，这里把 loader/session 的方法映射成契约里的动作名
-function collectStoreActions(loaders, session, forms) {
+function collectStoreActions(loaders, session, forms, addForm) {
   return {
     // 表单类动作（加群/探测/导出导入/反代登录）：只调接口、不写 state
     addGroup: forms.addGroup,
@@ -44,6 +44,11 @@ function collectStoreActions(loaders, session, forms) {
     saveFriendGroup: forms.saveFriendGroup,
     deleteFriendGroup: forms.deleteFriendGroup,
     loadGroupModels: forms.loadGroupModels,
+    // 加群表单：选中选项 / 字段输入 / 探测 / 提交（payload 全在 add-form.js 里组）
+    selectGroupOption: addForm.selectGroupOption,
+    setAddFormValue: addForm.setAddFormValue,
+    probeAddForm: addForm.probeAddForm,
+    submitAddGroup: addForm.submitAddGroup,
     start: session.start,
     stop: session.stop,
     applySessionChanged: session.applySessionChanged,
@@ -90,12 +95,19 @@ function createTeamStore(options) {
   });
 
   var forms = createFormActions({ api: api, reportError: errorSink.reportError });
+  // 加群表单的「值」（选项展开、探测体、提交体都在这里，主题不认识内部字段名）
+  var addForm = createAddFormActions({
+    api: api,
+    state: state,
+    broadcast: hub.broadcast,
+    reportError: errorSink.reportError
+  });
 
   var dispatcher = createDispatcher({
     state: state,
     persist: persistence.persist,
     renderNow: hub.renderNow,
-    actions: collectStoreActions(loaders, session, forms)
+    actions: collectStoreActions(loaders, session, forms, addForm)
   });
 
   return {

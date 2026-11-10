@@ -73,22 +73,12 @@ function readFreshProbeCache(config) {
 // 探测超时的失败原因（日志与排查都按这个字面值找）
 export const PROBE_TIMEOUT_REASON = '探测超时';
 
-/**
- * 探测用的 fetch 包装：**超时下沉到 I/O 边界**（AbortSignal），不再在外面 race 一个 fallback。
- * 为什么必须这样：race + fallback 会把"探测挂住"变成"悄悄用兜底值"，而兜底值直接决定申报给宿主的
- * 上下文窗口（用户可见）；超时应当是一次**明确的失败结局**（结果为空的样本 + 带原因的日志），
- * 而不是一次"看起来成功"的解析。驱动自己也带 signal（更长），用 AbortSignal.any 取交集，先到者生效。
- */
-function createProbeFetch(fetchImpl, timeoutMs) {
-  const baseFetch = typeof fetchImpl === 'function' ? fetchImpl : globalThis.fetch;
-  return (requestUrl, requestInit = {}) => {
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    const combinedSignal = requestInit.signal && typeof AbortSignal.any === 'function'
-      ? AbortSignal.any([requestInit.signal, timeoutSignal])
-      : timeoutSignal;
-    return baseFetch(requestUrl, { ...requestInit, signal: combinedSignal });
-  };
-}
+// 为什么这里**不再**包一层 fetch：
+// 包装出来的函数会被当成"调用方注入的 HTTP 客户端"继续下传给驱动，而反代目录接口要求
+// GET + body —— Node 的 fetch 直接拒（Request with GET/HEAD method cannot have body），
+// 于是每次启动期探测都会刷一条假故障。超时本来就由各驱动自己的 signal/超时负责
+// （openai-compatible 用 prepared.timeoutMs，反代目录用 CATALOG_REQUEST_TIMEOUT_MS），
+// 本层只做"失败归类 + 日志"，不再改动 I/O 客户端。
 
 /** 失败原因归一：超时类错误统一说成「探测超时」，其它保留原始信息 */
 function describeProbeFailure(error) {
@@ -129,8 +119,6 @@ async function probeAllGroups({ config, dataRoot, logger, fetchImpl }) {
   const groups = Array.isArray(config?.groups) ? config.groups : [];
   const windowsByGroup = {};
   const startedAtMs = Date.now();
-  // 每个探测请求自带超时：超时是"这次探测失败了"，会作为空样本落进缓存（不会留任何窗口值）
-  const probeFetch = createProbeFetch(fetchImpl, PROBE_TIMEOUT_MS);
 
   for (const group of groups) {
     if (Date.now() - startedAtMs > PROBE_TOTAL_BUDGET_MS) {
@@ -145,7 +133,9 @@ async function probeAllGroups({ config, dataRoot, logger, fetchImpl }) {
       windowsByGroup[groupId] = staticWindows;
       continue;
     }
-    const probedWindows = await probeSingleGroup(group, { dataRoot, logger, fetchImpl: probeFetch })
+    // 把**调用方原本给的** fetch 透传下去（测试桩靠它注入），不再套超时包装：
+    // 包装函数会被下游误当成 HTTP 客户端，反代目录的 GET+body 会被 undici 拒。
+    const probedWindows = await probeSingleGroup(group, { dataRoot, logger, fetchImpl })
       .catch((probeError) => {
         logger.warn(`上下文窗口探测失败（群 ${groupId}，原因：${describeProbeFailure(probeError)}）；本轮按空样本处理`);
         return [];

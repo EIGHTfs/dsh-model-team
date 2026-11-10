@@ -214,13 +214,14 @@ export async function fetchRemoteCatalog({
   }
 
   const { url, headers, bodyText } = buildCatalogRequest({ credential, inferBase: endpoints.inferBase, now });
-  // 为什么不能"有 fetchImpl 就用"：生产会把全局 undici fetch 注入进来（gateway-deps.js），
-  // 而 Node 的 fetch 拒绝「GET 带 body」（上游目录协议恰恰要求带 body），会直接抛
-  // TypeError: Request with GET/HEAD method cannot have body → 端点 502。
-  // 判据：显式打开开关，或传进来的不是全局 fetch（= 测试/部署方的自定义桩）才走 fetch；
-  // 其余一律用自持 sendCatalogRequest（node:http，支持 GET 带 body）。
-  const useInjectedFetch = typeof fetchImpl === 'function'
-    && (allowFetchImplForCatalog === true || fetchImpl !== globalThis.fetch);
+  // 为什么不能"有 fetchImpl 就用"：Node 的 fetch（undici）**拒绝 GET 带 body**，
+  // 而本接口的协议恰恰要求 GET + body → 会直接抛 TypeError:
+  // Request with GET/HEAD method cannot have body → 端点 502。
+  // 判据只认**显式开关**：只有测试/排查明确声明"这是桩"（allowFetchImplForCatalog === true）才走 fetch。
+  // 不要再用 `fetchImpl !== globalThis.fetch` 这种 identity 判据——被上层包一层的 fetch
+  // （例如上下文窗口探测的 createProbeFetch 加超时包装）不是测试桩，却会被误判成桩，
+  // 于是把 GET+body 丢给 undici，两个实例都会在启动期刷这个错。
+  const useInjectedFetch = typeof fetchImpl === 'function' && allowFetchImplForCatalog === true;
   const response = useInjectedFetch
     ? await fetchImpl(url, { method: 'GET', headers, body: bodyText }).then(async (rawResponse) => ({
       status: rawResponse.status,

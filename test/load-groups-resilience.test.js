@@ -12,7 +12,7 @@ import fs from 'node:fs/promises';
 // messages.js 提供 buildMessages / formatMessageTime（构建时排在 store 之前），
 // 少了它 loadChat 会抛 ReferenceError——所以按构建顺序一起拼。
 const STORE_MODULE_FILES = [
-  'view/messages.js', 'store/state.js', 'store/persist.js', 'store/events.js', 'store/forms.js',
+  'view/messages.js', 'store/state.js', 'store/persist.js', 'store/events.js', 'store/forms.js', 'store/add-form.js',
   'store/groups.js', 'store/chat.js', 'store/stats.js',
   'store/session.js', 'store/dispatch.js', 'store/index.js',
 ];

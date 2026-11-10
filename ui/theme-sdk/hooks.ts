@@ -56,6 +56,35 @@ export function useDrivers(): unknown[] {
   return useTeamState((state) => ((state as AnyState).drivers as unknown[]) || []);
 }
 
+/** 加群下拉的选项（纯投影：只有 id 与 label，不含任何数据值） */
+export function useGroupOptions(): Array<{ id: string; label: string }> {
+  const drivers = useDrivers();
+  const platforms = useTeamState((state) => ((state as AnyState).platforms as unknown[]) || []);
+  const host = (globalThis as { dshHostDriverView?: { listGroupOptions?: Function } }).dshHostDriverView;
+  return useMemo(
+    () => (host && typeof host.listGroupOptions === 'function' ? host.listGroupOptions(drivers, platforms) : []),
+    [drivers, platforms, host],
+  );
+}
+
+/** 加群表单的状态投影：值由宿主持有，主题只读（含 advancedField 是否显示） */
+export function useAddForm(): {
+  optionId: string;
+  driverKey: string;
+  values: Record<string, string>;
+  advancedField: { key: string; label: string; placeholder: string; initialValue?: string } | null;
+} {
+  return useTeamState((state) => {
+    const form = (state as AnyState).addForm as Record<string, unknown> | undefined;
+    return {
+      optionId: typeof form?.optionId === 'string' ? form.optionId : '',
+      driverKey: typeof form?.driverKey === 'string' ? form.driverKey : '',
+      values: (form?.values as Record<string, string>) || {},
+      advancedField: (form?.advancedField as ReturnType<typeof useAddForm>['advancedField']) ?? null,
+    };
+  });
+}
+
 /** 好友分组 */
 export function useFriendGroups(): unknown[] {
   return useTeamState((state) => ((state as AnyState).friendGroups as unknown[]) || []);

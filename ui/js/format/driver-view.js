@@ -26,10 +26,35 @@ function driverDisplayName(driver) {
   return String(driver.name || driver.id || '');
 }
 
+// ---------------------------------------------------------------- 加群下拉的选项投影
+// 只给"显示"用：`{ id, label }` 两个字段，**不携带任何数据值**（baseURL / modelsEndpoint 之类）。
+// 为什么这么抠：选项一旦带上值，主题就可能顺手拿去拼 payload，值就渗进显示层了；
+// 这里让"选项 = 纯投影"，值统一留在 store/add-form.js 的表单状态里。
+var PRESET_OPTION_PREFIX = 'preset:';
+var DRIVER_OPTION_PREFIX = 'driver:';
+
+function listGroupOptions(drivers, platforms) {
+  var options = [];
+  var presetList = Array.isArray(platforms) ? platforms : [];
+  for (var presetIndex = 0; presetIndex < presetList.length; presetIndex += 1) {
+    var platform = presetList[presetIndex] || {};
+    if (!platform.id) continue;
+    options.push({ id: PRESET_OPTION_PREFIX + String(platform.id), label: String(platform.name || platform.id) });
+  }
+  var driverList = Array.isArray(drivers) ? drivers : [];
+  for (var driverIndex = 0; driverIndex < driverList.length; driverIndex += 1) {
+    var driver = driverList[driverIndex] || {};
+    if (!driver.id) continue;
+    options.push({ id: DRIVER_OPTION_PREFIX + String(driver.id), label: driverDisplayName(driver) });
+  }
+  return options;
+}
+
 if (typeof globalThis !== 'undefined') {
   globalThis.dshHostDriverView = {
     isAccountAuthDriver: isAccountAuthDriver,
     credentialFieldsOf: credentialFieldsOf,
     driverDisplayName: driverDisplayName,
+    listGroupOptions: listGroupOptions,
   };
 }

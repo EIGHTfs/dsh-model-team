@@ -45,6 +45,22 @@ export const actions = {
   toggleRow(rowIndex: number): unknown {
     return dispatch({ type: 'toggle-row', rowIndex });
   },
+  /** 选中加群下拉里的一项（宿主负责展开初值；主题只传 option id） */
+  selectGroupOption(optionId: string): unknown {
+    return dispatch({ type: 'select-group-option', optionId });
+  },
+  /** 在加群表单某个字段上输入（字段名来自 schema / advancedField） */
+  setAddFormValue(fieldKey: string, value: string): unknown {
+    return dispatch({ type: 'set-add-form-value', fieldKey, value });
+  },
+  /** 探测当前表单对应平台的可用模型（请求体由宿主组） */
+  probeAddForm(input?: { accountId?: string }): unknown {
+    return dispatch({ type: 'probe-add-form', accountId: input?.accountId });
+  },
+  /** 提交加群（payload 由宿主组；主题只给名称与已探测的模型清单） */
+  submitAddGroup(input: { name: string; models?: unknown[]; accountId?: string }): unknown {
+    return dispatch({ type: 'submit-add-group', name: input.name, models: input.models, accountId: input.accountId });
+  },
   /** 加群：payload 原样交给服务端，成功回 { group }，失败 reject（message 为服务端原文） */
   addGroup(payload: Record<string, unknown>): unknown {
     return dispatch({ type: 'add-group', payload });

@@ -42,7 +42,7 @@ const UI_PARTS = [
   // 速率不再有客户端分片：公式在 lib/shared/rate.mjs（可拷复用的纯模块），
   // 由服务端按声明动态加载后算出 { tps, exact }，客户端只做显示（单位与 ≈）。
   "js/view/messages.js", "js/float/target-source.js", "js/format/ui-format.js", "js/format/list-rules.js", "js/format/driver-view.js", "js/format/avatar-chain.js",
-  "js/store/state.js", "js/store/persist.js", "js/store/events.js", "js/store/forms.js",
+  "js/store/state.js", "js/store/persist.js", "js/store/events.js", "js/store/forms.js", "js/store/add-form.js",
   "js/store/groups.js", "js/store/chat.js", "js/store/stats.js",
   "js/store/session.js", "js/store/dispatch.js", "js/store/index.js",
   "js/view/model-catalog.js", "js/interaction/model-selection-source.js", "js/interaction/session-bridge.js", "js/interaction/gateway-stream.js",

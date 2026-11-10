@@ -22,6 +22,13 @@ function createActionHandlers(deps) {
     'open-view': function (action) { return actions.openView(action.view, action.groupId); },
     'refresh-platforms': function () { return actions.loadPlatforms(); },
     'switch-target': function (action) { return actions.switchTarget(action.target); },
+    // 加群表单（值在 store/add-form.js）：选平台 → 字段输入 → 探测 → 提交
+    'select-group-option': function (action) { return actions.selectGroupOption(action.optionId); },
+    'set-add-form-value': function (action) { return actions.setAddFormValue(action.fieldKey, action.value); },
+    'probe-add-form': function (action) { return actions.probeAddForm({ accountId: action.accountId }); },
+    'submit-add-group': function (action) {
+      return actions.submitAddGroup({ name: action.name, models: action.models, accountId: action.accountId });
+    },
     'send-message': function (action) { return actions.sendMessage(action.text); },
     'toggle-row': function (action) {
       // 没带群 id 的点击落到当前打开的群（视图只负责传行号，来源判定留在这里）

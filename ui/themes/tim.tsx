@@ -36,6 +36,8 @@ import {
   useChat,
   useDockState,
   useDrivers,
+  useGroupOptions,
+  useAddForm,
   useFriendGroups,
   buildAvatarView,
   nextAvatarView,
@@ -312,9 +314,13 @@ interface AccountLike { accountId?: unknown; nickname?: unknown }
 
 function AddPage({ onHide }: { onHide: () => void }) {
   const drivers = useDrivers() as DriverLike[];
-  const [driverKey, setDriverKey] = useState('');
+  // 下拉选项与表单值都来自宿主：选项是纯投影（只有 id/label），值是 state.addForm。
+  // 主题不认识"接口地址 / 模型目录路径 / 驱动标识"这些字段——它们只在 store/add-form.js 里出现。
+  const groupOptions = useGroupOptions();
+  const addForm = useAddForm();
+  const driverKey = addForm.driverKey;
+  const values = addForm.values;
   const [groupName, setGroupName] = useState('');
-  const [values, setValues] = useState<Record<string, string>>({});
   const [accounts, setAccounts] = useState<AccountLike[]>([]);
   const [accountId, setAccountId] = useState('');
   const [loginState, setLoginState] = useState<'idle' | 'starting' | 'waiting' | 'failed'>('idle');
@@ -330,10 +336,10 @@ function AddPage({ onHide }: { onHide: () => void }) {
   const accountDriver = isAccountAuthDriver(driver);
   const credentialFields = credentialFieldsOf(driver);
 
-  // 切平台：账号区与模型目录都要重置（上一家的账号/模型不能带过来）
-  const selectDriver = (nextDriverKey: string) => {
-    setDriverKey(nextDriverKey);
-    setValues({});
+  // 切平台：账号区与模型目录都要重置（上一家的账号/模型不能带过来）；
+  // 表单值由宿主按选项展开（预置项带平台默认值，驱动项为空）
+  const selectDriver = (nextOptionId: string) => {
+    actions.selectGroupOption(nextOptionId);
     setAccounts([]);
     setAccountId('');
     setLoginState('idle');
@@ -426,17 +432,9 @@ function AddPage({ onHide }: { onHide: () => void }) {
 
   const runProbe = () => {
     setProbeError('');
-    const modelsEndpoint = String(values.modelsEndpoint || '').trim() || '/models';
-    let probeInput: { driver: string; accountRef?: string; baseURL?: string; apiKey?: string; modelsEndpoint?: string };
-    if (accountDriver) {
-      if (!platformId || !accountId) { setProbeError('尚未登录 ' + driverName); return; }
-      probeInput = { driver: driverKey, accountRef: 'account:' + platformId + '/' + accountId };
-    } else {
-      const baseURL = String(values.baseURL || '').trim();
-      if (!baseURL) { setProbeError('请先填写接口地址'); return; }
-      probeInput = { driver: driverKey, baseURL, apiKey: String(values.apiKey || ''), modelsEndpoint };
-    }
-    Promise.resolve(actions.probeModels(probeInput) as Promise<{ models?: Array<{ id?: unknown; name?: unknown }>; error?: { message?: string } }>)
+    if (accountDriver && (!platformId || !accountId)) { setProbeError('尚未登录 ' + driverName); return; }
+    // 请求体（地址 / 密钥 / 账号引用 / 目录路径）由宿主组装，主题只表达"探测"这个意图
+    Promise.resolve(actions.probeAddForm({ accountId }) as Promise<{ models?: Array<{ id?: unknown; name?: unknown }>; error?: { message?: string } }>)
       .then((result) => {
         if (result && Array.isArray(result.models)) { setModels(result.models); return; }
         // 失败文案只用服务端给的 message，不自己编
@@ -452,22 +450,8 @@ function AddPage({ onHide }: { onHide: () => void }) {
     if (!canSubmit || !driver) return;
     setSubmitting(true);
     setSubmitError('');
-    const payload: Record<string, unknown> = {
-      name: groupName.trim(),
-      driver: driverKey,
-      baseURL: String(values.baseURL || '').trim(),
-      models: models.length > 0
-        ? { static: models }
-        : { endpoint: String(values.modelsEndpoint || '').trim() || '/models' },
-      avatar: '',
-    };
-    if (accountDriver) {
-      payload.auth = { apiKeyRef: 'account:' + platformId + '/' + accountId };
-      payload.accessMode = 'reverse';
-    } else {
-      payload.auth = { apiKey: String(values.apiKey || '') };
-    }
-    Promise.resolve(actions.addGroup(payload) as Promise<unknown>)
+    // 加群 payload（驱动 / 地址 / 鉴权 / 目录入口）由宿主组装，主题只给名称与已探测的模型
+    Promise.resolve(actions.submitAddGroup({ name: groupName.trim(), models, accountId }) as Promise<unknown>)
       .then(() => { setSubmitting(false); actions.loadGroups(); actions.openView('list'); })
       .catch((error: Error) => { setSubmitting(false); setSubmitError(error && error.message ? error.message : '添加失败，请稍后重试'); });
   };
@@ -485,12 +469,12 @@ function AddPage({ onHide }: { onHide: () => void }) {
         <select
           id="timDriverSelect"
           className="tim-form-input"
-          value={driverKey}
+          value={addForm.optionId}
           onChange={(event) => selectDriver(event.target.value)}
         >
           <option value="">请选择</option>
-          {drivers.map((candidate) => (
-            <option key={String(candidate.id)} value={String(candidate.id)}>{String(candidate.name || candidate.id || '')}</option>
+          {groupOptions.map((option) => (
+            <option key={option.id} value={option.id}>{option.label}</option>
           ))}
         </select>
 
@@ -592,17 +576,22 @@ function AddPage({ onHide }: { onHide: () => void }) {
               </div>
             )}
 
-            <div className="tim-form-field">
-              <label className="tim-form-label" htmlFor="timModelsEndpoint">模型列表路径</label>
-              <input
-                id="timModelsEndpoint"
-                className="tim-form-input"
-                type="text"
-                placeholder="/models"
-                value={values.modelsEndpoint || ''}
-                onChange={(event) => setValues((previous) => ({ ...previous, modelsEndpoint: event.target.value }))}
-              />
-            </div>
+            {/* 高级字段由宿主决定是否出现（账号型平台没有这一项）：主题只按 key/label/placeholder 渲染 */}
+            {addForm.advancedField ? (
+              <div className="tim-form-field">
+                <label className="tim-form-label" htmlFor={'timAdvanced-' + addForm.advancedField.key}>
+                  {addForm.advancedField.label}
+                </label>
+                <input
+                  id={'timAdvanced-' + addForm.advancedField.key}
+                  className="tim-form-input"
+                  type="text"
+                  placeholder={addForm.advancedField.placeholder}
+                  value={values[addForm.advancedField.key] || ''}
+                  onChange={(event) => actions.setAddFormValue(addForm.advancedField!.key, event.target.value)}
+                />
+              </div>
+            ) : null}
 
             <div className="tim-form-row">
               <button type="button" className="tim-form-ghost" onClick={runProbe}>获取可用模型</button>

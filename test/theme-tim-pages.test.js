@@ -298,10 +298,13 @@ test('主题源码：不出现内部术语（驱动 id / 认证字段名）', as
   }
 });
 
-test('加群页：模型列表路径有 /models 占位，留空按 /models 处理', async () => {
+test('加群页：高级字段由宿主给出（主题只按 addForm.advancedField 渲染）', async () => {
   const sourceText = await fs.readFile(THEME_SOURCE_PATH, 'utf8');
-  assert.match(sourceText, /placeholder="\/models"/, '输入框必须有 /models 占位提示');
-  assert.match(sourceText, /String\(values\.modelsEndpoint \|\| ''\)\.trim\(\) \|\| '\/models'/, '留空要回落 /models');
+  // 0.4.0：模型列表路径这类"值"归宿主（store/add-form.js），主题只渲染宿主给的 label/placeholder
+  assert.match(sourceText, /addForm\.advancedField \?/, '高级字段必须来自宿主的 advancedField');
+  assert.match(sourceText, /addForm\.advancedField\.placeholder/, '占位文案由宿主给，主题不写死');
+  assert.equal(sourceText.includes('modelsEndpoint'), false, '主题里不许出现模型目录路径字段名');
+  assert.equal(sourceText.includes('baseURL'), false, '主题里不许出现接口地址字段名');
 });
 
 test('加群页标题：返回与标题左对齐相邻（不再被 space-between 顶到右边）', async () => {
