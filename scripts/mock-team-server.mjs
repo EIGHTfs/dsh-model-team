@@ -2,7 +2,8 @@
 // 本地假后端：给 ui/ 的设计稿与插件客户端提供 /_team/* 的固定假数据。
 //
 // 用途
-//   - 不启动真实 DSH 网关时，也能打开 ui/index.html 或注入 lib/client.js 看渲染与交互；
+//   - 不启动真实 DSH 网关时，用它跑通前端**数据层**（/_team/* 假数据）；
+//     界面本身（主题）只能在 DSH 宿主里渲染，根路径给的是"构建产物自检页"；
 //   - 假数据形状与真实接口一致（分组列表 / 群友 / 请求行 / 事件流 / 全局统计 / 目标），
 //     前端改字段或改排序逻辑时可用它做回归自检。
 //
@@ -12,7 +13,7 @@
 //   node scripts/mock-team-server.mjs --host 0.0.0.0   # 允许局域网访问（真机联调）
 //
 // 行为要点
-//   - GET  /_team/*  返回固定假数据；静态路径按仓库根目录提供（/ 返回一个空白宿主页）；
+//   - GET  /_team/*  返回固定假数据；静态路径按仓库根目录提供（/ 返回产物自检页）；
 //   - PUT  /_team/session/<id>/target 往 events 追加一条 system 事件，
 //     模拟真实后端"切换目标即落事件"，用于验证前端不在本地拼文案（刷新前后逐字一致）；
 //   - 零第三方依赖，只用 node:http / node:fs。
@@ -192,8 +193,63 @@ const CONTENT_TYPE_BY_EXTENSION = {
   '.html': 'text/html; charset=utf-8',
 };
 
-const HARNESS_PAGE = '<!doctype html><html><head><meta charset="utf-8"><title>model-team harness</title>'
-  + '</head><body><h1>model-team harness</h1></body></html>';
+// 预览入口（0.4.0 起）：界面只剩主题，而主题**只能在 DSH 宿主里渲染**——
+// 它由构建产物 `lib/client.js` 的 THEME_FACTORY 段提供，运行时还需要宿主的 React 与槽位。
+// 所以这里不再假装"有个能直接打开的界面"，而是给一个**产物自检页**：
+//   · 告诉你去哪看真实界面（dsh web / 主实例 GUI）；
+//   · 顺手报告产物状态：client.js 在不在、主题 bundle 有没有、meta.id 是什么。
+// 为什么这样做而不是继续维护一份 HTML 骨架：那份骨架和它的 CSS 已在 0.4.0 删除，
+// 再手抄一份就是"第二份界面真相"，必然与主题漂移。
+const PREVIEW_PAGE = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>模型团队 · 预览入口（产物自检）</title>
+<style>
+  body { margin: 0; padding: 32px; font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; color: #111827; background: #f7f7f7; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  .card { max-width: 720px; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px 22px; box-shadow: 0 6px 20px rgba(17,24,39,.06); }
+  .row { display: flex; gap: 8px; padding: 6px 0; border-bottom: 1px dashed #eef0f2; }
+  .row:last-child { border-bottom: none; }
+  .k { width: 168px; color: #6b7280; flex: none; }
+  code { background: #f3f4f6; border-radius: 4px; padding: 1px 5px; font-size: 12.5px; }
+  .ok { color: #047857; } .bad { color: #b91c1c; }
+  .note { margin-top: 14px; font-size: 13px; color: #6b7280; }
+</style></head><body>
+<div class="card">
+  <h1>模型团队 · 预览入口</h1>
+  <div id="app">正在检查构建产物…</div>
+  <div class="note">本页只做产物自检。真实界面（主题渲染）需要 DSH 宿主：用 <code>dsh web</code> 打开实例，在会话里看悬浮球与主窗口。</div>
+</div>
+<script>
+(async function () {
+  var host = document.getElementById('app');
+  function row(key, value, ok) {
+    var div = document.createElement('div');
+    div.className = 'row';
+    var k = document.createElement('span'); k.className = 'k'; k.textContent = key;
+    var v = document.createElement('span');
+    v.className = ok === undefined ? '' : (ok ? 'ok' : 'bad');
+    v.innerHTML = value;
+    div.appendChild(k); div.appendChild(v);
+    host.appendChild(div);
+  }
+  try {
+    var response = await fetch('/lib/client.js', { cache: 'no-store' });
+    row('构建产物 lib/client.js', response.ok ? '已构建（HTTP ' + response.status + '）' : '读取失败（HTTP ' + response.status + '）', response.ok);
+    if (response.ok) {
+      var source = await response.text();
+      var hasFactory = source.indexOf('var THEME_FACTORY = function') >= 0;
+      var metaMatched = /var THEME_META = (\\{[^}]*\\})/.exec(source);
+      var themeMeta = metaMatched ? metaMatched[1] : '';
+      row('主题 bundle', hasFactory ? '已内联（THEME_FACTORY 存在）' : '缺失（先跑 node build.cjs）', hasFactory);
+      row('主题 meta', themeMeta ? '<code>' + themeMeta.replace(/</g, '&lt;') + '</code>' : '未找到', !!themeMeta);
+      row('产物规模', source.length + ' 字符', undefined);
+    }
+  } catch (error) {
+    row('构建产物 lib/client.js', '读取异常：' + String(error && error.message ? error.message : error), false);
+  }
+  row('数据接口', '本服务的 <code>/_team/*</code> 仍是假数据，可用于前端数据层自检', undefined);
+})();
+</script>
+</body></html>`;
 
 function sendBody(response, statusCode, contentType, body) {
   response.writeHead(statusCode, contentType ? { 'content-type': contentType, 'content-length': body.length } : {});
@@ -296,7 +352,7 @@ async function handleGet(pathname, response) {
     return;
   }
   if (pathname === '/') {
-    sendBody(response, 200, 'text/html; charset=utf-8', Buffer.from(HARNESS_PAGE, 'utf8'));
+    sendBody(response, 200, 'text/html; charset=utf-8', Buffer.from(PREVIEW_PAGE, 'utf8'));
     return;
   }
   await serveStatic(response, pathname);
