@@ -312,6 +312,122 @@ interface DriverLike {
 
 interface AccountLike { accountId?: unknown; nickname?: unknown }
 
+
+/** 平台下拉（自绘）：触发器 + 浮层列表。
+ * 为什么不用原生 <select>：浮层由系统绘制，样式与 tokens 不一致；选中态/键盘焦点不可控，
+ * 也无法给每一项加 data-* 标记供门禁与真机验收定位。
+ * 数据面完全不变：选项来自 useGroupOptions()（只有 id/label），选中只调一个回调（→ 宿主动作）。 */
+function PlatformPicker({ labelId, options, selectedId, onPick }: {
+  labelId: string;
+  options: Array<{ id: string; label: string }>;
+  selectedId: string;
+  onPick: (optionId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const listboxId = 'timPlatformListbox';
+  const selectedOption = options.find((option) => option.id === selectedId) || null;
+
+  // 点击外部 / Esc 关闭：只在打开时挂监听，关闭即摘（不留常驻全局监听）
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      const root = rootRef.current;
+      if (root && event.target instanceof Node && !root.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => document.removeEventListener('pointerdown', onPointerDown, true);
+  }, [open]);
+
+  // 打开时把高亮落在当前选中项（没有则第一项），并把焦点交给列表
+  useEffect(() => {
+    if (!open) return;
+    const currentIndex = options.findIndex((option) => option.id === selectedId);
+    setActiveIndex(currentIndex >= 0 ? currentIndex : (options.length > 0 ? 0 : -1));
+    if (listRef.current) listRef.current.focus();
+  }, [open, options, selectedId]);
+
+  const commit = (optionId: string) => {
+    setOpen(false);
+    onPick(optionId);
+    if (triggerRef.current) triggerRef.current.focus();
+  };
+
+  const onTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      setOpen(true);
+    }
+  };
+
+  const onListKeyDown = (event: React.KeyboardEvent<HTMLUListElement>) => {
+    if (event.key === 'Escape') { event.preventDefault(); setOpen(false); if (triggerRef.current) triggerRef.current.focus(); return; }
+    if (event.key === 'ArrowDown') { event.preventDefault(); setActiveIndex((previous) => Math.min(previous + 1, options.length - 1)); return; }
+    if (event.key === 'ArrowUp') { event.preventDefault(); setActiveIndex((previous) => Math.max(previous - 1, 0)); return; }
+    if (event.key === 'Home') { event.preventDefault(); setActiveIndex(0); return; }
+    if (event.key === 'End') { event.preventDefault(); setActiveIndex(options.length - 1); return; }
+    if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+      event.preventDefault();
+      const activeOption = options[activeIndex];
+      if (activeOption) commit(activeOption.id);
+    }
+  };
+
+  return (
+    <div className="tim-picker" ref={rootRef} data-picker="platform">
+      <button
+        type="button"
+        ref={triggerRef}
+        id="timDriverSelect"
+        className="tim-form-input tim-picker-trigger"
+        role="combobox"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        aria-labelledby={labelId + ' timDriverSelect'}
+        data-picker-trigger
+        onClick={() => setOpen((previous) => !previous)}
+        onKeyDown={onTriggerKeyDown}
+      >
+        <span className={selectedOption ? 'tim-picker-value' : 'tim-picker-placeholder'}>
+          {selectedOption ? selectedOption.label : '请选择'}
+        </span>
+        <span className="tim-picker-arrow" aria-hidden="true">▾</span>
+      </button>
+      {open ? (
+        <ul
+          className="tim-picker-list"
+          id={listboxId}
+          role="listbox"
+          aria-labelledby={labelId}
+          tabIndex={-1}
+          ref={listRef}
+          onKeyDown={onListKeyDown}
+          data-picker-list
+        >
+          {options.map((option, index) => (
+            <li
+              key={option.id}
+              role="option"
+              aria-selected={option.id === selectedId}
+              data-option-id={option.id}
+              data-active={index === activeIndex ? 'true' : 'false'}
+              className={option.id === selectedId ? 'tim-picker-option is-selected' : 'tim-picker-option'}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => commit(option.id)}
+            >
+              {option.label}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function AddPage({ onHide }: { onHide: () => void }) {
   const drivers = useDrivers() as DriverLike[];
   // 下拉选项与表单值都来自宿主：选项是纯投影（只有 id/label），值是 state.addForm。
@@ -465,18 +581,14 @@ function AddPage({ onHide }: { onHide: () => void }) {
       </div>
 
       <div className="tim-form-body">
-        <label className="tim-form-label" htmlFor="timDriverSelect">选平台</label>
-        <select
-          id="timDriverSelect"
-          className="tim-form-input"
-          value={addForm.optionId}
-          onChange={(event) => selectDriver(event.target.value)}
-        >
-          <option value="">请选择</option>
-          {groupOptions.map((option) => (
-            <option key={option.id} value={option.id}>{option.label}</option>
-          ))}
-        </select>
+        <label className="tim-form-label" id="timPlatformLabel">选平台</label>
+        {/* 自绘下拉（原生 <select> 的浮层由系统绘制，样式/键盘/选中态都不可控） */}
+        <PlatformPicker
+          labelId="timPlatformLabel"
+          options={groupOptions}
+          selectedId={addForm.optionId}
+          onPick={selectDriver}
+        />
 
         {!driver ? <div className="tim-empty-inline" data-add-hint="no-platform">先选平台</div> : null}
 
@@ -1344,6 +1456,16 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
 [data-theme-root="tim"] .tim-form-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 16px 20px; }
 [data-theme-root="tim"] .tim-form-label { display: block; margin: 12px 0 6px; font-size: 12px; color: var(--tim-text-2); }
 [data-theme-root="tim"] .tim-form-input { width: 100%; height: 38px; padding: 0 12px; border: 1px solid var(--tim-line); border-radius: 8px; background: #fff; font-size: 13.5px; color: var(--tim-text-1); outline: none; }
+/* 自绘平台下拉：触发器沿用 form-input 的形状；浮层用同一套圆角/边框/字号 tokens */
+[data-theme-root="tim"] .tim-picker { position: relative; }
+[data-theme-root="tim"] .tim-picker-trigger { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; text-align: left; }
+[data-theme-root="tim"] .tim-picker-trigger:focus-visible { border-color: var(--tim-blue); box-shadow: 0 0 0 3px rgba(59,130,246,.18); }
+[data-theme-root="tim"] .tim-picker-placeholder { color: var(--tim-text-3); }
+[data-theme-root="tim"] .tim-picker-arrow { color: var(--tim-text-3); font-size: 11px; flex: none; }
+[data-theme-root="tim"] .tim-picker-list { position: absolute; z-index: 3; left: 0; right: 0; margin: 4px 0 0; padding: 4px; list-style: none; background: #fff; border: 1px solid var(--tim-line); border-radius: 8px; box-shadow: 0 8px 24px rgba(15,23,42,.12); max-height: 220px; overflow: auto; outline: none; }
+[data-theme-root="tim"] .tim-picker-option { padding: 8px 10px; border-radius: 6px; font-size: 13.5px; color: var(--tim-text-1); cursor: pointer; }
+[data-theme-root="tim"] .tim-picker-option[data-active="true"] { background: var(--tim-bg-2); }
+[data-theme-root="tim"] .tim-picker-option.is-selected { color: var(--tim-blue); font-weight: 600; }
 [data-theme-root="tim"] .tim-form-input:focus { border-color: var(--tim-primary); }
 [data-theme-root="tim"] .tim-form-section { margin-top: 4px; }
 [data-theme-root="tim"] .tim-form-field { margin-bottom: 2px; }

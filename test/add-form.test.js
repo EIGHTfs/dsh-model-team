@@ -63,3 +63,16 @@ test('主题不再持有这些字段名（值显分离的硬判据）', async ()
     assert.equal(themeSource.includes(fieldName), false, `主题源码里不许出现 ${fieldName}`);
   }
 });
+
+test('选平台用自绘下拉：无原生 select，具备 listbox/option 与键盘可达标记', async () => {
+  const themeSource = await fs.readFile(new URL('../ui/themes/tim.tsx', import.meta.url), 'utf8');
+  // 只约束"选平台"这一个控件：主题里其它原生 select（如成员选择）不在本次范围
+  assert.equal(/<select[^>]*id="timDriverSelect"/.test(themeSource), false, '选平台不许再用原生 select');
+  assert.match(themeSource, /id="timDriverSelect"[^>]*role="combobox"/s, '选平台必须是 combobox 触发器');
+  for (const marker of ['role="listbox"', 'role="option"', 'role="combobox"', 'aria-expanded', 'aria-selected', 'data-option-id']) {
+    assert.equal(themeSource.includes(marker), true, `自绘下拉缺少 ${marker}`);
+  }
+  for (const key of ["event.key === 'Escape'", "event.key === 'ArrowDown'", "event.key === 'ArrowUp'", "event.key === 'Enter'"]) {
+    assert.equal(themeSource.includes(key), true, `键盘交互缺少 ${key}`);
+  }
+});
