@@ -24,8 +24,15 @@ const DRIVER_VIEW_PATH = path.join(UI_JS_DIRECTORY, 'format', 'driver-view.js');
 
 // 平台名太短（如 "ai"）会误伤普通英文单词，达不到 3 个字符的一律不参与扫描
 const MIN_PLATFORM_NAME_LENGTH = 3;
-// 主题里不允许出现的"值字段名"（值显分离的硬判据）
-const FORBIDDEN_THEME_FIELD_NAMES = Object.freeze(['baseURL', 'modelsEndpoint', 'driverId']);
+// 主题里不允许出现的"值/契约字段名"（值显分离的硬判据）
+// 加群页：baseURL / modelsEndpoint / driverId；备份恢复页：credentialFiles / unresolvedRefs / pendingImport / apiKeyRef
+const FORBIDDEN_THEME_FIELD_NAMES = Object.freeze([
+  'baseURL', 'modelsEndpoint', 'driverId',
+  'credentialFiles', 'unresolvedRefs', 'pendingImport', 'apiKeyRef',
+]);
+// 这两个是**单词型**字段名：只判"作为字段/属性使用"的形态（`mode:` / `.mode` / `['mode']`），
+// 不判样式类名（如既有的 tim-confirm*）与普通英文单词——那会把无辜代码判红。
+const FORBIDDEN_THEME_WORD_USAGE = Object.freeze(['mode', 'confirm']);
 
 function readTextFile(absolutePath) {
   return fs.readFileSync(absolutePath, 'utf8');
@@ -144,7 +151,17 @@ function checkThemeHasNoValueFields() {
     const sourceText = readTextFile(filePath);
     for (const fieldName of FORBIDDEN_THEME_FIELD_NAMES) {
       if (sourceText.includes(fieldName)) {
-        problems.push(`${relativePath} 出现值字段名「${fieldName}」——值应归 store/add-form.js，主题只渲染`);
+        problems.push(`${relativePath} 出现值字段名「${fieldName}」——值应归宿主 store，主题只渲染`);
+      }
+    }
+    // 单词型字段名只判"当字段用"的三种写法：对象键 `mode:`、成员访问 `.mode`、下标 `['mode']`。
+    // 不判样式类名（既有的 .tim-confirm*）与普通英文词——那会把无辜代码判红。
+    for (const wordName of FORBIDDEN_THEME_WORD_USAGE) {
+      const usagePattern = new RegExp(
+        `(^|[^A-Za-z0-9_$])(?:${wordName}\\s*:|\\.${wordName}\\b|\\[['"]${wordName}['"]\\])`,
+      );
+      if (usagePattern.test(sourceText)) {
+        problems.push(`${relativePath} 把「${wordName}」当字段用——请改走宿主动作（中文文案用「确认」）`);
       }
     }
   }

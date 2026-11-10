@@ -26,6 +26,17 @@ function createActionHandlers(deps) {
     'select-group-option': function (action) { return actions.selectGroupOption(action.optionId); },
     'set-add-form-value': function (action) { return actions.setAddFormValue(action.fieldKey, action.value); },
     'probe-add-form': function (action) { return actions.probeAddForm({ accountId: action.accountId }); },
+    // 数据库页（备份/恢复）：值在 store/db.js
+    'export-db-backup': function () { return actions.exportDbBackup(); },
+    'preview-db-import': function (action) { return actions.previewDbImport({ text: action.text, fileName: action.fileName }); },
+    'import-db-backup': function (action) {
+      return actions.importDbBackup({ text: action.text, fileName: action.fileName, mode: action.mode });
+    },
+    'import-db-backup-replace': function (action) {
+      return actions.importDbBackup({ text: action.text, fileName: action.fileName, mode: 'replace' });
+    },
+    'confirm-db-replace': function () { return actions.confirmDbReplace(); },
+    'reset-db-page': function () { return actions.resetDbPage(); },
     'submit-add-group': function (action) {
       return actions.submitAddGroup({ name: action.name, models: action.models, accountId: action.accountId });
     },

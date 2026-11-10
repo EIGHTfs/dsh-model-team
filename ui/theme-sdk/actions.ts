@@ -45,6 +45,30 @@ export const actions = {
   toggleRow(rowIndex: number): unknown {
     return dispatch({ type: 'toggle-row', rowIndex });
   },
+  /** 导出备份（宿主负责生成文件与文件名；主题只显示结果文案） */
+  exportDbBackup(): unknown {
+    return dispatch({ type: 'export-db-backup' });
+  },
+  /** 导入前的本地预览（不上行）：只用来显示"将导入多少" */
+  previewDbImport(input: { text: string; fileName?: string }): unknown {
+    return dispatch({ type: 'preview-db-import', text: input.text, fileName: input.fileName });
+  },
+  /** 导入备份（合并）：已存在的按 id 更新，不存在的新增 */
+  importDbBackup(input: { text: string; fileName?: string }): unknown {
+    return dispatch({ type: 'import-db-backup', text: input.text, fileName: input.fileName });
+  },
+  /** 导入备份（整体替换）：首次不带确认 → 服务端 409 → 宿主切到"需要确认" */
+  importDbBackupReplace(input: { text: string; fileName?: string }): unknown {
+    return dispatch({ type: 'import-db-backup-replace', text: input.text, fileName: input.fileName });
+  },
+  /** 确认整体替换（重发暂存的那次导入） */
+  confirmDbReplace(): unknown {
+    return dispatch({ type: 'confirm-db-replace' });
+  },
+  /** 清空数据库页状态（含待确认的导入） */
+  resetDbPage(): unknown {
+    return dispatch({ type: 'reset-db-page' });
+  },
   /** 选中加群下拉里的一项（宿主负责展开初值；主题只传 option id） */
   selectGroupOption(optionId: string): unknown {
     return dispatch({ type: 'select-group-option', optionId });

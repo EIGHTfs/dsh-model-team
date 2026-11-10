@@ -292,13 +292,15 @@ test('分组删除确认：二次确认框存在，且带取消/确认两个动�
   assert.match(sourceText, /data-groups-empty/, '分组空态必须存在');
 });
 
-test('我页：空态「还没有接入任何平台」+ 导出/导入入口', async () => {
+test('我页：空态「还没有接入任何平台」+ 单一「备份与恢复」入口', async () => {
   const exports = await loadThemePages({ groups: [], drivers: DRIVERS, friendGroups: [], view: 'profile' });
   const tree = renderPage(exports, 'ProfilePage', {});
   assert.equal(tree.attrs['data-platform-state'], 'empty');
   assert.equal(tree.texts.includes('还没有接入任何平台'), true, `实际文案：${JSON.stringify(tree.texts)}`);
-  assert.equal(tree.texts.some((text) => text.includes('登录 / 导入账号配置')), true, '登录与导入必须合并成一个入口');
-  assert.equal(tree.texts.some((text) => text.includes('导出当前配置')), true);
+  // 备份/恢复已收敛到数据库页：本页只留一行入口（同一能力不许两套 UI）
+  assert.equal(tree.texts.some((text) => text.includes('备份与恢复')), true, '必须有备份与恢复入口');
+  assert.equal(tree.texts.some((text) => text.includes('登录 / 导入账号配置')), false, '导入面板已迁走');
+  assert.equal(tree.texts.some((text) => text.includes('导出当前配置')), false, '导出按钮已迁走');
   assert.equal(tree.texts.some((text) => text.includes('我的模型团队')), true, '标题必须是项目自己的名字');
 });
 

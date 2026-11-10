@@ -85,6 +85,30 @@ export function useAddForm(): {
   });
 }
 
+/** 数据库页（备份/恢复）的状态投影：值在 store/db.js，主题只读 */
+export function useDbState(): {
+  phase: 'idle' | 'exporting' | 'importing' | 'need-confirm' | 'done' | 'error';
+  error: { code: string; title: string; detail: string; needsConfirm: boolean } | null;
+  backupSummary: { versionText: string; exportedAtText: string; groupCount: number; credentialFileCount: number; unresolvedRefCount: number } | null;
+  preview: { fileName: string; isBackupShaped: boolean; groupCount: number; credentialFileCount: number; invalidCount: number } | null;
+  pendingImport: { text: string; fileName: string } | null;
+  lastExport: { fileName: string; bytes: number; at: string } | null;
+  lastImport: { headline: string; rows: Array<{ label: string; value: string }>; rejectedRows: Array<{ index: number; reason: string }>; skippedRows: Array<{ path: string; reason: string }>; at: string } | null;
+} {
+  return useTeamState((state) => {
+    const db = (state as AnyState).db as Record<string, unknown> | undefined;
+    return {
+      phase: (typeof db?.phase === 'string' ? db.phase : 'idle') as 'idle',
+      error: (db?.error as ReturnType<typeof useDbState>['error']) ?? null,
+      backupSummary: (db?.backupSummary as ReturnType<typeof useDbState>['backupSummary']) ?? null,
+      preview: (db?.preview as ReturnType<typeof useDbState>['preview']) ?? null,
+      pendingImport: (db?.pendingImport as ReturnType<typeof useDbState>['pendingImport']) ?? null,
+      lastExport: (db?.lastExport as ReturnType<typeof useDbState>['lastExport']) ?? null,
+      lastImport: (db?.lastImport as ReturnType<typeof useDbState>['lastImport']) ?? null,
+    };
+  });
+}
+
 /** 好友分组 */
 export function useFriendGroups(): unknown[] {
   return useTeamState((state) => ((state as AnyState).friendGroups as unknown[]) || []);

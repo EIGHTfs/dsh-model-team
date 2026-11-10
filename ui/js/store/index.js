@@ -31,7 +31,7 @@ function createStoreLoaders(options) {
 }
 
 // 动作表：dispatch 只认"动作名 → 实现"，这里把 loader/session 的方法映射成契约里的动作名
-function collectStoreActions(loaders, session, forms, addForm) {
+function collectStoreActions(loaders, session, forms, addForm, dbActions) {
   return {
     // 表单类动作（加群/探测/导出导入/反代登录）：只调接口、不写 state
     addGroup: forms.addGroup,
@@ -49,6 +49,12 @@ function collectStoreActions(loaders, session, forms, addForm) {
     setAddFormValue: addForm.setAddFormValue,
     probeAddForm: addForm.probeAddForm,
     submitAddGroup: addForm.submitAddGroup,
+    // 数据库页（备份/恢复）
+    exportDbBackup: dbActions.exportDbBackup,
+    previewDbImport: dbActions.previewDbImport,
+    importDbBackup: dbActions.importDbBackup,
+    confirmDbReplace: dbActions.confirmDbReplace,
+    resetDbPage: dbActions.resetDbPage,
     start: session.start,
     stop: session.stop,
     applySessionChanged: session.applySessionChanged,
@@ -95,6 +101,15 @@ function createTeamStore(options) {
   });
 
   var forms = createFormActions({ api: api, reportError: errorSink.reportError });
+  // 数据库页：值在 store/db.js；下载能力作为端口注入（测试注入桩，不触发真实下载）
+  var dbActions = createDbActions({
+    api: api,
+    state: state,
+    broadcast: hub.broadcast,
+    download: typeof downloadTextFile === 'function'
+      ? downloadTextFile
+      : function (fileName, text) { return { fileName: fileName, bytes: String(text || '').length }; }
+  });
   // 加群表单的「值」（选项展开、探测体、提交体都在这里，主题不认识内部字段名）
   var addForm = createAddFormActions({
     api: api,
@@ -107,7 +122,7 @@ function createTeamStore(options) {
     state: state,
     persist: persistence.persist,
     renderNow: hub.renderNow,
-    actions: collectStoreActions(loaders, session, forms, addForm)
+    actions: collectStoreActions(loaders, session, forms, addForm, dbActions)
   });
 
   return {

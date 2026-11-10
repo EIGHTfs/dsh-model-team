@@ -38,6 +38,7 @@ import {
   useDrivers,
   useGroupOptions,
   useAddForm,
+  useDbState,
   useFriendGroups,
   buildAvatarView,
   nextAvatarView,
@@ -1016,14 +1017,150 @@ function ContactsPage({ onHide }: { onHide: () => void }) {
 
 // ---------------------------------------------------------------- 我 / 数据库页
 
+
+/** 数据库页：备份与恢复。
+ * 分层：值在 store/db.js（来源 = 服务端备份接口），这里只渲染 useDbState() 的投影 + 调动作。
+ * 因此本组件不认识任何请求字段名（备份对象与导入回执的原始形状都被 format/db-view.js 折叠掉了）。 */
+function DbPage({ onHide }: { onHide: () => void }) {
+  const db = useDbState();
+  const [pickedText, setPickedText] = useState('');
+  const [pickedFileName, setPickedFileName] = useState('');
+  const [replaceAll, setReplaceAll] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 离开本页就清状态（含待确认的那次导入）：没人应该带着"半个导入"回到别的页面
+  useEffect(() => () => { actions.resetDbPage(); }, []);
+
+  const busy = db.phase === 'exporting' || db.phase === 'importing';
+
+  const readPickedFile = (file: File | null) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onerror = () => { setPickedText(''); setPickedFileName(''); };
+    reader.onload = () => {
+      const text = String(reader.result || '');
+      setPickedText(text);
+      setPickedFileName(file.name);
+      actions.previewDbImport({ text, fileName: file.name });
+    };
+    reader.readAsText(file);
+  };
+
+  const runImport = () => {
+    if (!pickedText) return;
+    if (replaceAll) actions.importDbBackupReplace({ text: pickedText, fileName: pickedFileName });
+    else actions.importDbBackup({ text: pickedText, fileName: pickedFileName });
+  };
+
+  return (
+    <section className="tim-view tim-db" data-view="db" data-db-phase={db.phase}>
+      <div className="tim-list-head tim-list-head-inline">
+        <button type="button" className="tim-back" onClick={() => actions.openView('list')} aria-label="返回">‹</button>
+        <h1 className="tim-page-title">备份与恢复</h1>
+        <WindowHideButton onHide={onHide} />
+      </div>
+
+      <div className="tim-form-body">
+        <div className="tim-form-section">
+          <div className="tim-section-title">导出</div>
+          <div className="tim-form-note">导出当前全部平台账号与凭证引用，得到一个可再导入的备份文件。</div>
+          <button type="button" className="tim-form-primary" data-action="db-export" disabled={busy} onClick={() => actions.exportDbBackup()}>
+            {db.phase === 'exporting' ? '正在导出…' : '导出备份'}
+          </button>
+          {db.lastExport ? (
+            <div className="tim-form-note" data-db-export-result>
+              已导出 {db.lastExport.fileName}（{Math.max(1, Math.round(db.lastExport.bytes / 1024))} KB）
+            </div>
+          ) : null}
+        </div>
+
+        {db.backupSummary ? (
+          <div className="tim-form-section" data-db-summary>
+            <div className="tim-section-title">最近一次导出的内容</div>
+            {[
+              { label: '备份版本', value: db.backupSummary.versionText },
+              { label: '导出时间', value: db.backupSummary.exportedAtText },
+              { label: '平台账号', value: String(db.backupSummary.groupCount) },
+              { label: '凭据文件', value: String(db.backupSummary.credentialFileCount) },
+              { label: '未导出的引用', value: String(db.backupSummary.unresolvedRefCount) },
+            ].map((rowItem) => (
+              <div key={rowItem.label} className="tim-kv-row"><span className="tim-k">{rowItem.label}</span><span>{rowItem.value}</span></div>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="tim-form-section">
+          <div className="tim-section-title">导入</div>
+          <input
+            ref={fileInputRef}
+            className="tim-profile-file"
+            type="file"
+            accept="application/json,.json"
+            data-db-file
+            onChange={(event) => readPickedFile(event.target.files && event.target.files[0] ? event.target.files[0] : null)}
+          />
+          <label className="tim-form-check">
+            <input type="checkbox" data-db-replace checked={replaceAll} onChange={(event) => setReplaceAll(event.target.checked)} />
+            <span>整体替换（先清空现有平台账号）</span>
+          </label>
+          {db.preview ? (
+            <div className="tim-form-note" data-db-preview>
+              {db.preview.fileName ? db.preview.fileName + '：' : ''}
+              将导入 {db.preview.groupCount} 个平台账号、{db.preview.credentialFileCount} 个凭据文件
+              {db.preview.invalidCount > 0 ? '（其中 ' + db.preview.invalidCount + ' 条缺少 id，会被拒绝）' : ''}
+            </div>
+          ) : null}
+          <button type="button" className="tim-form-primary" data-action="db-import" disabled={busy || !pickedText} onClick={runImport}>
+            {db.phase === 'importing' ? '正在导入…' : replaceAll ? '开始替换导入' : '开始导入'}
+          </button>
+        </div>
+
+        {db.phase === 'need-confirm' ? (
+          <div className="tim-form-section" data-db-need-confirm>
+            <div className="tim-section-title">需要确认</div>
+            <div className="tim-form-note">{db.error ? db.error.title : '整体替换需要确认'}</div>
+            {db.error && db.error.detail ? <div className="tim-form-note" data-db-confirm-detail>{db.error.detail}</div> : null}
+            <button type="button" className="tim-form-primary" data-action="db-confirm" onClick={() => actions.confirmDbReplace()}>确认替换</button>
+            <button type="button" className="tim-form-ghost" onClick={() => actions.resetDbPage()}>放弃</button>
+          </div>
+        ) : null}
+
+        {db.lastImport ? (
+          <div className="tim-form-section" data-db-receipt>
+            <div className="tim-section-title">{db.lastImport.headline}</div>
+            {db.lastImport.rows.map((rowItem) => (
+              <div key={rowItem.label} className="tim-kv-row"><span className="tim-k">{rowItem.label}</span><span>{rowItem.value}</span></div>
+            ))}
+            {db.lastImport.rejectedRows.length > 0 ? (
+              <ul className="tim-db-issues" data-db-rejected>
+                {db.lastImport.rejectedRows.map((entry) => (
+                  <li key={'rejected-' + entry.index}>第 {entry.index + 1} 条被拒绝：{entry.reason}</li>
+                ))}
+              </ul>
+            ) : null}
+            {db.lastImport.skippedRows.length > 0 ? (
+              <ul className="tim-db-issues" data-db-skipped>
+                {db.lastImport.skippedRows.map((entry) => (
+                  <li key={'skipped-' + entry.path}>{entry.path}：{entry.reason}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+
+        {db.phase === 'error' && db.error ? (
+          <div className="tim-form-error" data-db-error>
+            {db.error.title}{db.error.detail ? '（' + db.error.detail + '）' : ''}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function ProfilePage({ onHide }: { onHide: () => void }) {
   const groups = useGroups() as Array<{ id?: unknown; name?: unknown; driver?: unknown }>;
   const drivers = useDrivers() as DriverLike[];
-  const [receipt, setReceipt] = useState('');
-  const [importOpen, setImportOpen] = useState(false);
-  const [pasted, setPasted] = useState('');
-  const [actionError, setActionError] = useState('');
-  const [busy, setBusy] = useState(false);
 
   const driverNameOf = (driverKey: unknown): string => {
     const matched = drivers.find((candidate) => String(candidate.id || '') === String(driverKey || ''));
@@ -1039,56 +1176,8 @@ function ProfilePage({ onHide }: { onHide: () => void }) {
     return sections;
   }, []);
 
-  // 导出：拿服务端备份对象 → 触发浏览器下载（文件名带时间戳，便于区分多次导出）
-  const runExport = () => {
-    setActionError('');
-    setReceipt('');
-    setBusy(true);
-    Promise.resolve(actions.exportConfig() as Promise<unknown>)
-      .then((backup) => {
-        setBusy(false);
-        if (!backup) { setActionError('导出失败：服务端没有返回内容'); return; }
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
-        const objectUrl = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = objectUrl;
-        anchor.download = 'model-team-backup-' + stamp + '.json';
-        anchor.click();
-        URL.revokeObjectURL(objectUrl);
-        setReceipt('已导出备份文件');
-      })
-      .catch((error: Error) => { setBusy(false); setActionError(error && error.message ? error.message : '导出失败'); });
-  };
-
-  // 导入（文本）：交服务端 → 只显示服务端回执里的数字（不自己算）；导入成功即视为该平台已登录
-  const runImportText = (rawText: string) => {
-    setActionError('');
-    setReceipt('');
-    let parsed: unknown;
-    try { parsed = JSON.parse(rawText); } catch { setActionError('内容不是合法 JSON'); return; }
-    setBusy(true);
-    Promise.resolve(actions.importConfig(parsed as Record<string, unknown>) as Promise<{ imported?: number; updated?: number; rejected?: unknown[] }>)
-      .then((result) => {
-        setBusy(false);
-        const imported = result && typeof result.imported === 'number' ? result.imported : 0;
-        const updated = result && typeof result.updated === 'number' ? result.updated : 0;
-        const rejected = result && Array.isArray(result.rejected) ? result.rejected.length : 0;
-        setReceipt('导入完成：新增 ' + imported + ' 条，更新 ' + updated + ' 条，拒绝 ' + rejected + ' 条');
-        setPasted('');
-        actions.loadGroups();
-      })
-      .catch((error: Error) => { setBusy(false); setActionError(error && error.message ? error.message : '导入失败'); });
-  };
-
-  // 导入（文件）：读文本后走同一条路径
-  const runImport = (file: File | null) => {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onerror = () => setActionError('读取文件失败');
-    reader.onload = () => runImportText(String(reader.result || ''));
-    reader.readAsText(file);
-  };
+  // 备份/恢复已迁到数据库页（同一能力只保留一套 UI）：
+  // 这里只保留一行入口，避免两处各写一套回执与错误文案（那正是漂移的起点）。
 
   return (
     <section className="tim-view tim-profile" data-view="profile">
@@ -1101,36 +1190,9 @@ function ProfilePage({ onHide }: { onHide: () => void }) {
         </div>
       </div>
       <div className="tim-profile-body">
-        {/* 登录与导入是同一件事（导入即登录）：合成一个入口，点开再选"选文件"还是"粘贴" */}
-        <button type="button" className="tim-profile-row" data-action="login-import" onClick={() => setImportOpen((open) => !open)} aria-expanded={importOpen}>
-          <span>🔐 登录 / 导入账号配置（JSON）</span><span className="tim-chevron">{importOpen ? '⌄' : '>'}</span>
+        <button type="button" className="tim-profile-row" data-action="backup" onClick={() => actions.openView('db')}>
+          <span>🗄️ 备份与恢复</span><span className="tim-chevron">&gt;</span>
         </button>
-        {importOpen ? (
-          <div className="tim-import-panel" data-import-panel>
-            <label className="tim-import-pick">
-              <span>选择 JSON 文件</span>
-              <input
-                className="tim-profile-file"
-                type="file"
-                accept="application/json,.json"
-                onChange={(event) => runImport(event.target.files && event.target.files[0] ? event.target.files[0] : null)}
-              />
-            </label>
-            <textarea
-              className="tim-form-textarea"
-              placeholder="或把配置内容粘贴到这里"
-              value={pasted}
-              onChange={(event) => setPasted(event.target.value)}
-            />
-            <button type="button" className="tim-form-primary" disabled={busy || !pasted.trim()} onClick={() => runImportText(pasted)}>导入粘贴的内容</button>
-            <button type="button" className="tim-form-ghost" onClick={() => actions.openView('add')}>还没有配置？去登录页新增平台账号</button>
-          </div>
-        ) : null}
-        <button type="button" className="tim-profile-row" data-action="export" onClick={runExport} disabled={busy}>
-          <span>📤 导出当前配置</span><span className="tim-chevron">&gt;</span>
-        </button>
-        {receipt ? <div className="tim-form-note" data-import-receipt>{receipt}</div> : null}
-        {actionError ? <div className="tim-form-error" data-profile-error>{actionError}</div> : null}
 
         <div className="tim-platform-title">已接入平台</div>
         <div className="tim-platform-list" data-platform-state={groups.length > 0 ? 'ready' : 'empty'}>
@@ -1193,7 +1255,7 @@ function MainWindow({ onHide, windowStyle, dragHandlers }: {
         {view.view === 'contacts' ? <ContactsPage onHide={onHide} /> : null}
         {view.view === 'profile' ? <ProfilePage onHide={onHide} /> : null}
         {view.view === 'add' ? <AddPage onHide={onHide} /> : null}
-        {view.view === 'db' ? <div className="tim-empty-inline">该页面将在下一阶段迁移</div> : null}
+        {view.view === 'db' ? <DbPage onHide={onHide} /> : null}
       </div>
       <TabBar />
     </div>
@@ -1491,6 +1553,10 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/03 §十.7）===== */
 [data-theme-root="tim"] .tim-picker-trigger:focus-visible { border-color: var(--tim-blue); box-shadow: 0 0 0 3px rgba(59,130,246,.18); }
 [data-theme-root="tim"] .tim-picker-placeholder { color: var(--tim-text-3); }
 [data-theme-root="tim"] .tim-picker-arrow { color: var(--tim-text-3); font-size: 11px; flex: none; }
+[data-theme-root="tim"] .tim-section-title { margin: 10px 0 6px; font-size: 12.5px; font-weight: 600; color: var(--tim-text-2); }
+[data-theme-root="tim"] .tim-kv-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-size: 13px; color: var(--tim-text-1); border-bottom: 1px dashed var(--tim-line); }
+[data-theme-root="tim"] .tim-form-check { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 13px; color: var(--tim-text-1); }
+[data-theme-root="tim"] .tim-db-issues { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--tim-text-2); }
 [data-theme-root="tim"] .tim-picker-list { position: absolute; z-index: 3; left: 0; right: 0; margin: 4px 0 0; padding: 4px; list-style: none; background: #fff; border: 1px solid var(--tim-line); border-radius: 8px; box-shadow: 0 8px 24px rgba(15,23,42,.12); max-height: 220px; overflow: auto; outline: none; }
 [data-theme-root="tim"] .tim-picker-option { padding: 8px 10px; border-radius: 6px; font-size: 13.5px; color: var(--tim-text-1); cursor: pointer; }
 [data-theme-root="tim"] .tim-picker-option[data-active="true"] { background: var(--tim-bg-2); }

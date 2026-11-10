@@ -27,6 +27,7 @@ const CLIENT_PARTS = [
   "foundation/utils.js",
   "foundation/session.js",
   "foundation/api.js",
+  "foundation/download.js",
   // 层级分配要在 styles.js 之前：mountStyle() 注入样式时会把这一层算出的 :root 变量带上
   "foundation/z-layers.js",
   "foundation/styles.js"
@@ -41,8 +42,8 @@ const UI_PARTS = [
   // → friend-group 三层 → interaction/chat → view/admin → float/float → app 入口
   // 速率不再有客户端分片：公式在 lib/shared/rate.mjs（可拷复用的纯模块），
   // 由服务端按声明动态加载后算出 { tps, exact }，客户端只做显示（单位与 ≈）。
-  "js/view/messages.js", "js/float/target-source.js", "js/format/ui-format.js", "js/format/list-rules.js", "js/format/driver-view.js", "js/format/avatar-chain.js",
-  "js/store/state.js", "js/store/persist.js", "js/store/events.js", "js/store/forms.js", "js/store/add-form.js",
+  "js/view/messages.js", "js/float/target-source.js", "js/format/ui-format.js", "js/format/list-rules.js", "js/format/driver-view.js", "js/format/db-view.js", "js/format/avatar-chain.js",
+  "js/store/state.js", "js/store/persist.js", "js/store/events.js", "js/store/forms.js", "js/store/add-form.js", "js/store/db.js",
   "js/store/groups.js", "js/store/chat.js", "js/store/stats.js",
   "js/store/session.js", "js/store/dispatch.js", "js/store/index.js",
   "js/interaction/model-selection-source.js", "js/interaction/session-bridge.js", "js/interaction/gateway-stream.js",
@@ -65,6 +66,7 @@ function assertPartOrder() {
   const pairs = [
     [CLIENT_PARTS, "foundation/z-layers.js", "foundation/styles.js", "z-layers 必须早于 styles"],
     [UI_PARTS, "js/store/state.js", "js/store/index.js", "store/state 必须早于 store/index"],
+    [UI_PARTS, "js/format/db-view.js", "js/store/db.js", "db-view（投影）必须早于 db（值层）"],
     [UI_PARTS, "js/interaction/model-selection-source.js", "js/interaction/session-bridge.js", "js/interaction/gateway-stream.js", "model-selection-source 必须早于 session-bridge"],
   ];
   for (const [list, early, late, reason] of pairs) {
