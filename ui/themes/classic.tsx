@@ -700,14 +700,12 @@ const CLASSIC_STYLES = `/* tokens.css —— classic skin 的设计令牌（对�
   background: linear-gradient(120deg, #dcf1ff, #eef9ff);
 }
 
-/* 双轨过渡期：legacy 仍负责 store 装配（M7 才拆走），但它的界面必须完全不可见——
- * 漏隐藏主窗口会出现「同一界面渲染两遍」（实测：data-view 同时有 list/contacts/profile/chat 四份）。 */
-html[data-dmt-theme] .team-app,
-html[data-dmt-theme] .float-dock,
-html[data-dmt-theme] .float-panel,
-html[data-dmt-theme] .float-recall,
-html[data-dmt-theme] .toast,
-html[data-dmt-theme] .modal-mask {
+/* 0.4.0：legacy 界面（骨架 + 悬浮件）已整体删除，主题是唯一界面来源。
+ * 历史规则 html[data-dmt-theme] .team-app{display:none} 会把主题自己的主窗口一起藏掉
+ * （主题窗口带契约别名 .team-app，docs/03 §2.2），所以收窄到 legacy 宿主容器内。 */
+[data-dmt-theme] .dmt-host .team-app,
+[data-dmt-theme] .dmt-host .float-dock,
+[data-dmt-theme] .dmt-host .float-panel {
   display: none !important;
 }
 
