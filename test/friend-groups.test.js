@@ -109,3 +109,59 @@ test('删除保护：被会话引用时 409 且带引用计数；未被引用才
   const removeResult = await deleteFriendGroup('ds-high-avail', { dataRoot, logger });
   assert.deepEqual(removeResult, { removed: 'ds-high-avail' });
 });
+
+// ---- id 可选（docs/02 端点 13）：创建时不传 id，由 name 生成；显式 id 仍严格校验 ----
+
+test('创建：不传 id → 按 name 生成 slug（小写 / 非字母数字转 - / 压缩连字符 / 去首尾）', async (t) => {
+  const dataRoot = await createTempDirectory(t);
+  const logger = createRecordingLogger();
+  await writeConfig({ groups: [] }, { dataRoot });
+
+  const saved = await saveFriendGroup(
+    { name: 'DeepSeek 高可用组!!', strategy: 'round-robin', members: [{ platformId: 'agnes', modelId: 'm1' }] },
+    { dataRoot, logger },
+  );
+  assert.equal(saved.id, 'deepseek', '中文与符号被裁掉后剩下 ASCII 片段');
+  assert.equal(listFriendGroups(await readConfig({ dataRoot, logger }), { logger })[0].id, 'deepseek');
+  assert.equal(logger.hasLine('info', '好友分组 id 自动生成'), true, '自动生成要有明确日志标记');
+
+  // 纯中文名 → 没有可用字符，回落固定名
+  const chineseOnly = await saveFriendGroup(
+    { name: '高可用组', strategy: 'round-robin', members: [{ platformId: 'agnes', modelId: 'm1' }] },
+    { dataRoot, logger },
+  );
+  assert.equal(chineseOnly.id, 'friend-group');
+});
+
+test('创建：同名撞车追加 -2 / -3（不覆盖已有分组）', async (t) => {
+  const dataRoot = await createTempDirectory(t);
+  const logger = createRecordingLogger();
+  await writeConfig({ groups: [] }, { dataRoot });
+
+  const first = await saveFriendGroup({ name: 'pool', strategy: 'round-robin', members: [{ platformId: 'agnes', modelId: 'm1' }] }, { dataRoot, logger });
+  const second = await saveFriendGroup({ name: 'pool', strategy: 'round-robin', members: [{ platformId: 'agnes', modelId: 'm2' }] }, { dataRoot, logger });
+  const third = await saveFriendGroup({ name: 'pool', strategy: 'round-robin', members: [{ platformId: 'agnes', modelId: 'm3' }] }, { dataRoot, logger });
+
+  assert.equal(first.id, 'pool');
+  assert.equal(second.id, 'pool-2');
+  assert.equal(third.id, 'pool-3');
+  assert.equal(listFriendGroups(await readConfig({ dataRoot, logger }), { logger }).length, 3, '三个分组都要在，不许互相覆盖');
+});
+
+test('更新：显式传 id 原样保留（不生成、不改写）', async (t) => {
+  const dataRoot = await createTempDirectory(t);
+  const logger = createRecordingLogger();
+  await writeConfig({ groups: [] }, { dataRoot });
+
+  const saved = await saveFriendGroup(buildGroupPayload({ id: 'my-own.id_1' }), { dataRoot, logger });
+  assert.equal(saved.id, 'my-own.id_1');
+  assert.equal(logger.hasLine('info', '好友分组 id 自动生成'), false, '显式 id 时不该打"自动生成"日志');
+});
+
+test('创建：显式 id 非法仍 400（不因为可缺省就放过坏 id）', () => {
+  assert.throws(
+    () => normalizeFriendGroup(buildGroupPayload({ id: 'bad id' })),
+    (validationError) => validationError instanceof GatewayError && validationError.status === 400,
+  );
+});
+

@@ -212,16 +212,25 @@ function renderApp(nextState, options) {
   renderTabs(current);
 }
 
-// 主题契约自检（docs/18 §5.2）：换主题时立刻知道漏了哪个钩子。
-// 缺失只 console.error + 记入 store 错误出口，不阻断启动。
-const THEME_CONTRACT_SELECTORS = [
-  '#floatDock', '#floatBall', '#floatPanel',
-  '#fpSession', '#fpModel', '#fpTarget', '#fpRate', '#fpTotal', '#fpEnter',
-  '#viewRoot', '.team-app', '.team-tabbar', '.team-tab[data-view]'
-];
+// 主题契约自检（docs/18 §5.2）：换主题时立刻知道漏了哪个钩子；缺失只报错不阻断启动。
+// 锚点集合与 check-contract.mjs 的"保留"集合一致（改这里必须同时改那里，门禁会挡）。
+const DOCK_CONTRACT_SELECTORS = ['#floatBall'];        // 球常驻；面板与主窗口展开后才渲染
+const WINDOW_CONTRACT_SELECTORS = ['#floatPanel', '#fpHead', '#fpTitle', '#fpEnter', '.team-app', '.team-tabbar', '.team-tab[data-view]'];
 
 function assertThemeContract() {
-  const missing = THEME_CONTRACT_SELECTORS.filter(function (selector) {
+  // 主题按需渲染：球隐藏（非 ours / 无会话）或主窗口收起时，锚点还没渲染，不能当成"缺契约"。
+  var rootSelector = '[data-dmt-theme-host]';
+  if (!document.querySelector(rootSelector)) {
+    var rootMessage = '主题契约缺少宿主根：' + rootSelector;
+    if (store && typeof store.reportError === 'function') store.reportError('theme', rootMessage);
+    return [rootSelector];
+  }
+  var dockVisible = window.__DMT_DOCK__ && window.__DMT_DOCK__.getDockState
+    ? window.__DMT_DOCK__.getDockState().visible !== false
+    : true;
+  var windowRendered = document.querySelector('.tim-app') !== null;
+  var selectors = (dockVisible ? DOCK_CONTRACT_SELECTORS : []).concat(windowRendered ? WINDOW_CONTRACT_SELECTORS : []);
+  const missing = selectors.filter(function (selector) {
     return !document.querySelector(selector);
   });
   if (!missing.length) return missing;
@@ -446,9 +455,8 @@ function boot() {
   if (window.__dshModelTeamBooted) return;
   window.__dshModelTeamBooted = true;
 
-  initDrag();
-  initFloatControls();
-  initViewEvents();
+  // 0.4.0：legacy 界面（骨架 + 悬浮件 + #viewRoot 渲染）已移除，这里不再初始化那三条链路。
+  // 界面由主题渲染；本文件只负责建 store、挂请求完成事件流、把 store 交给主题。
 
   store = createTeamStore({
     api: api,
@@ -463,9 +471,6 @@ function boot() {
   window.__teamStore = store;            // 供验收脚本读取 errors / state
   // 主题若已在等：主动通知（事件驱动，不轮询）。主题晚挂的情况由它自己读 __teamStore。
   if (typeof window.__dmtThemeAttachStore === "function") window.__dmtThemeAttachStore(store);
-
-  const viewRoot = findElement('#viewRoot');
-  if (viewRoot) viewRoot.innerHTML = '<div class="loading">正在加载模型团队数据…</div>';
 
   store.dispatch({ type: 'start' }).then(function () {
     const current = store.getState();

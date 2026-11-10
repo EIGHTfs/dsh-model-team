@@ -35,9 +35,37 @@ export const MAX_FRIEND_GROUP_ID_LENGTH = 64;
 // 缺省策略：轮询（docs/11 §43）
 export const DEFAULT_STRATEGY = STRATEGIES.ROUND_ROBIN;
 
+// 由分组名生成 id 时用的常量（docs/02 端点 13：id 可选，缺省按 name 生成）
+const GENERATED_ID_FALLBACK = 'friend-group';   // 名字里一个可用字符都没有时用它
+const GENERATED_ID_SEPARATOR = '-';
+const GENERATED_ID_MAX_ATTEMPTS = 99;           // 撞名后缀上限：-2 … -100，够用且不会无限循环
+
 // 状态文件的 JSON 缩进与临时文件后缀（与 config 一致，便于人工查看）
 // 状态文件里的游标字段
 const STATE_CURSORS_FIELD = 'cursors';
+
+// 由 name 生成一个合法且不撞车的分组 id（docs/02 端点 13：id 可选）。
+// 为什么只在 saveFriendGroup 里用、不放进 normalizeFriendGroup：后者被读路径
+// （listFriendGroups）复用，若把它放宽成"没 id 就生成"，历史脏条目每读一次都会换 id，
+// 会话目标引用会漂移。所以生成只发生在"创建入口"，读路径继续严格校验。
+export function generateFriendGroupId(name, existingIds = []) {
+  const takenIds = new Set((Array.isArray(existingIds) ? existingIds : []).filter((id) => typeof id === 'string'));
+  const slug = String(name == null ? '' : name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, GENERATED_ID_SEPARATOR)   // 非字母数字统一转连字符（含中文、空格、下划线）
+    .replace(/-{2,}/g, GENERATED_ID_SEPARATOR)        // 压缩连续连字符
+    .replace(/^-+|-+$/g, '')                          // 去首尾连字符
+    .slice(0, MAX_FRIEND_GROUP_ID_LENGTH);
+  // slug 必须以字母或数字开头（FRIEND_GROUP_ID_PATTERN）；空或首字符非法就回落固定名
+  const baseId = FRIEND_GROUP_ID_PATTERN.test(slug) ? slug : GENERATED_ID_FALLBACK;
+  if (!takenIds.has(baseId)) return baseId;
+  for (let suffix = 2; suffix <= GENERATED_ID_MAX_ATTEMPTS + 1; suffix += 1) {
+    const candidate = `${baseId}${GENERATED_ID_SEPARATOR}${suffix}`;
+    if (!takenIds.has(candidate)) return candidate;
+  }
+  // 极端情况（同名分组多到上限）：用时间戳兜底，仍保证合法
+  return `${baseId}${GENERATED_ID_SEPARATOR}${Date.now()}`;
+}
 
 // 校验单个成员：平台与模型都必须给
 function normalizeMember(memberCandidate, memberIndex) {
@@ -113,11 +141,24 @@ export function findFriendGroup(config, groupId, options = {}) {
   return listFriendGroups(config, options).find((friendGroup) => friendGroup.id === groupId) ?? null;
 }
 
-// 创建/修改：同 id 覆盖（POST 语义是 upsert）
+// 创建/修改：同 id 覆盖（POST 语义是 upsert）。
+// id 缺省（创建新分组）时按 name 生成，生成规则见 generateFriendGroupId；
+// 显式传入的 id 仍走 normalizeFriendGroup 的严格校验（非法就 400，不静默改写）。
 export async function saveFriendGroup(groupPayload, { dataRoot = getDataRoot(), logger = defaultLogger } = {}) {
-  const normalizedGroup = normalizeFriendGroup(groupPayload);
   const config = await readConfig({ dataRoot, logger });
   const existingGroups = Array.isArray(config[FRIEND_GROUPS_FIELD]) ? [...config[FRIEND_GROUPS_FIELD]] : [];
+  const hasExplicitId = typeof groupPayload?.id === 'string' && groupPayload.id.trim().length > 0;
+  let payload = groupPayload;
+  let generatedId = null;
+  if (!hasExplicitId) {
+    generatedId = generateFriendGroupId(groupPayload?.name, existingGroups.map((group) => group?.id));
+    payload = { ...groupPayload, id: generatedId };
+  }
+  const normalizedGroup = normalizeFriendGroup(payload);
+  if (generatedId !== null) {
+    // 明确标记"这个 id 是自动生成的"，便于以后排查某分组 id 的来源
+    logger.info(`好友分组 id 自动生成：${normalizedGroup.id}（来自 name「${groupPayload?.name ?? ''}」，本次未显式传 id）`);
+  }
   const existingIndex = existingGroups.findIndex((group) => group?.id === normalizedGroup.id);
   if (existingIndex >= 0) {
     existingGroups[existingIndex] = normalizedGroup;

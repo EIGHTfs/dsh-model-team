@@ -64,7 +64,7 @@ test('G6-C：球内改标记后 data-fb-target 钩子仍在，且渲染走它（
   assert.match(FLOAT_SOURCE, /setAttribute\(['"]aria-label['"], accessibleLabel\)/);
 });
 
-test('G6-B：群列表头部不再有第二个「我」入口（INV-13）', () => {
+test('G6-B：群列表头部不再有第二个「我」入口（INV-13）', async () => {
   const render = loadRenderLayer();
 
   const listHtml = render.renderGroupList(
@@ -75,7 +75,8 @@ test('G6-B：群列表头部不再有第二个「我」入口（INV-13）', () =
 
   assert.equal(listHtml.includes('btnMe'), false, '群列表头部不许再有「我」按钮');
   assert.equal(listHtml.includes('👤 我'), false, '群列表头部不许再有「我」文案');
-  // 底边栏那个「我」tab 由 ui/index.html 骨架提供，渲染层不重复造
-  // 产物里骨架是 JSON 字符串，引号被转义，所以按「data-view 后紧跟 profile」匹配
-  assert.match(CLIENT_SOURCE, /data-view=\\?"profile\\?"/, '底边栏「我」入口仍在');
+  // 底边栏那个「我」tab 由**主题**提供（0.4.0 起 legacy 骨架已移除），渲染层不重复造
+  const themeSource = await fs.readFile(new URL('../ui/themes/tim.tsx', import.meta.url), 'utf8');
+  assert.match(themeSource, /data-view=\{?tab\.view\}?/, '主题底栏必须带 data-view（页签语义）');
+  assert.match(themeSource, /profile/, '主题底栏必须含「我」页签');
 });

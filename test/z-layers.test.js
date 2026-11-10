@@ -8,8 +8,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 
 const Z_LAYERS_SOURCE = await fs.readFile(new URL('../lib/client-parts/foundation/z-layers.js', import.meta.url), 'utf8');
-const LAYOUT_CSS = await fs.readFile(new URL('../ui/css/layout.css', import.meta.url), 'utf8');
-const PANELS_CSS = await fs.readFile(new URL('../ui/css/panels.css', import.meta.url), 'utf8');
+// 0.4.0：legacy ui/css/** 已移除，层级契约改由「主题源码 + 宿主容器」两处守
+const THEMES_DIR_URL = new URL('../ui/themes/', import.meta.url);
+const THEME_HOST_SOURCE = await fs.readFile(new URL('../lib/client-parts/theme-epilogue.js', import.meta.url), 'utf8');
 
 function loadZLayers() {
   // eslint-disable-next-line no-new-func
@@ -55,16 +56,16 @@ test('G8-⑭：:root 变量覆盖每一层，且值就是 pluginZIndex 的结果
   });
 });
 
-test('G8-⑮：CSS 只许引用层级变量，不许再写 2147482xxx 这类魔数（防回退）', () => {
-  // 只检查插件层级的基数字段；mention 浮层用的是窗口内的相对层级（20），与宿主无关
-  const hardcoded = /z-index:\s*2147482\d{3}/;
-  assert.equal(hardcoded.test(LAYOUT_CSS), false, 'layout.css 里仍有硬编码层级');
-  assert.equal(hardcoded.test(PANELS_CSS), false, 'panels.css 里仍有硬编码层级');
+test('G8-⑮：层级只许来自 z-layers.js —— 主题不写宿主级魔数、宿主容器用变量', async () => {
+  const themeFileNames = (await fs.readdir(THEMES_DIR_URL)).filter((name) => name.endsWith('.tsx'));
+  assert.ok(themeFileNames.length > 0, '至少要有一个主题源码');
 
-  assert.match(LAYOUT_CSS, /\.float-dock\s*\{[^}]*z-index:\s*var\(--dmt-z-dock/, '悬浮球应引用变量');
-  assert.match(LAYOUT_CSS, /\.float-panel\s*\{[^}]*z-index:\s*var\(--dmt-z-panel/, '悬浮面板应引用变量');
-  assert.match(LAYOUT_CSS, /\.float-recall\s*\{[^}]*z-index:\s*var\(--dmt-z-recall/, '呼出按钮应引用变量');
-  assert.match(LAYOUT_CSS, /\.team-app\s*\{[^}]*z-index:\s*var\(--dmt-z-app/, '主窗口应引用变量');
-  assert.match(PANELS_CSS, /\.modal-mask\s*\{[^}]*z-index:\s*var\(--dmt-z-modal/, '弹窗应引用变量');
-  assert.match(PANELS_CSS, /\.toast\s*\{[^}]*z-index:\s*var\(--dmt-z-toast/, '提示条应引用变量');
+  const hardcodedHostLayer = /z-index:\s*2147482\d{3}/;
+  for (const fileName of themeFileNames) {
+    const themeSource = await fs.readFile(new URL(fileName, THEMES_DIR_URL), 'utf8');
+    assert.equal(hardcodedHostLayer.test(themeSource), false, `${fileName} 里出现宿主级 z-index 魔数（应只用容器内部相对顺序）`);
+  }
+  // 跨宿主那一档由宿主容器给：必须是变量，不能写死数字
+  assert.match(THEME_HOST_SOURCE, /zIndex\s*=\s*["']var\(--dmt-z-app\)["']/, '宿主容器应使用 var(--dmt-z-app)');
+  assert.equal(/zIndex\s*=\s*["']?2147482/.test(THEME_HOST_SOURCE), false, '宿主容器不得写死宿主级层级数字');
 });

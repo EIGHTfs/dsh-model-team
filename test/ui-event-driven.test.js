@@ -34,9 +34,11 @@ test('装配层：__teamStore 赋值后立刻主动通知主题（同一处，�
   assert.equal(between.includes('setTimeout'), false, '中间不许插定时器等状态');
 });
 
-test('dock.js：视图切换用微任务排队，不用 0ms 定时器', () => {
-  assert.equal(/setTimeout/.test(DOCK_SOURCE), false, '零延定时器排队应改微任务');
-  assert.match(DOCK_SOURCE, /Promise\.resolve\(\)\.then/, '改用微任务');
+test('dock.js：不含任何定时器（0.4.0 起骨架/视图切换已移除，更不该有兜底定时器）', () => {
+  assert.equal(/setTimeout/.test(DOCK_SOURCE), false, '零延定时器排队属于禁用写法');
+  assert.equal(/setInterval/.test(DOCK_SOURCE), false, 'dock.js 不该有任何轮询');
+  // boot 仍然只走一次：靠 appBooted 标志，而不是延时
+  assert.match(DOCK_SOURCE, /var appBooted = false;/, 'boot 幂等靠标志位');
 });
 
 test('产品代码 setInterval 只剩协议轮询（白名单逐条说明）', async () => {

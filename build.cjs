@@ -2,9 +2,9 @@
  * 构建脚本：拼接 lib/client-parts/ 片段 + 直接复用 ui/ 的样式与渲染层 → 单文件 lib/client.js。
  *
  * - 顺序由 PART_ORDER 里两组数组显式声明（文件名语义化、不带序号）
- * - ui CSS 由本脚本内联成 UI_CSS 常量（按 ui/app.css 的 @import 顺序），避免运行时依赖外部文件
+ * - 界面样式由主题承担（ui/themes/*.tsx 编译进主题 bundle），本脚本不再内联 ui CSS
  * - ui 的 render/chat/admin/float/app 分片原样拼入（唯一一套界面实现，禁止再手写第二套）
- * - 配了 theme.source 时，额外把 TSX 主题编译成 THEME_BUNDLE 段插在 UI 分片之后、收尾分片之前；
+ * - 配了 theme.source 时，额外把 TSX 主题编译成主题 bundle（THEME_META + THEME_FACTORY）插在 UI 分片之后、收尾分片之前；
  *   没配则产物**逐字节不变**（legacy 门槛，见 docs/03 §7.4 最后一行）
  * - 产物头写明「自动生成，勿手改」
  * - 幂等：同样输入 → 逐字节相同的产物
@@ -99,9 +99,9 @@ const HEADER = [
 // 配了但无效（文件缺失 / 缺标记 / styles 里缺一个）会在那里直接抛错——不静默回落。
 const theme = themeConfig.resolveThemeConfig({ argv: process.argv.slice(2), repoRoot: root });
 
-// 按主题给的样式清单顺序读，剥掉 design-only 段后拼成一个 CSS 字符串常量
-function readThemeCss() {
-  return themeConfig.readThemeStyles(theme.stylePaths).join("\n");
+// UI 分片：与 client 分片共用同一个读法，但目录不同（ui/ 下）
+function readUiPart(relativePath) {
+  return fs.readFileSync(path.join(uiDir, relativePath), "utf8");
 }
 
 function readPart(relativePath) {
@@ -114,38 +114,6 @@ function readPart(relativePath) {
 const SKELETON_REQUIRED = ['id="floatDock"', 'id="floatPanel"', 'class="team-app"'];
 const SKELETON_FORBIDDEN = ['class="desk"', 'desk-bar', 'desk-card', 'desk-tip'];
 
-function readUiSkeleton(htmlPath) {
-  const html = themeConfig.assertThemeHtml(fs.readFileSync(htmlPath, "utf8"), htmlPath);
-  const bodyStart = html.indexOf("<body>");
-  const scriptStart = html.indexOf("<script");
-  if (bodyStart < 0 || scriptStart < 0 || scriptStart <= bodyStart) {
-    throw new Error("[build] 无法从主题 HTML 提取骨架（<body> / <script> 标记缺失）：" + htmlPath);
-  }
-  const skeleton = themeConfig.stripDesignOnly(html.slice(bodyStart + "<body>".length, scriptStart)).trim();
-
-  const missing = SKELETON_REQUIRED.filter((marker) => skeleton.indexOf(marker) < 0);
-  if (missing.length) {
-    throw new Error("[build] 骨架缺少必需块：" + missing.join("、"));
-  }
-  const leaked = SKELETON_FORBIDDEN.filter((marker) => skeleton.indexOf(marker) >= 0);
-  if (leaked.length) {
-    throw new Error("[build] 设计稿专用内容漏进骨架：" + leaked.join("、")
-      + "（请用 <!-- design-only:begin/end --> 包起来）");
-  }
-  return skeleton;
-}
-
-function readUiPart(relativePath) {
-  return fs.readFileSync(path.join(uiDir, relativePath), "utf8");
-}
-
-const uiCssPart = "// 由 build.cjs 内联的 ui 样式（勿手改）\nvar UI_CSS = " + JSON.stringify(readThemeCss()) + ";\n";
-const uiSkeletonPart = "// 由 build.cjs 从 ui/index.html 抽取的界面骨架（勿手改）\nvar UI_SKELETON_HTML = "
-  + JSON.stringify(readUiSkeleton(theme.htmlPath)) + ";\n";
-
-// TSX 主题段：只有配置了 theme.source 才产出。
-// 为什么包成 factory：esbuild 的 cjs 产物里是 require("react")，
-// ModuleLoader 的签名恰好是 function (require)，原样塞进函数体就零适配（docs/03 §7.3）。
 function buildThemePart(built) {
   return "// 由 scripts/build-theme.mjs 编译的 TSX 主题（esbuild-wasm 产物，勿手改）\n"
     + "var THEME_META = " + JSON.stringify(built.meta) + ";\n"
@@ -179,8 +147,6 @@ async function main() {
   const themeBundlePart = await readThemeBundlePart();
   const source = [
     ...CLIENT_PARTS.map(readPart),
-    uiCssPart,
-    uiSkeletonPart,
     ...UI_PARTS.map(readUiPart),
     ...(themeBundlePart ? [themeBundlePart] : []),
     ...TAIL_PARTS.map(readPart)
@@ -196,9 +162,10 @@ async function main() {
 // 断言：防止「又忘了内联 ui 与渲染层」——缺任何一项都直接失败
 const requiredSnippets = [
   ['var API_PREFIX = "/_team";', "请求前缀"],
-  ["var UI_CSS = ", "ui 样式内联"],
-  ["var UI_SKELETON_HTML = ", "ui/index.html 骨架内联"],
-  [".req-bubble", "ui/css/views.css 特征选择器"],
+  // 主题 bundle 的实际符号是 THEME_META + THEME_FACTORY（build-theme.mjs 产出），
+  // 断言钉这两个；注释里的 "THEME_BUNDLE" 是这套机制的统称。
+  ["var THEME_META = ", "主题 meta 内联"],
+  ["var THEME_FACTORY = function", "主题 bundle 内联"],
   ["function renderChat", "ui/js/render.js"],
   ["function apiFormatSessionRate", "foundation/api.js（速率显示：值来自服务端）"],
   ["function targetSourceHintOf", "ui/js/target-source.js（来源文案唯一口径）"],
@@ -229,7 +196,7 @@ const requiredSnippets = [
       process.exit(1);
     }
     if (uiTailIndex >= 0 && themeIndex > uiTailIndex) {
-      console.error("[build] THEME_BUNDLE 位置不对：必须在收尾分片（dock/apply）之前");
+      console.error("[build] 主题 bundle 位置不对：必须在收尾分片（dock/apply）之前");
       process.exit(1);
     }
     if (output.indexOf("data-theme-root") < 0) {
@@ -239,9 +206,16 @@ const requiredSnippets = [
   }
 
   console.log("[build] lib/client.js ← " + (CLIENT_PARTS.length + UI_PARTS.length + TAIL_PARTS.length)
-    + " 片段（含 ui 样式 " + readThemeCss().length + " 字符），共 " + output.split("\n").length + " 行"
-    + "；主题来源 " + theme.source + (theme.configPath ? "（" + theme.configPath + "）" : "（默认 ui/）")
-    + (theme.themeSourcePath ? "；TSX 主题 " + theme.themeSourcePath : ""));
+    + " 片段（含主题 bundle " + themeBundlePart.length + " 字符），共 " + output.split("\n").length + " 行"
+    + (function () {
+      const shownConfigPath = theme.configPath
+        ? path.relative(root, theme.configPath).split(path.sep).join("/")
+        : "默认";
+      return "；主题来源 " + theme.source + "（" + shownConfigPath + "）";
+    })()
+    + (theme.themeSourcePath
+      ? "；TSX 主题 " + path.relative(root, theme.themeSourcePath).split(path.sep).join("/")
+      : ""));
 }
 
 main().catch((error) => {

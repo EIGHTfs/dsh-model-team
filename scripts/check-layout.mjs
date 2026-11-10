@@ -174,13 +174,16 @@ function findSuspiciousReferences(source, fileLabel) {
   return problems;
 }
 
-// ---------------------------------------------------------------- 预览页脚本清单
+// ---------------------------------------------------------------- 分片登记与主题入口
 
-// ui/index.html 是设计预览页（直接当网页打开可看界面），它的 <script> 清单必须与
-// build.cjs 的两份分片数组**完全一致**——顺序即依赖，漏一个分片或顺序错了，
-// 打开这页就是残缺界面，而且不会有任何报错提示（脚本不是模块，缺了只表现为函数未定义）。
-// 历史：0.2.0 拆分 store 后这页的清单没跟着改，9 个引用全是旧路径，页面一直是打不开的。
-function checkPreviewScriptList() {
+// 0.4.0 起没有「设计预览页」（ui/index.html 已移除），界面由主题 TSX 渲染。
+// 这里改为守两件事：
+//   ① build.cjs 登记的分片文件都必须真实存在（防"写了旧路径/删了没清"）；
+//   ② 主题入口必须存在：默认 ui/themes/tim.tsx 在；config/config.json 指定了 theme.source 时那个文件也在。
+// 另外反向断言 legacy 三件套不得复活（删掉的东西不该被重新加回来）。
+const LEGACY_ASSETS = ["ui/index.html", "ui/app.css", "ui/css"];
+
+function checkScriptRegistry() {
   const problems = [];
   const buildSource = fs.readFileSync(path.join(PROJECT_ROOT, "build.cjs"), "utf8");
   function readPartList(constantName) {
@@ -195,30 +198,40 @@ function checkPreviewScriptList() {
     problems.push("build.cjs 里找不到 CLIENT_PARTS / UI_PARTS（本门禁的比对基准丢了）");
     return problems;
   }
-  const htmlPath = path.join(PROJECT_ROOT, "ui", "index.html");
-  if (!fs.existsSync(htmlPath)) {
-    problems.push("缺少 ui/index.html（设计预览页，也是 docs/03 认定的主题模板）");
-    return problems;
+  for (const part of clientParts) {
+    if (!fs.existsSync(path.join(PROJECT_ROOT, "lib", "client-parts", part))) {
+      problems.push(`build.cjs 登记的 client 分片不存在：lib/client-parts/${part}`);
+    }
   }
-  const html = fs.readFileSync(htmlPath, "utf8");
-  const scriptSources = [...html.matchAll(/<script\s+src="([^"]+)"/g)].map((match) => match[1]);
+  for (const part of uiParts) {
+    if (!fs.existsSync(path.join(PROJECT_ROOT, "ui", part))) {
+      problems.push(`build.cjs 登记的 ui 分片不存在：ui/${part}`);
+    }
+  }
 
-  const expected = [
-    ...clientParts.map((part) => `../lib/client-parts/${part}`),
-    ...uiParts,
-  ];
-  const missing = expected.filter((entry) => !scriptSources.includes(entry));
-  const extra = scriptSources.filter((entry) => !expected.includes(entry));
-  if (missing.length) problems.push(`ui/index.html 缺少分片（打开这页会缺函数）：${missing.join("、")}`);
-  if (extra.length) problems.push(`ui/index.html 引用了不在 build 清单里的脚本：${extra.join("、")}`);
-  if (!missing.length && !extra.length && scriptSources.join("|") !== expected.join("|")) {
-    problems.push("ui/index.html 的脚本顺序与 build.cjs 不一致（顺序即依赖）");
+  // 主题入口：默认主题必须在；配置指定了就用配置的那个
+  const defaultTheme = path.join(PROJECT_ROOT, "ui", "themes", "tim.tsx");
+  if (!fs.existsSync(defaultTheme)) problems.push("缺少默认主题 ui/themes/tim.tsx");
+  const configPath = path.join(PROJECT_ROOT, "config", "config.json");
+  if (fs.existsSync(configPath)) {
+    try {
+      const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      const themeSource = config?.theme?.source;
+      if (typeof themeSource === "string" && themeSource.trim().length > 0) {
+        if (!fs.existsSync(path.join(PROJECT_ROOT, themeSource.trim()))) {
+          problems.push(`config/config.json 指定的主题不存在：${themeSource}`);
+        }
+      }
+    } catch (parseError) {
+      problems.push(`config/config.json 不是合法 JSON：${parseError.message}`);
+    }
   }
-  // 引用的路径必须真实存在（防止再出现「写了旧路径」）
-  for (const source of scriptSources) {
-    if (/^(https?:)?\/\//.test(source)) continue;
-    const resolved = path.resolve(path.dirname(htmlPath), source);
-    if (!fs.existsSync(resolved)) problems.push(`ui/index.html 引用了不存在的脚本：${source}`);
+
+  // 反向断言：legacy 资产不得复活（0.4.0 已移除）
+  for (const legacyPath of LEGACY_ASSETS) {
+    if (fs.existsSync(path.join(PROJECT_ROOT, legacyPath))) {
+      problems.push(`legacy 资产不应存在（0.4.0 已移除，界面由主题渲染）：${legacyPath}`);
+    }
   }
   return problems;
 }
@@ -265,7 +278,7 @@ function main() {
   const documented = checkDocumentedPaths(docText);
   problems.push(...documented.problems);
   problems.push(...checkUndocumentedDirectories(docText));
-  problems.push(...checkPreviewScriptList());
+  problems.push(...checkScriptRegistry());
   problems.push(...checkReverseBoundary());
 
   const sourceFiles = [
