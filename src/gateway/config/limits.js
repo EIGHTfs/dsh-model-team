@@ -97,7 +97,7 @@ export function capMaxTokens({ requested, configured, effective, learned }) {
 
 // 上限存储：**纯进程内存**（不写盘、不读盘），按 dataRoot 隔离，测试之间互不污染。
 // 为什么不留落盘：撞到即学、秒级完成，落盘只换来读写的维护成本与失效问题；
-// 重启后重新撞一次 400 是可接受的代价（依据见 docs/24 B11d）。
+// 重启后重新撞一次 400 是可接受的代价（依据见 docs/12 R10）。
 export function createLimitsStore({ dataRoot = getDataRoot(), logger = defaultLogger } = {}) {
   // key = `<groupId>::<modelId>`；value = { maxTokens, effective, learnedAt }
   const learnedByKey = new Map();

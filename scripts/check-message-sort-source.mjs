@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// G3：消息排序的静态契约门禁（docs/24 B10）。
+// G3：消息排序的静态契约门禁（规则见 docs/02 §3.2；门禁自证见 docs/12 R4）。
 //
 // 检查对象：ui/js/view/messages.js 的 messageSortValue。
 // 契约：排序键必须包含**绝对时间**（请求行的 startedAtMs / 事件的整条 ISO `at`），

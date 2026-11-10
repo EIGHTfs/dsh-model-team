@@ -5,7 +5,7 @@
 // 硬编码假数据（固定时间 / 未读数 / 「已连接 3 个网关」）、外部 CDN 与框架指令。
 // 数据全部来自 ui/theme-sdk 的 hooks；样式是本文件里的纯 CSS 字符串。
 //
-// 与 classic 的差异必须在 5 处以上肉眼可辨（docs/25 §十一 对照表）：
+// 与 classic 的差异必须在 5 处以上肉眼可辨（docs/03 §十.8 对照表）：
 //   ① 主色 #12B7F5（比 classic 的 #12a7f5 更亮）② 群聊顶栏蓝底白字 ③ 聊天区点阵背景
 //   ④ 气泡带三角尾巴 ⑤ 列表头像 52px ⑥ 底栏 56px ⑦ 面板标题条深色。
 //
@@ -78,7 +78,7 @@ function Avatar({ avatar, fallbackName, size = 'sm' }: { avatar: unknown; fallba
   return <span className={className}>{view.text || view.fallbackText}</span>;
 }
 
-/** 请求卡片的指标行：允许折行（docs/25 要求「指标允许折两行」），用 | 分隔 */
+/** 请求卡片的指标行：允许折行（docs/03 §十 要求「指标允许折两行」），用 | 分隔 */
 function MetricsLine({ row }: { row: Record<string, unknown> }) {
   const text = (value: unknown) => (value == null || value === '' ? '—' : String(value));
   const metrics = [
@@ -1331,7 +1331,7 @@ function DockLayer({ windowHidden, onExpand }: { windowHidden: boolean; onExpand
 
 // ---------------------------------------------------------------- styles（受 [data-theme-root="tim"] 约束的纯 CSS）
 
-const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
+const THEME_STYLES = `/* ===== 主题令牌（docs/03 §十.7）===== */
 [data-theme-root="tim"] {
   --tim-primary: #12B7F5;
   --tim-primary-deep: #0E9FD8;
@@ -1659,7 +1659,7 @@ const THEME_STYLES = `/* ===== 主题令牌（docs/25 §二）===== */
   display: none !important;
 }
 
-/* ===== 深色模式（docs/25 §六；主色不变）===== */
+/* ===== 深色模式（主色不变）===== */
 @media (prefers-color-scheme: dark) {
   [data-theme-root="tim"] {
     --tim-bg-app: #1A1D21;

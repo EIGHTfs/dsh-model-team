@@ -108,7 +108,7 @@ function upstreamFailure(code, message) {
   return { ok: false, status: 0, response: null, usage: null, error: { code, message } };
 }
 
-// 出站传输选择（docs/23 O-1）：
+// 出站传输选择（规则见 docs/12 R10：出站不得依赖宿主可能包装的全局设施）：
 //   · 默认走自持客户端（UA 由客户端最后合并，宿主覆盖不到）；
 //   · `DSH_MODEL_TEAM_USE_HOST_FETCH=1` 走宿主 fetch —— **永久开关**，供需要宿主代理/证书行为的
 //     部署长期使用（不是过渡措施，不要按"临时兼容"对待）；

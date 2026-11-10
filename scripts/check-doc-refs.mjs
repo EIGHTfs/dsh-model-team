@@ -46,6 +46,33 @@ function collectReferences(sourceText) {
   return references;
 }
 
+// 代码（注释）里也常写 `docs/NN`：编号一旦重排就会变成死引用，而读者不会去验证。
+// 这里把代码一起扫：只校验"编号是否存在"，不校验章节号（章节号无法机器核对）。
+const CODE_SCANNED_DIRECTORIES = ['src', 'ui', 'lib/client-parts', 'scripts', 'test'];
+const CODE_SCANNED_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx']);
+const CODE_DOC_REFERENCE = /docs\/(\d{2}[A-Z]?)/g;
+
+function listCodeFiles(repoRoot) {
+  const collected = [];
+  const walk = (relativeDirectory) => {
+    const absoluteDirectory = path.join(repoRoot, relativeDirectory);
+    let entries = [];
+    try { entries = fs.readdirSync(absoluteDirectory, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const relativePath = path.join(relativeDirectory, entry.name);
+      if (entry.isDirectory()) {
+        if (['node_modules', '.git', '.trash', 'artifacts'].includes(entry.name)) continue;
+        walk(relativePath);
+        continue;
+      }
+      if (!CODE_SCANNED_EXTENSIONS.has(path.extname(entry.name))) continue;
+      collected.push(relativePath.split(path.sep).join('/'));
+    }
+  };
+  for (const directory of CODE_SCANNED_DIRECTORIES) walk(directory);
+  return collected;
+}
+
 export function checkDocumentReferences({ repoRoot = process.cwd(), logger = console } = {}) {
   const docsDirectory = path.join(repoRoot, DOCS_DIRECTORY);
   if (!fs.existsSync(docsDirectory)) {
@@ -80,6 +107,25 @@ export function checkDocumentReferences({ repoRoot = process.cwd(), logger = con
         reason: `没有编号为 ${reference} 的文档`,
       });
     }
+  }
+
+  // 代码注释里的 docs/NN 引用
+  for (const relativePath of listCodeFiles(repoRoot)) {
+    if (relativePath === 'lib/client.js') continue;   // 产物：由源码决定，不重复报
+    const sourceText = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+    const lines = sourceText.split('\n');
+    lines.forEach((lineText, index) => {
+      for (const match of lineText.matchAll(CODE_DOC_REFERENCE)) {
+        const reference = match[1];
+        if (knownNumbers.has(reference)) continue;
+        failures.push({
+          file: relativePath,
+          line: index + 1,
+          reference,
+          reason: `代码引用了不存在的文档编号 ${reference}（文档已重排？改指现行契约）`,
+        });
+      }
+    });
   }
 
   if (failures.length > 0) {

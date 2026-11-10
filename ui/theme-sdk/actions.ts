@@ -5,7 +5,7 @@
 // 主题作者不该记住那些字符串；SDK 也不该允许出现「主题自己拼一个新动作」——
 // 那会绕过 dispatch 表里的校验与副作用（比如切目标要落两条事件）。
 //
-// 新增动作的流程（docs/22 §5.3）：先加进 ui/js/store/dispatch.js 的动作表，再来这里加一行。
+// 新增动作的流程（docs/03 §八）：先加进 ui/js/store/dispatch.js 的动作表，再来这里加一行。
 
 import { getStore } from './store-bridge';
 

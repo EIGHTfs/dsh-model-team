@@ -62,7 +62,7 @@ function defaultTheme(repoRoot, configPath) {
   return { themeSourcePath, source: "default", configPath: configPath || "" };
 }
 
-// TSX 主题源码段（docs/22 §7.1）：只认 theme.source。
+// TSX 主题源码段（docs/03 §7.1）：只认 theme.source。
 // 0.4.0 起 legacy 的 theme.html / theme.styles 已移除——配了就直接失败，
 // 否则会产出"看着正常、其实还在走旧渲染路径"的包（这种状态最难发现）。
 function resolveThemeSource(theme, { repoRoot, configPath }) {
